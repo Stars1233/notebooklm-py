@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Artifact download authentication failures now raise `AuthError`.** Public
+  artifact download methods surface HTTP 401/403 responses from guarded asset
+  transfers as `AuthError` instead of wrapping them in `ArtifactDownloadError`.
+  Callers that previously caught only `ArtifactDownloadError` for expired
+  credentials should also catch `AuthError`; other asset-transfer failures
+  continue to use `ArtifactDownloadError`. This aligns the Web and Android
+  backends and lets CLI/MCP adapters return their structured authentication
+  error and login guidance.
+- **Backend-conditional client assembly and backend-selected raw access.** An
+  Android-selected client now constructs and owns only the shared and Android
+  runtimes during normal use: it no longer creates a Web Kernel, performs Web
+  cookie recovery/persistence, or starts Web keepalive. Use `client.raw.call(...)`
+  on Web and `client.raw.unary(...)` / `unary_stream(...)` on Android. The root
+  `client.rpc_call(...)` wrapper is deprecated in v0.9.0 for removal in v1.0;
+  during v0.x its first Android use lazily opens a no-keepalive Web compatibility
+  sidecar so mixed profiles keep their historical behavior.
 - Pull requests run a reduced 7-cell compatibility matrix again (Python
   3.10–3.14 on Ubuntu plus Python 3.12 on macOS and Windows). The full 15-cell
   Ubuntu/macOS/Windows × Python 3.10–3.14 matrix now runs only in the nightly

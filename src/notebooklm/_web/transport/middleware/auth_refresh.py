@@ -59,9 +59,9 @@ from typing import TYPE_CHECKING, cast
 
 import httpx
 
+from ...._runtime.auth_refresh_retry import RefreshBudget, refresh_and_count
 from ...._runtime.config import CORE_LOGGER_NAME
 from ...._runtime.helpers import resolve_sleep
-from ..auth_refresh_retry import RefreshBudget, refresh_and_count
 from ..errors import TransportAuthExpired
 from ..request_types import AuthSnapshot, BuildRequest
 from .context import (
@@ -89,7 +89,7 @@ class AuthRefreshMiddleware:
     ``Sequence[Middleware]``.
 
     Constructor inputs (all wired by
-    :func:`notebooklm._runtime.init.wire_middleware_chain`, driven from
+    :func:`notebooklm._web.transport.init.wire_middleware_chain`, driven from
     ``NotebookLMClient.__init__``):
 
     - ``refresh_callable``: a zero-arg async callable that drives one
@@ -106,7 +106,7 @@ class AuthRefreshMiddleware:
       directly typically pass the function itself.
     - ``refresh_callback_enabled``: a zero-arg callable returning ``True``
       iff a refresh callback is wired on the coordinator. Production wires
-      ``lambda: collaborators.auth_coord.has_refresh_callback`` so a
+      ``lambda: auth_coord.has_refresh_callback`` so a
       client built without ``refresh_callback`` skips the refresh path
       entirely.
     - ``refresh_retry_delay``: zero-arg callable returning the
@@ -173,7 +173,7 @@ class AuthRefreshMiddleware:
         "one refresh max per logical call" contract.
 
         The guard reads a shared
-        :class:`notebooklm._web.transport.auth_refresh_retry.RefreshBudget` from
+        :class:`notebooklm._runtime.auth_refresh_retry.RefreshBudget` from
         ``request.context[RPC_CONTEXT_REFRESH_BUDGET]`` when present — the
         executor seeds one per logical ``rpc_call`` so this HTTP-status layer
         and the decoded-RPC layer in :class:`RpcExecutor` share ONE refresh

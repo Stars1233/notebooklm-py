@@ -37,6 +37,7 @@ from notebooklm._android.upload import (
     validate_upload_session_url,
 )
 from notebooklm._source.drive import DriveRef
+from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import (
     AuthError,
     RateLimitError,
@@ -1131,6 +1132,64 @@ def _write_pdf(tmp_path: Path) -> Path:
 
 
 @pytest.mark.asyncio
+async def test_start_401_escapes_the_scotty_control_plane_as_auth_error(tmp_path: Path) -> None:
+    _session, _bearer, pipeline = await _pipeline()
+
+    async def rejected_start(*args: Any) -> Any:
+        return upload_module._HTTPOutcome(401, "final", SESSION_URL)
+
+    pipeline._start_worker = rejected_start  # type: ignore[method-assign]
+
+    with pytest.raises(AuthError, match="Authentication failed uploading") as excinfo:
+        await pipeline._control_plane(
+            NOTEBOOK_ID,
+            _write_pdf(tmp_path),
+            _deadline(),
+            _UploadState(),
+            None,
+            "application/pdf",
+            pipeline._active_epoch or 0,
+            _registers,
+        )
+
+    assert excinfo.value.source_id == SOURCE_ID
+    assert excinfo.value.stage == "start"
+    assert pipeline._open_files == set()
+    assert not pipeline._upload_slot().locked()
+
+
+@pytest.mark.asyncio
+async def test_finalize_401_escapes_the_scotty_control_plane_as_auth_error(tmp_path: Path) -> None:
+    _session, _bearer, pipeline = await _pipeline()
+
+    async def accepted_start(*args: Any) -> Any:
+        return upload_module._HTTPOutcome(200, "active", SESSION_URL)
+
+    async def rejected_finalize(*args: Any) -> Any:
+        return upload_module._HTTPOutcome(401, "final")
+
+    pipeline._start_worker = accepted_start  # type: ignore[method-assign]
+    pipeline._finalize_worker = rejected_finalize  # type: ignore[method-assign]
+
+    with pytest.raises(AuthError, match="Authentication failed uploading") as excinfo:
+        await pipeline._control_plane(
+            NOTEBOOK_ID,
+            _write_pdf(tmp_path),
+            _deadline(),
+            _UploadState(),
+            None,
+            "application/pdf",
+            pipeline._active_epoch or 0,
+            _registers,
+        )
+
+    assert excinfo.value.source_id == SOURCE_ID
+    assert excinfo.value.stage == "finalize"
+    assert pipeline._open_files == set()
+    assert not pipeline._upload_slot().locked()
+
+
+@pytest.mark.asyncio
 async def test_a_notebook_id_that_could_escape_the_upload_path_is_refused(
     tmp_path: Path,
 ) -> None:
@@ -1151,6 +1210,7 @@ async def test_a_notebook_id_that_could_escape_the_upload_path_is_refused(
             wait_until_registered=cast(Any, None),
             wait_until_ready=cast(Any, None),
             rename_uploaded=cast(Any, None),
+            finalize_uploaded=SourcesAPI._finalize_uploaded_file,
         )
 
 
@@ -1177,6 +1237,7 @@ async def test_a_timeout_before_registration_reports_no_source_id(tmp_path: Path
             wait_until_registered=cast(Any, None),
             wait_until_ready=cast(Any, None),
             rename_uploaded=cast(Any, None),
+            finalize_uploaded=SourcesAPI._finalize_uploaded_file,
         )
 
     error = excinfo.value
@@ -1336,7 +1397,11 @@ async def test_an_already_expired_budget_closes_the_work_it_refuses_to_start() -
     awaitable = _work()
 
     with pytest.raises(TimeoutError):
-        await upload_module._bounded(awaitable, upload_module.RuntimeDeadline.start(0.0))
+        await upload_module.await_with_deadline(
+            awaitable,
+            upload_module.RuntimeDeadline.start(0.0),
+            on_timeout=TimeoutError,
+        )
 
     assert inspect.getcoroutinestate(awaitable) == inspect.CORO_CLOSED
 
@@ -1348,7 +1413,11 @@ async def test_an_already_expired_budget_refuses_an_awaitable_it_cannot_close() 
     pending = asyncio.get_running_loop().create_future()
 
     with pytest.raises(TimeoutError):
-        await upload_module._bounded(pending, upload_module.RuntimeDeadline.start(0.0))
+        await upload_module.await_with_deadline(
+            pending,
+            upload_module.RuntimeDeadline.start(0.0),
+            on_timeout=TimeoutError,
+        )
 
     assert not pending.done()
     pending.cancel()

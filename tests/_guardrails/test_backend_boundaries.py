@@ -1,4 +1,4 @@
-"""Direct-import boundaries for the web/mobile backend split.
+"""Direct-import boundaries for the web/Android backend split.
 
 This gate intentionally inspects direct AST imports rather than transitive
 imports. Importing ``notebooklm.rpc.types`` executes ``rpc/__init__.py``,
@@ -100,8 +100,7 @@ ALLOWED_WEB_IMPORTERS = frozenset(
     {
         "notebooklm.client",
         "notebooklm._client_assembly",
-        "notebooklm._runtime.lifecycle",
-        "notebooklm._runtime.init",
+        "notebooklm.raw",
         "notebooklm.rpc",
         "notebooklm.rpc.types",
         "notebooklm._artifact",
@@ -238,11 +237,11 @@ def _boundary_violations(
             continue
 
         importer_is_web = _is_module_or_child(direct.importer, "notebooklm._web")
-        importer_is_mobile = _is_module_or_child(direct.importer, "notebooklm._mobile")
+        importer_is_android = _is_module_or_child(direct.importer, "notebooklm._android")
         importer_is_types = _is_module_or_child(direct.importer, "notebooklm._types")
         importer_is_rpc = _is_module_or_child(direct.importer, "notebooklm.rpc")
         target_is_web = _is_module_or_child(direct.target, "notebooklm._web")
-        target_is_mobile = _is_module_or_child(direct.target, "notebooklm._mobile")
+        target_is_android = _is_module_or_child(direct.target, "notebooklm._android")
         target_is_rpc = _is_module_or_child(direct.target, "notebooklm.rpc")
         target_is_protobuf = _is_module_or_child(direct.target, "google.protobuf")
         lazy_edge = (direct.importer, direct.scope) in LAZY_WEB_IMPORT_ALLOWLIST
@@ -252,14 +251,14 @@ def _boundary_violations(
         )
 
         reason: str | None = None
-        if importer_is_mobile and (target_is_web or target_is_rpc):
-            reason = "mobile backends must not import the web/RPC backend"
-        elif importer_is_web and (target_is_mobile or target_is_protobuf):
-            reason = "web backends must not import mobile/protobuf code"
+        if importer_is_android and (target_is_web or target_is_rpc):
+            reason = "Android backends must not import the web/RPC backend"
+        elif importer_is_web and (target_is_android or target_is_protobuf):
+            reason = "web backends must not import Android/protobuf code"
         elif (
             not lazy_edge
             and direct.importer in base_modules
-            and (target_is_web or target_is_mobile or target_is_rpc)
+            and (target_is_web or target_is_android or target_is_rpc)
         ):
             reason = "backend-neutral bases must not import backend implementations or rpc"
         elif importer_is_types and target_is_rpc:
@@ -310,6 +309,29 @@ def _defined_scopes(path: Path) -> frozenset[str]:
 def test_backend_direct_import_boundaries() -> None:
     imports = [direct for path in sorted(SRC_ROOT.rglob("*.py")) for direct in _scan_path(path)]
     assert _boundary_violations(imports) == []
+
+
+@pytest.mark.parametrize(
+    ("module", "symbol"),
+    [
+        ("notebooklm._backoff", "compute_backoff_delay"),
+        ("notebooklm._runtime.helpers", "is_auth_error"),
+        ("notebooklm._runtime.auth_refresh_retry", "RefreshBudget"),
+    ],
+)
+def test_android_imports_each_shared_retry_mechanism(module: str, symbol: str) -> None:
+    """D9.7 prevents Android retry parity from drifting back to local copies."""
+
+    expected = f"{module}.{symbol}"
+    android_imports = [
+        direct
+        for path in sorted((SRC_ROOT / "_android").rglob("*.py"))
+        for direct in _scan_path(path)
+        if not direct.type_only
+    ]
+    assert any(direct.target == expected for direct in android_imports), (
+        f"Android must import {expected} directly"
+    )
 
 
 def test_idempotency_policy_has_one_web_owner_and_one_registry_seed() -> None:
@@ -430,7 +452,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .._web.rows import ProjectRow
 else:
-    from .._mobile import codec
+    from .._android import codec
 
 class Notebook:
     @classmethod
@@ -445,7 +467,7 @@ class Notebook:
     assert [(item.target, item.scope, item.type_only) for item in imports] == [
         ("typing.TYPE_CHECKING", None, False),
         ("notebooklm._web.rows.ProjectRow", None, True),
-        ("notebooklm._mobile.codec", None, False),
+        ("notebooklm._android.codec", None, False),
         ("notebooklm._web.rows", "Notebook.from_api_response", False),
     ]
     assert _boundary_violations(imports) == []
@@ -455,14 +477,14 @@ class Notebook:
     ("importer", "source", "reason"),
     [
         (
-            "notebooklm._mobile.notebooks",
+            "notebooklm._android.notebooks",
             "from notebooklm.rpc import RPCMethod",
-            "mobile backends must not import the web/RPC backend",
+            "Android backends must not import the web/RPC backend",
         ),
         (
             "notebooklm._web.notebooks",
             "from google.protobuf import message",
-            "web backends must not import mobile/protobuf code",
+            "web backends must not import Android/protobuf code",
         ),
         (
             "notebooklm._types.notebooks",
@@ -496,10 +518,10 @@ def test_backend_boundary_matcher_rejects_rpc_import_from_enrolled_base() -> Non
     assert "backend-neutral bases must not import backend implementations or rpc" in violations[0]
 
 
-def test_backend_boundary_matcher_rejects_mobile_import_from_enrolled_base() -> None:
+def test_backend_boundary_matcher_rejects_android_import_from_enrolled_base() -> None:
     importer = "notebooklm._notebooks"
     imports = _scan_source(
-        "from ._mobile.notebooks import MobileNotebooksAPI",
+        "from ._android.notebooks import AndroidNotebooksAPI",
         importer=importer,
         package="notebooklm",
     )

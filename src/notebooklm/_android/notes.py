@@ -5,11 +5,13 @@ from __future__ import annotations
 import asyncio
 import builtins
 import logging
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from .._idempotency import mark_unconfirmed
+from .._idempotency import call_unconfirmed_on_transport_loss, mark_unconfirmed
 from .._notes import NotesAPI
+from .._runtime.call_supervisor import OperationLease
 from ..exceptions import (
     AuthError,
     DecodingError,
@@ -21,8 +23,8 @@ from ..exceptions import (
     ServerError,
 )
 from ..types import MindMap, Note
+from .epoch import bind_workflow_epoch, reset_workflow_epoch
 from .session import AndroidSession
-from .write_safety import call_unconfirmed_on_transport_loss
 
 _SERVICE = "google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService"
 GET_NOTES_METHOD = f"/{_SERVICE}/GetNotes"
@@ -104,7 +106,10 @@ async def create_note(
                 replay_safe=False,
                 response_type=proto.CreateNoteResponse,
                 **epoch_kwargs,
-            )
+            ),
+            method=CREATE_NOTE_METHOD,
+            what="CreateNote",
+            chain=None,
         )
     except RPCError as exc:
         mapped = _map_notebook_error(notebook_id, exc, method_id=CREATE_NOTE_METHOD)
@@ -121,6 +126,15 @@ async def create_note(
 
 class AndroidNotesAPI(NotesAPI):
     """Android note CRUD for the directly tested backend graph."""
+
+    @asynccontextmanager
+    async def _operation_scope(self, label: str) -> AsyncIterator[OperationLease]:
+        async with self._transport.operation_scope(label) as lease:
+            token = bind_workflow_epoch(self._transport, lease.epoch)
+            try:
+                yield lease
+            finally:
+                reset_workflow_epoch(token)
 
     def __init__(
         self,

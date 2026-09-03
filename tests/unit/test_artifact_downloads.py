@@ -1,22 +1,110 @@
 """Unit tests for artifact download methods."""
 
+import asyncio
+import inspect
 import os
 import tempfile
+import traceback
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from notebooklm._artifact import downloads as asset_downloads
+from notebooklm._artifact._guarded_transfer import (
+    FormatPolicy,
+    TransferPolicy,
+    TransferSuccess,
+    guarded_transfer,
+)
 from notebooklm._artifact.downloads import AssetDownloadService
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._web.artifact import downloads as artifact_downloads
 from notebooklm._web.artifacts import WebArtifactsAPI
+from notebooklm.exceptions import AuthError
 from notebooklm.types import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
     ArtifactNotReadyError,
     ArtifactParseError,
 )
+
+
+def test_asset_download_service_android_extensions_keep_web_safe_defaults() -> None:
+    parameters = inspect.signature(AssetDownloadService).parameters
+
+    assert parameters["trusted_host"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["trusted_host"].default is asset_downloads._is_trusted_download_host
+    assert parameters["chain"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["chain"].default is True
+    assert parameters["on_auth_error"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["on_auth_error"].default is None
+
+
+@pytest.mark.asyncio
+async def test_guarded_transfer_supports_a_format_without_magic_bytes(tmp_path) -> None:
+    payload = b"signature-free representation"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, headers={"content-type": "application/json"}, content=payload)
+
+    async def credential_for(_url: str):
+        return None
+
+    destination = tmp_path / "representation.json"
+    policy = TransferPolicy(
+        artifact_type="representation",
+        formats=(FormatPolicy(frozenset({"application/json"}), ()),),
+        max_bytes=1024,
+    )
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        result = await guarded_transfer(
+            client,
+            "https://storage.googleapis.com/example/representation.json",
+            str(destination),
+            policy=policy,
+            credential_for=credential_for,
+            validate_url=lambda _url: "storage.googleapis.com",
+            safe_host=lambda _url: "storage.googleapis.com",
+            assert_active=lambda: None,
+        )
+
+    assert result == TransferSuccess(str(destination), len(payload))
+    assert destination.read_bytes() == payload
+
+
+@pytest.mark.asyncio
+async def test_guarded_transfer_credential_failure_scrubs_helper_frame(tmp_path) -> None:
+    signed_url = "https://storage.googleapis.com/example/file?capability=secret"
+
+    async def credential_for(_url: str):
+        raise asyncio.CancelledError("credential acquisition cancelled")
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await guarded_transfer(
+            MagicMock(),
+            signed_url,
+            str(tmp_path / "unused"),
+            policy=TransferPolicy(
+                artifact_type="representation",
+                formats=(FormatPolicy(frozenset({"application/json"}), ()),),
+                max_bytes=1024,
+            ),
+            credential_for=credential_for,
+            validate_url=lambda _url: "storage.googleapis.com",
+            safe_host=lambda _url: "storage.googleapis.com",
+            assert_active=lambda: None,
+        )
+
+    traceback = raised.value.__traceback__
+    helper_locals: dict[str, object] | None = None
+    while traceback is not None:
+        if traceback.tb_frame.f_code.co_name == "_credentials_for_hop":
+            helper_locals = traceback.tb_frame.f_locals
+            break
+        traceback = traceback.tb_next
+    assert helper_locals is not None, "credential helper frame was not inspected"
+    assert helper_locals == {}
 
 
 @pytest.fixture
@@ -535,6 +623,48 @@ class TestDownloadUrl:
             # Verify file was written with streaming content
             with open(output_path, "rb") as f:
                 assert f.read() == content
+
+    @pytest.mark.asyncio
+    async def test_download_url_auth_cause_does_not_retain_signed_url(
+        self, mock_artifacts_api, monkeypatch, tmp_path
+    ):
+        """A chained streaming HTTP cause must not retain a signed query string."""
+        api, _ = mock_artifacts_api
+        url = "https://storage.googleapis.com/file.mp4?capability_token=LEAKY"
+        request = httpx.Request("GET", url)
+        response = httpx.Response(403, request=request)
+        raw_error = httpx.HTTPStatusError(
+            "Forbidden response for signed URL",
+            request=request,
+            response=response,
+        )
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = raw_error
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_client = AsyncMock()
+        mock_client.stream = MagicMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+
+        monkeypatch.setattr(asset_downloads, "load_httpx_cookies", MagicMock(return_value={}))
+        with (
+            patch.object(httpx, "AsyncClient", return_value=mock_client),
+            pytest.raises(AuthError) as captured,
+        ):
+            await api._download_url(url, str(tmp_path / "file.mp4"))
+
+        cause = captured.value.__cause__
+        assert isinstance(cause, httpx.HTTPStatusError)
+        assert str(cause) == "HTTP 403"
+        assert cause.response.status_code == 403
+        assert str(cause.request.url) == "https://download.invalid/"
+        assert captured.value.__context__ is None
+        assert cause.__context__ is None
+        formatted = "".join(traceback.format_exception(captured.type, captured.value, captured.tb))
+        assert "LEAKY" not in formatted
 
     @pytest.mark.asyncio
     async def test_download_url_empty_response_raises(self, mock_artifacts_api, monkeypatch):

@@ -47,7 +47,6 @@ from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._notebook_metadata import NotebookSourceIdProvider
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm._types.common import UnknownTypeWarning
 from notebooklm._types.enums import (
     ArtifactTypeCode,
@@ -147,7 +146,7 @@ class FakeAssets:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
         self.representation_calls: list[tuple[str, str, str]] = []
-        self.error: ArtifactDownloadError | None = None
+        self.error: BaseException | None = None
 
     async def download_url(self, url: str, output_path: str) -> str:
         self.calls.append((url, output_path))
@@ -174,7 +173,6 @@ class FakeAssets:
 def _supervisor() -> CallSupervisor:
     return CallSupervisor(
         metrics=ClientMetrics(),
-        drain_tracker=TransportDrainTracker(),
         max_concurrent_rpcs=2,
     )
 
@@ -562,7 +560,6 @@ async def test_generate_quiz_uses_exact_request_and_never_replays_mutation() -> 
     assert kwargs == {
         "replay_safe": False,
         "response_type": _PROTO.CreateArtifactResponse,
-        "expected_epoch": 7,
     }
     assert request.project_id == "notebook-1"
     assert request.artifact.type == _PROTO.ARTIFACT_TYPE_APP
@@ -680,7 +677,6 @@ async def test_generate_audio_uses_exact_duplicated_source_wire(
     assert kwargs == {
         "replay_safe": False,
         "response_type": _PROTO.CreateArtifactResponse,
-        "expected_epoch": 7,
     }
     assert request.project_id == "notebook-1"
     assert request.artifact.type == _PROTO.ARTIFACT_TYPE_AUDIO_OVERVIEW
@@ -829,7 +825,7 @@ async def test_create_artifact_lost_response_is_unconfirmed_and_never_replayed(
     assert getattr(caught.value, "unconfirmed", False) is True
     assert caught.value.method_id == CREATE_ARTIFACT_METHOD
     assert caught.value.rpc_code == getattr(error, "rpc_code", None)
-    assert caught.value.__cause__ is error
+    assert caught.value.__cause__ is None
     assert [call[0] for call in session.calls] == [CREATE_ARTIFACT_METHOD]
     assert session.calls[0][2]["replay_safe"] is False
 
@@ -858,7 +854,7 @@ async def test_generate_video_families_use_exact_mobile_options() -> None:
     method, request, kwargs = session.calls[0]
     assert method == CREATE_ARTIFACT_METHOD
     assert kwargs["replay_safe"] is False
-    assert kwargs["expected_epoch"] == 7
+    assert "expected_epoch" not in kwargs
     assert request.artifact.type == _PROTO.ARTIFACT_TYPE_EXPLAINER_VIDEO
     assert [row.source_id.id for row in request.artifact.sources] == ["source-1"]
     options = request.artifact.explainer_video.generation_options
@@ -908,6 +904,40 @@ async def test_cinematic_video_rejects_style_prompt_before_io() -> None:
 
     assert session.calls == []
     assert notebooks.calls == []
+
+
+@pytest.mark.asyncio
+async def test_video_style_prompt_requires_string_before_io() -> None:
+    session, notebooks, _, _, api = _graph()
+
+    with pytest.raises(ValidationError) as raised:
+        await api.generate_video(
+            "notebook-1",
+            video_style=VideoStyle.CUSTOM,
+            style_prompt=cast(Any, 7),
+        )
+
+    assert str(raised.value) == "style_prompt must be a string or None"
+    assert session.scopes == []
+    assert session.calls == []
+    assert notebooks.calls == []
+
+
+@pytest.mark.asyncio
+async def test_video_style_validation_precedes_closed_runtime_admission() -> None:
+    transport = SupervisedAndroidTransport()
+    await transport.supervisor.stop_accepting(1)
+    api = _supervised_graph(transport)
+
+    with pytest.raises(ValidationError, match="cinematic"):
+        await api.generate_video(
+            "notebook-1",
+            video_format=VideoFormat.CINEMATIC,
+            video_style=VideoStyle.CUSTOM,
+            style_prompt="Use hand-drawn diagrams",
+        )
+
+    assert transport.calls == []
 
 
 @pytest.mark.asyncio
@@ -1524,6 +1554,7 @@ async def test_export_to_drive_supports_artifact_and_literal_content_targets() -
     assert second[1].destination == ExportType.SHEETS.value
     assert session.calls[0][2]["replay_safe"] is True
     assert all(call[2]["replay_safe"] is False for call in session.calls[1:])
+    assert session.scopes == ["artifacts.export", "artifacts.export"]
 
 
 @pytest.mark.asyncio
@@ -1536,12 +1567,18 @@ async def test_export_data_table_forces_sheets_and_validates_target_before_io() 
     assert (await api.export_data_table("notebook-1", "table-1")).endswith("/sheet")
     assert session.calls[1][1].destination == ExportType.SHEETS.value
     session.calls.clear()
+    session.scopes.clear()
 
     with pytest.raises(ValidationError, match="exactly one"):
         await api.export("notebook-1")
     with pytest.raises(ValidationError, match="exactly one"):
         await api.export("notebook-1", "artifact-1", content="literal")
+    with pytest.raises(ValidationError, match="title must be a string"):
+        await api.export("notebook-1", "artifact-1", cast(Any, 42))
+    with pytest.raises(ValidationError, match="export_type must be an ExportType"):
+        await api.export("notebook-1", "artifact-1", export_type=cast(Any, 1))
     assert session.calls == []
+    assert session.scopes == []
 
 
 @pytest.mark.asyncio
@@ -2296,6 +2333,38 @@ async def test_infographic_wraps_transfer_error_without_capability_or_cause() ->
 
 
 @pytest.mark.asyncio
+async def test_infographic_preserves_auth_error_type_without_cause() -> None:
+    secret_url = "https://lh3.googleusercontent.com/object?secret=capability"
+    _, _, _, assets, api = _graph([_artifact("image-1", url=secret_url)])
+    assets.error = AuthError("authentication expired")
+
+    with pytest.raises(AuthError) as raised:
+        await api.download_infographic("notebook-1", "out.png")
+
+    assert raised.value is assets.error
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+
+
+@pytest.mark.asyncio
+async def test_media_representation_preserves_auth_error_type_without_cause() -> None:
+    raw = _artifact("audio", type_code=_PROTO.ARTIFACT_TYPE_AUDIO_OVERVIEW)
+    raw.audio_overview.media_urls.add(
+        url="https://lh3.googleusercontent.com/audio?secret=capability",
+        type=_PROTO.MEDIA_STREAMING_TYPE_DOWNLOAD,
+    )
+    _, _, _, assets, api = _graph([raw])
+    assets.error = AuthError("authentication expired")
+
+    with pytest.raises(AuthError) as raised:
+        await api.download_audio("notebook-1", "audio.mp4")
+
+    assert raised.value is assets.error
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is None
+
+
+@pytest.mark.asyncio
 async def test_delete_preflights_ownership_and_is_idempotent_after_that_proof() -> None:
     session, _, _, _, api = _graph(
         [
@@ -2566,6 +2635,41 @@ class _SupervisedNotebookSources:
         )
 
 
+class _PausedSupervisedNotebookSources:
+    def __init__(self, transport: SupervisedAndroidTransport) -> None:
+        self._transport = transport
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def get_source_ids(self, notebook_id: str) -> list[str]:
+        self.started.set()
+        await self.release.wait()
+        return await self._transport.unary(
+            "notebooks.get_source_ids",
+            notebook_id,
+            replay_safe=True,
+            response_type=list,
+        )
+
+
+@pytest.mark.asyncio
+async def test_quiz_nested_source_read_rejects_a_retired_workflow_epoch() -> None:
+    transport = SupervisedAndroidTransport()
+    notebooks = _PausedSupervisedNotebookSources(transport)
+    transport.handlers["notebooks.get_source_ids"] = ["source-1"]
+    api = _supervised_graph(transport, notebooks=notebooks)
+    task = asyncio.create_task(api.generate_quiz("notebook-1"))
+    await notebooks.started.wait()
+
+    old_generation = await transport.force_close_and_reopen()
+    notebooks.release.set()
+
+    with pytest.raises(RuntimeError, match="retired resource generation"):
+        await task
+    assert transport.calls == []
+    assert old_generation.in_flight == 0
+
+
 @pytest.mark.asyncio
 async def test_quiz_source_resolution_and_mutation_finish_during_graceful_drain() -> None:
     transport = SupervisedAndroidTransport()
@@ -2593,7 +2697,7 @@ async def test_quiz_source_resolution_and_mutation_finish_during_graceful_drain(
         "notebooks.get_source_ids",
         CREATE_ARTIFACT_METHOD,
     ]
-    assert transport.calls[1][2]["expected_epoch"] == 1
+    assert "expected_epoch" not in transport.calls[1][2]
 
 
 @pytest.mark.asyncio
@@ -2623,7 +2727,7 @@ async def test_audio_source_resolution_and_mutation_finish_during_graceful_drain
         "notebooks.get_source_ids",
         CREATE_ARTIFACT_METHOD,
     ]
-    assert transport.calls[1][2]["expected_epoch"] == 1
+    assert "expected_epoch" not in transport.calls[1][2]
     await transport.supervisor.wait_for_idle(1, 0.1)
 
 

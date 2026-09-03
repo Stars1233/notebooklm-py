@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import traceback
+from collections.abc import Awaitable
+from types import TracebackType
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -9,11 +13,14 @@ import pytest
 from notebooklm._idempotency import (
     _CreateResultKind,
     _IdempotentCreateResult,
+    call_unconfirmed_on_transport_loss,
     idempotent_create,
+    unresolved_commit_error,
 )
 from notebooklm._web.sources import WebSourcesAPI
 from notebooklm._web.sources.add import SourceAddService
-from notebooklm.exceptions import NetworkError
+from notebooklm.exceptions import NetworkError, RPCError
+from notebooklm.rpc import RPCMethod
 from notebooklm.types import Source
 
 
@@ -60,6 +67,133 @@ async def test_idempotent_create_reraises_last_exception_by_identity() -> None:
         await idempotent_create(create, AsyncMock(return_value=None))
 
     assert raised.value is error
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("chain", "suppresses_context"), [("exc", False), (None, True)])
+async def test_unconfirmed_call_drops_capability_callback_before_exact_reraise(
+    chain: Literal["exc"] | None,
+    suppresses_context: bool,
+) -> None:
+    owner = object()
+    session = object()
+    bearer = object()
+    pipeline = object()
+    api = object()
+    context = RuntimeError("lower transport context")
+    error = NetworkError("response lost", method_id="test-write")
+    retained_inner_tracebacks: list[TracebackType] = []
+
+    async def fail(
+        capability_owner: object,
+        capability_session: object,
+        capability_bearer: object,
+        capability_pipeline: object,
+        capability_api: object,
+    ) -> None:
+        assert capability_owner is owner
+        assert capability_session is session
+        assert capability_bearer is bearer
+        assert capability_pipeline is pipeline
+        assert capability_api is api
+        try:
+            try:
+                raise context
+            except RuntimeError:
+                raise error  # noqa: B904 - exercise implicit Web exception context
+        finally:
+            captured = error.__traceback__
+            assert captured is not None
+            retained_inner_tracebacks.append(captured)
+
+    def call() -> Awaitable[None]:
+        return fail(owner, session, bearer, pipeline, api)
+
+    sensitive = (call, owner, session, bearer, pipeline, api)
+
+    def retained_by(value: object) -> tuple[object, ...]:
+        closure = getattr(value, "__closure__", None)
+        return (value, *(cell.cell_contents for cell in closure or ()))
+
+    retained_before_call = retained_by(call)
+    assert all(any(value is item for value in retained_before_call) for item in sensitive)
+
+    with pytest.raises(NetworkError) as raised:
+        await call_unconfirmed_on_transport_loss(
+            call,
+            method="test-write",
+            what="the test write",
+            chain=chain,
+        )
+
+    assert raised.value is error
+    assert getattr(raised.value, "unconfirmed", False) is True
+    assert raised.value.__cause__ is None
+    assert raised.value.__context__ is (context if chain == "exc" else None)
+    assert raised.value.__suppress_context__ is suppresses_context
+
+    inspected = []
+    traceback_names = []
+    for frame, _line in traceback.walk_tb(raised.value.__traceback__):
+        traceback_names.append(frame.f_code.co_name)
+        source_path = frame.f_code.co_filename.replace("\\", "/")
+        if not source_path.endswith("/src/notebooklm/_idempotency.py"):
+            continue
+        inspected.append(frame.f_code.co_name)
+        for value in frame.f_locals.values():
+            retained = retained_by(value)
+            assert all(all(candidate is not item for candidate in retained) for item in sensitive)
+    assert "call_unconfirmed_on_transport_loss" in inspected
+    assert ("fail" in traceback_names) is (chain == "exc")
+
+    assert len(retained_inner_tracebacks) == 1
+    retained_frames = [frame for frame, _line in traceback.walk_tb(retained_inner_tracebacks[0])]
+    assert [frame.f_code.co_name for frame in retained_frames] == ["fail"]
+    if chain is None:
+        assert all(frame.f_locals == {} for frame in retained_frames)
+    else:
+        retained_locals = tuple(
+            value for frame in retained_frames for value in frame.f_locals.values()
+        )
+        assert all(any(value is item for value in retained_locals) for item in sensitive[1:])
+
+
+def test_unresolved_commit_error_does_not_trust_upstream_message_prefix() -> None:
+    error = NetworkError("UNRESOLVED upstream proxy response", method_id="upstream")
+
+    wrapped = unresolved_commit_error("web-method", "the test write", error)
+
+    assert type(wrapped) is RPCError
+    assert wrapped is not error
+    assert wrapped.method_id == "web-method"
+    assert "the test write may have committed" in str(wrapped)
+    assert "UNRESOLVED upstream proxy response" in str(wrapped)
+    assert getattr(wrapped, "unconfirmed", False) is True
+
+
+def test_unresolved_commit_error_preserves_domain_error_only_when_explicit() -> None:
+    domain_error = RPCError("domain-specific reconciliation guidance", method_id="domain")
+
+    preserved = unresolved_commit_error(
+        "unused-method",
+        "unused write",
+        domain_error,
+        preserve_exception=True,
+    )
+
+    assert preserved is domain_error
+    assert getattr(preserved, "unconfirmed", False) is True
+
+
+def test_unresolved_commit_error_normalizes_rpc_method_id_to_builtin_str() -> None:
+    wrapped = unresolved_commit_error(
+        RPCMethod.COPY_SOURCES,
+        "the source copy",
+        NetworkError("response lost"),
+    )
+
+    assert wrapped.method_id == RPCMethod.COPY_SOURCES.value
+    assert type(wrapped.method_id) is str
 
 
 @pytest.mark.asyncio

@@ -60,7 +60,13 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from ...._backoff import compute_backoff_delay
+from ...._backoff import (
+    RETRY_BACKOFF_BASE_SECONDS,
+    RETRY_BACKOFF_CAP_SECONDS,
+    RETRY_BACKOFF_JITTER_RATIO,
+    RETRY_BACKOFF_MIN_SECONDS,
+    compute_backoff_delay,
+)
 from ...._deadline import Monotonic, RuntimeDeadline
 from ...._runtime.config import CORE_LOGGER_NAME
 from ...._runtime.helpers import resolve_sleep
@@ -93,15 +99,6 @@ _NON_REPLAYABLE_POST_SEND_ERRORS = (
 )
 
 
-# Backoff parameters preserve the historical transport retry timing.
-_BACKOFF_BASE_SECONDS = 1.0
-_BACKOFF_CAP_SECONDS = 30.0
-_BACKOFF_JITTER_RATIO = 0.2
-# Floor on the actual sleep so a jitter-pulled-to-zero backoff still yields a
-# tiny sleep; mirrors the ``max(0.1, …)`` on both legacy retry paths.
-_BACKOFF_MIN_SECONDS = 0.1
-
-
 class RetryMiddleware:
     """Chain middleware that retries on HTTP 429 / 5xx / network failures.
 
@@ -110,7 +107,7 @@ class RetryMiddleware:
     ``Sequence[Middleware]``.
 
     Constructor inputs (all wired by
-    :func:`notebooklm._runtime.init.wire_middleware_chain`, driven from
+    :func:`notebooklm._web.transport.init.wire_middleware_chain`, driven from
     ``NotebookLMClient.__init__``):
 
     - ``rate_limit_max_retries`` / ``server_error_max_retries``: the same
@@ -191,9 +188,9 @@ class RetryMiddleware:
         Reads ``log_label`` and ``disable_internal_retries`` from
         ``request.context``. A missing ``log_label`` falls back to a
         defensive sentinel so a ``__new__``-built fixture driving the
-        chain raw doesn't trip on a ``KeyError`` (matches DrainMiddleware's
-        same fallback). ``disable_internal_retries`` defaults to ``False``
-        — the production path always populates it from
+        chain raw doesn't trip on a ``KeyError``.
+        ``disable_internal_retries`` defaults to ``False`` — the production
+        path always populates it from
         :func:`_web.policy.resolve_effective_disable_internal_retries`.
         """
         log_label = request.context.get(RPC_CONTEXT_LOG_LABEL, "<unknown-chain-call>")
@@ -284,11 +281,11 @@ class RetryMiddleware:
         else:
             backoff = compute_backoff_delay(
                 attempt,
-                base=_BACKOFF_BASE_SECONDS,
-                cap=_BACKOFF_CAP_SECONDS,
-                jitter_ratio=_BACKOFF_JITTER_RATIO,
+                base=RETRY_BACKOFF_BASE_SECONDS,
+                cap=RETRY_BACKOFF_CAP_SECONDS,
+                jitter_ratio=RETRY_BACKOFF_JITTER_RATIO,
             )
-            sleep_seconds = max(_BACKOFF_MIN_SECONDS, backoff)
+            sleep_seconds = max(RETRY_BACKOFF_MIN_SECONDS, backoff)
             sleep_source = f"exp-backoff={sleep_seconds:.1f}s"
 
         actual_sleep = self._resolve_retry_sleep(
@@ -323,12 +320,12 @@ class RetryMiddleware:
     ) -> None:
         """Exponential backoff with the same parameters as the legacy loop."""
         backoff = max(
-            _BACKOFF_MIN_SECONDS,
+            RETRY_BACKOFF_MIN_SECONDS,
             compute_backoff_delay(
                 attempt,
-                base=_BACKOFF_BASE_SECONDS,
-                cap=_BACKOFF_CAP_SECONDS,
-                jitter_ratio=_BACKOFF_JITTER_RATIO,
+                base=RETRY_BACKOFF_BASE_SECONDS,
+                cap=RETRY_BACKOFF_CAP_SECONDS,
+                jitter_ratio=RETRY_BACKOFF_JITTER_RATIO,
             ),
         )
         actual_backoff = self._resolve_retry_sleep(

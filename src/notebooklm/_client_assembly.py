@@ -3,7 +3,7 @@
 :func:`_assemble_client` is the ONE place that wires a
 :class:`~notebooklm.client.NotebookLMClient` instance: auth normalization,
 seam resolution, collaborator composition (via
-:func:`notebooklm._runtime.init.compose_client_internals`), the upload
+:func:`notebooklm._web.transport.init.compose_client_internals`), the upload
 pipeline, and every feature API. Two callers exist:
 
 1. ``NotebookLMClient.__init__`` (production) — delegates its whole body
@@ -43,7 +43,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
-from ._client_composed import ClientComposed
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
@@ -55,8 +54,8 @@ from ._runtime.config import (
     resolve_chat_read_timeout,
     validate_read_timeout_kwarg,
 )
-from ._runtime.init import compose_client_internals
-from ._runtime.lifecycle import ClientLifecycle, LoopParticipant, TransportLifecycle
+from ._runtime.init import build_collaborators, validate_constructor_args
+from ._runtime.lifecycle import ClientLifecycle
 from ._web.artifacts import WebArtifactsAPI
 from ._web.chat import WebChatAPI
 from ._web.collections import WebCollectionsAPI
@@ -68,10 +67,18 @@ from ._web.research import WebResearchAPI
 from ._web.settings import WebSettingsAPI
 from ._web.sharing import WebSharingAPI
 from ._web.sources import WebSourcesAPI
-from ._web.sources.upload import SourceUploadPipeline
+from ._web.transport.error_injection import _refuse_synthetic_error_outside_test_context
+from ._web.transport.init import (
+    WebRuntime,
+    _resolve_async_client_factory,
+    build_web_runtime,
+    compose_client_internals,
+)
 from ._web.transport.lifecycle import CookieRotator, CookieSaver
 from ._web.transport.seams import resolve_client_seams
+from ._web.transport.sidecar import LazyWebSidecar
 from .auth import AuthTokens
+from .raw import AndroidRawAPI, WebRawAPI
 
 if TYPE_CHECKING:
     from .client import NotebookLMClient
@@ -157,6 +164,196 @@ class _UnsetType:
 
 
 _UNSET = _UnsetType()
+
+
+def _assemble_android_backend(
+    client: NotebookLMClient,
+    *,
+    auth: AuthTokens,
+    timeout: float,
+    refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    refresh_retry_delay: float,
+    rate_limit_max_retries: int,
+    server_error_max_retries: int,
+    max_concurrent_uploads: int | None,
+    max_concurrent_rpcs: int | None,
+    upload_timeout: httpx.Timeout | None,
+    on_rpc_event: Callable[[RpcTelemetryEvent], object] | None,
+    chat_timeout: float | None,
+    import_research_timeout: float | None,
+    chat_response_max_bytes: int | None,
+    sleep: Callable[[float], Awaitable[Any]] | None,
+    async_client_factory: Callable[..., httpx.AsyncClient] | None,
+) -> None:
+    """Install the Android graph without constructing any Web collaborator."""
+
+    from ._android.artifacts import AndroidArtifactsAPI
+    from ._android.assets import AndroidAssetDownloadService
+    from ._android.auth import _make_bearer_provider
+    from ._android.chat import AndroidChatAPI
+    from ._android.collections import AndroidCollectionsAPI
+    from ._android.labels import AndroidLabelsAPI
+    from ._android.mind_maps import AndroidMindMapsAPI
+    from ._android.note_backed import NoteBackedMindMapArtifactAdapter
+    from ._android.notebooks import AndroidNotebooksAPI
+    from ._android.notes import AndroidNotesAPI
+    from ._android.phenotype import PhenotypeTokenProvider
+    from ._android.research import AndroidResearchAPI
+    from ._android.runtime import AndroidRuntime
+    from ._android.session import AndroidSession
+    from ._android.settings import AndroidSettingsAPI
+    from ._android.sharing import AndroidSharingAPI
+    from ._android.sources import AndroidSourcesAPI
+    from ._android.upload import AndroidUploadPipeline
+
+    # Preserve the constructor's synthetic-transport safety gate without
+    # invoking the Web composition root that used to own the check.
+    _refuse_synthetic_error_outside_test_context()
+    config = validate_constructor_args(
+        timeout=timeout,
+        connect_timeout=DEFAULT_CONNECT_TIMEOUT,
+        refresh_retry_delay=refresh_retry_delay,
+        rate_limit_max_retries=rate_limit_max_retries,
+        server_error_max_retries=server_error_max_retries,
+        keepalive=None,
+        keepalive_min_interval=DEFAULT_KEEPALIVE_MIN_INTERVAL,
+        keepalive_storage_path=None,
+        auth_storage_path=auth.storage_path,
+        # HTTP pool tuning is a Web-only option. Android's neutral RPC cap is
+        # deliberately independent of the absent Web connection pool.
+        limits=None,
+        max_concurrent_uploads=max_concurrent_uploads,
+        max_concurrent_rpcs=max_concurrent_rpcs,
+        decode_response=client._seams.decode_response,
+        sleep=client._seams.sleep,
+        is_auth_error=client._seams.is_auth_error,
+        # Do not resolve curl_cffi or build an HTTP client until the deprecated
+        # compatibility sidecar is actually requested.
+        async_client_factory=async_client_factory or httpx.AsyncClient,
+    )
+    shared = build_collaborators(config, on_rpc_event=on_rpc_event)
+
+    bearer_provider = _make_bearer_provider(
+        Path(auth.storage_path) if auth.storage_path is not None else None
+    )
+    session = AndroidSession(
+        bearer_provider,
+        shared.call_supervisor,
+        timeout=timeout,
+        rate_limit_max_retries=rate_limit_max_retries,
+        server_error_max_retries=server_error_max_retries,
+        refresh_retry_delay=refresh_retry_delay,
+        metrics=shared.metrics,
+        sleep=sleep,
+    )
+    asset_downloads = AndroidAssetDownloadService(
+        bearer_provider=bearer_provider,
+        supervisor=shared.call_supervisor,
+    )
+    upload_pipeline = AndroidUploadPipeline(
+        session=session,
+        bearer_provider=bearer_provider,
+        upload_timeout=upload_timeout,
+        max_concurrent_uploads=max_concurrent_uploads,
+        record_upload_queue_wait=shared.metrics.record_upload_queue_wait,
+    )
+    phenotype = PhenotypeTokenProvider()
+    android = AndroidRuntime(
+        bearer_provider=bearer_provider,
+        session=session,
+        upload_pipeline=upload_pipeline,
+        asset_downloads=asset_downloads,
+        phenotype=phenotype,
+    )
+    client._android_runtime = android
+    client._web_runtime = None
+    client._raw = AndroidRawAPI(session)
+
+    client.sources = AndroidSourcesAPI(
+        session,
+        upload_pipeline,
+        drive_download=upload_pipeline.drive_download_scope,
+        phenotype=phenotype,
+    )
+    client.notebooks = AndroidNotebooksAPI(session, client.sources)
+    client.notes = AndroidNotesAPI(session)
+    note_backed_artifacts = NoteBackedMindMapArtifactAdapter(
+        client.notes._list_note_backed_mind_maps,
+    )
+    client.artifacts = AndroidArtifactsAPI(
+        session=session,
+        supervisor=shared.call_supervisor,
+        notebooks=client.notebooks,
+        mind_maps=note_backed_artifacts,
+        asset_downloads=asset_downloads,
+    )
+    client.mind_maps = AndroidMindMapsAPI(
+        session=session,
+        artifacts=client.artifacts,
+        notes=client.notes,
+    )
+    client.chat = AndroidChatAPI(
+        session=session,
+        loop_guard=shared.call_supervisor,
+        chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
+        chat_response_max_bytes=chat_response_max_bytes,
+        notebooks=client.notebooks,
+        created_chat_sessions=client.notebooks,
+    )
+    client.research = AndroidResearchAPI(
+        session,
+        client.sources,
+        base_timeout=timeout,
+        import_research_timeout=import_research_timeout,
+    )
+    client.settings = AndroidSettingsAPI(session)
+    client.sharing = AndroidSharingAPI(session)
+    client.labels = AndroidLabelsAPI(session, list_sources=client.sources.list)
+    client.collections = AndroidCollectionsAPI(
+        session,
+        list_notebooks=client.notebooks.list,
+    )
+    client._backends = _derive_installed_backends(client)
+
+    sidecar: LazyWebSidecar
+
+    def build_sidecar_runtime() -> WebRuntime:
+        # The Android primary graph ignores Web pool/keepalive/cookie callback
+        # options.  A deprecated compatibility call gets canonical Web defaults
+        # and the same shared admission/telemetry owners.
+        web_config = dataclasses.replace(
+            config,
+            async_client_factory=_resolve_async_client_factory(async_client_factory),
+        )
+        runtime = build_web_runtime(
+            config=web_config,
+            auth=auth,
+            refresh_callback=refresh_callback,
+            shared=shared,
+            upload_timeout=None,
+            max_concurrent_uploads=DEFAULT_MAX_CONCURRENT_UPLOADS,
+            cookie_saver=None,
+            cookie_rotator=None,
+            seams=client._seams,
+        )
+        runtime.composed.bind_runtime_collaborators(client._collaborators)
+        return runtime
+
+    sidecar = LazyWebSidecar(build_sidecar_runtime)
+    client._web_sidecar = sidecar
+    lifecycle = ClientLifecycle(
+        supervisor=shared.call_supervisor,
+        transports=(session, asset_downloads, upload_pipeline, phenotype, sidecar),
+        loop_participants=(
+            shared.call_supervisor,
+            client.chat,
+            bearer_provider,
+            session,
+            upload_pipeline,
+            sidecar,
+        ),
+    )
+    client._collaborators = dataclasses.replace(shared, _lifecycle=lifecycle)
 
 
 def _assemble_client(
@@ -254,13 +451,18 @@ def _assemble_client(
     client._account_email_cache = None
     client._account_email_cache_route = None
 
-    # Production default: the client's own ``refresh_auth`` bound method.
+    # Production default: the client's web-only base refresh. The public
+    # ``refresh_auth`` facade performs Android bearer dispatch before entering
+    # this coordinator path; keeping the callback web-only prevents a wider
+    # Android refresh from recursively minting a second bearer.
     # The test factory overrides this (typically with ``None`` or a fake)
     # to keep shells network-free.
     if isinstance(refresh_callback, _UnsetType):
 
         async def refresh_callback(expected_epoch: int) -> AuthTokens:
-            return await client._refresh_auth_for_epoch(expected_epoch=expected_epoch)
+            if client._backend_preference.preferred == "android":
+                return await client._refresh_sidecar_auth_for_epoch(expected_epoch=expected_epoch)
+            return await client._refresh_web_auth_for_epoch(expected_epoch=expected_epoch)
 
     # Canonicalize the keepalive storage path so different representations
     # of the same physical file (relative vs absolute, ``~`` shorthand,
@@ -286,17 +488,18 @@ def _assemble_client(
             derived_keepalive_path = Path(derived_keepalive_path).expanduser().resolve()
         keepalive_storage_path = derived_keepalive_path
 
-    # Cross-validate the RPC throttle against the underlying httpx pool
-    # before the collaborator builder swallows the ``limits=None``
-    # sentinel into its own ``ConnectionLimits()`` synthesis.
-    # Performed here so the constraint is enforced uniformly regardless
-    # of whether the caller passed an explicit ``ConnectionLimits``
-    # instance or relied on the default — scalar config validation
-    # can't see the caller's intent once the default has been substituted.
+    # Cross-validate the RPC throttle against the underlying httpx pool for
+    # Web selection only, before the collaborator builder swallows the
+    # ``limits=None`` sentinel into its own ``ConnectionLimits()`` synthesis.
+    # Android has no shared httpx RPC pool, and ``limits`` is a documented
+    # ignored compatibility kwarg there, so neither an explicit tiny pool nor
+    # the synthesized Web default may constrain its neutral RPC admission cap.
+    # On Web the constraint is enforced regardless of whether the caller passed
+    # an explicit ``ConnectionLimits`` instance or relied on the default.
     # Skip when either side opts out (``max_concurrent_rpcs is None``
     # means "no gate"; we deliberately don't second-guess the caller's
     # external-throttle setup).
-    if max_concurrent_rpcs is not None:
+    if client._backend_preference.preferred == "web" and max_concurrent_rpcs is not None:
         from .types import ConnectionLimits
 
         effective_limits = limits if limits is not None else ConnectionLimits()
@@ -324,8 +527,7 @@ def _assemble_client(
     )
 
     # The client is the composition root: :func:`compose_client_internals`
-    # binds composition state onto ``client._composed`` and returns only the
-    # collaborators + executor that feature adapters need.
+    # returns the shared and web runtime bundles that feature adapters need.
     #
     # The public NotebookLMClient kwarg surface is unchanged — the
     # four seam kwargs (``decode_response`` / ``sleep`` /
@@ -351,8 +553,43 @@ def _assemble_client(
     # first error instead of whichever collaborator happens to validate first.
     if max_concurrent_rpcs is not None and max_concurrent_rpcs < 1:
         raise ValueError(f"max_concurrent_rpcs must be >= 1, got {max_concurrent_rpcs!r}")
-    client._composed = ClientComposed()
-
+    if client._backend_preference.preferred == "android":
+        ignored_web_options: list[str] = []
+        if keepalive is not None:
+            ignored_web_options.append("keepalive")
+        if keepalive_min_interval != DEFAULT_KEEPALIVE_MIN_INTERVAL:
+            ignored_web_options.append("keepalive_min_interval")
+        if cookie_saver is not None:
+            ignored_web_options.append("cookie_saver")
+        if cookie_rotator is not None:
+            ignored_web_options.append("cookie_rotator")
+        if limits is not None:
+            ignored_web_options.append("limits")
+        if ignored_web_options:
+            logger.debug(
+                "Android backend ignores Web-only options: %s",
+                ", ".join(ignored_web_options),
+            )
+        _assemble_android_backend(
+            client,
+            auth=auth,
+            timeout=timeout,
+            refresh_callback=refresh_callback,
+            refresh_retry_delay=refresh_retry_delay,
+            rate_limit_max_retries=rate_limit_max_retries,
+            server_error_max_retries=server_error_max_retries,
+            max_concurrent_uploads=max_concurrent_uploads,
+            max_concurrent_rpcs=max_concurrent_rpcs,
+            upload_timeout=upload_timeout,
+            on_rpc_event=on_rpc_event,
+            chat_timeout=chat_timeout,
+            import_research_timeout=import_research_timeout,
+            chat_response_max_bytes=chat_response_max_bytes,
+            sleep=sleep,
+            async_client_factory=async_client_factory,
+        )
+        client._rpc_call_deprecation_warned = False
+        return
     internals = compose_client_internals(
         auth=auth,
         timeout=timeout,
@@ -367,6 +604,7 @@ def _assemble_client(
         limits=limits,
         max_concurrent_uploads=max_concurrent_uploads,
         max_concurrent_rpcs=max_concurrent_rpcs,
+        upload_timeout=upload_timeout,
         on_rpc_event=on_rpc_event,
         # Injectable seams — pass-through to the lifecycle. A ``None`` cookie
         # saver selects the canonical typed store path; a ``None`` rotator
@@ -375,72 +613,39 @@ def _assemble_client(
         cookie_rotator=cookie_rotator,
         async_client_factory=async_client_factory,
         seams=client._seams,
-        composed=client._composed,
     )
-    # Owned reference to the RPC executor so ``client.rpc_call``
-    # dispatches through it directly rather than through a
-    # compatibility wrapper. The executor satisfies the
-    # ``RpcCaller`` Protocol and is the same instance the feature
-    # APIs receive (``internals.executor`` is shared with
-    # ``SourcesAPI`` / ``NotebooksAPI`` / ``ArtifactsAPI``
-    # / ``ChatAPI`` / etc., so a test that swaps the executor's
-    # ``rpc_call`` sees the swap on every feature consumer).
-    client._rpc_executor = internals.executor
-
-    # ADR-0014 Rule 2: the upload pipeline takes its direct runtime
-    # collaborators (``rpc`` + ``supervisor`` + ``kernel`` + ``auth``)
-    # instead of reaching through a composite-runtime adapter. This
-    # assembly function is
-    # the composition root that knows these internals;
-    # ``SourcesAPI`` no longer reads them back off a broad host.
-    source_uploader = SourceUploadPipeline(
-        rpc=internals.executor,
-        supervisor=internals.collaborators.call_supervisor,
-        kernel=internals.collaborators.kernel,
-        # ADR-0016's Auth Instance Invariant: the upload pipeline
-        # reads the client-owned ``client._auth`` reference set above
-        # instead of a detached auth copy. Production refresh-time
-        # mutation is therefore observed by the uploader unchanged.
-        auth=client._auth,
-        upload_timeout=upload_timeout,
-        max_concurrent_uploads=max_concurrent_uploads,
-        record_upload_queue_wait=internals.collaborators.metrics.record_upload_queue_wait,
-    )
-    # Hold the uploader as a first-class client attribute so the
-    # open-time loop-affinity reset (issue #1196 upload variant) can
-    # reach it independently of the ``client.sources`` feature surface:
-    # the upload semaphore is a lazily-built loop-bound
-    # ``asyncio.Semaphore`` that must be discarded on close→reopen, the
-    # same as the RPC semaphore. ``__aenter__`` threads this into
-    # ``ClientLifecycle.open`` which calls
-    # ``set_bound_loop`` / ``reset_after_open`` on it.
-    client._source_uploader = source_uploader
+    client._web_runtime = internals.web_runtime
+    client._web_sidecar = None
+    client._android_runtime = None
+    web = internals.web_runtime
+    shared = internals.collaborators
+    client._raw = WebRawAPI(web.executor)
     # Per ADR-0014 Rule 3: simple features take their RpcCaller dependency
     # directly from the composition root's executor.
     client.sources = WebSourcesAPI(
-        internals.executor,
-        supervisor=internals.collaborators.call_supervisor,
-        uploader=source_uploader,
+        web.executor,
+        supervisor=shared.call_supervisor,
+        uploader=web.source_uploader,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
     )
-    client.notebooks = WebNotebooksAPI(internals.executor, sources_api=client.sources)
+    client.notebooks = WebNotebooksAPI(web.executor, sources_api=client.sources)
     # Note wiring (see docs/refactor-history.md): an explicit
     # NoteService + NoteBackedMindMapService split. NoteService owns the
     # raw row primitives; NoteBackedMindMapService is the mind-map-only
     # adapter the download path uses; the artifact-generation path uses
     # NoteService.create_note directly to persist a generated mind map.
     note_service = NoteService(
-        internals.executor,
-        supervisor=internals.collaborators.call_supervisor,
+        web.executor,
+        supervisor=shared.call_supervisor,
     )
     mind_maps = NoteBackedMindMapService(note_service)
     # The artifacts API takes RPC dispatch plus the single call supervisor.
     # That supervisor is the one authority for polling operation scopes,
     # same-generation leader tasks, loop affinity, and drain-hook registration.
     client.artifacts = WebArtifactsAPI(
-        rpc=internals.executor,
-        supervisor=internals.collaborators.call_supervisor,
+        rpc=web.executor,
+        supervisor=shared.call_supervisor,
         notebooks=client.notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
@@ -449,13 +654,13 @@ def _assemble_client(
     # WebChatAPI (per ADR-0014) takes its
     # five direct collaborators (RpcCaller, RuntimeTransport, ReqidCounter,
     # LoopGuard, NotebookSourceIdProvider) by keyword argument. The transport is
-    # sourced from ``client._composed``; other runtime fields come from
-    # the :class:`ClientInternals` returned by the composition root.
+    # sourced from ``WebRuntime.composed``; other runtime fields come from
+    # the two bundles returned by the composition root.
     client.chat = WebChatAPI(
-        rpc=internals.executor,
-        transport=client._composed.transport,
-        reqid=internals.collaborators.reqid,
-        loop_guard=internals.collaborators.call_supervisor,
+        rpc=web.executor,
+        transport=web.composed.transport,
+        reqid=web.reqid,
+        loop_guard=shared.call_supervisor,
         chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
         chat_response_max_bytes=chat_response_max_bytes,
         notebooks=client.notebooks,
@@ -468,7 +673,7 @@ def _assemble_client(
     # Unified mind-map surface over both backends (note-backed + interactive
     # studio artifact); dispatches each op to the correct RPC family (#1256).
     web_mind_maps = WebMindMapsAPI(
-        rpc=internals.executor,
+        rpc=web.executor,
         mind_maps=mind_maps,
         artifacts=client.artifacts,
         notebooks=client.notebooks,
@@ -479,163 +684,43 @@ def _assemble_client(
     # ``RpcExecutor`` collaborator directly, sourced from the composed
     # executor.
     client.research = WebResearchAPI(
-        internals.executor,
+        web.executor,
         base_timeout=timeout,
         import_research_timeout=import_research_timeout,
     )
-    client.settings = WebSettingsAPI(internals.executor)
-    client.sharing = WebSharingAPI(internals.executor)
+    client.settings = WebSettingsAPI(web.executor)
+    client.sharing = WebSharingAPI(web.executor)
     # Source labels. Takes a narrow ``list_sources`` callable (not the whole
     # SourcesAPI) for the membership->Source join in ``labels.sources()``;
     # wired after ``client.sources`` exists. Same client/bound loop (ADR-0004).
-    client.labels = WebLabelsAPI(internals.executor, list_sources=client.sources.list)
-    # Android selection replaces the complete public namespace graph. Cross-namespace
-    # joins receive selected Android capabilities instead of manufacturing a second
-    # frontend, and no operation collaborator routes back through Web. Android
-    # dependency/token validation remains deferred to async open, while the gRPC
-    # channel remains lazy until the first Android RPC.
-    client._android_bearer_provider = None
-    client._android_session = None
-    android_transports: tuple[TransportLifecycle, ...] = ()
-    android_loop_participants: tuple[LoopParticipant, ...] = ()
-    if client._backend_preference.preferred == "android":
-        from ._android.artifacts import AndroidArtifactsAPI
-        from ._android.assets import AndroidAssetDownloadService
-        from ._android.auth import _make_bearer_provider
-        from ._android.chat import AndroidChatAPI
-        from ._android.collections import AndroidCollectionsAPI
-        from ._android.labels import AndroidLabelsAPI
-        from ._android.mind_maps import AndroidMindMapsAPI
-        from ._android.note_backed import NoteBackedMindMapArtifactAdapter
-        from ._android.notebooks import AndroidNotebooksAPI
-        from ._android.notes import AndroidNotesAPI
-        from ._android.phenotype import PhenotypeTokenProvider
-        from ._android.research import AndroidResearchAPI
-        from ._android.session import AndroidSession
-        from ._android.settings import AndroidSettingsAPI
-        from ._android.sharing import AndroidSharingAPI
-        from ._android.sources import AndroidSourcesAPI
-        from ._android.upload import AndroidUploadPipeline
-
-        android_bearer_provider = _make_bearer_provider(
-            Path(auth.storage_path) if auth.storage_path is not None else None
-        )
-        android_session = AndroidSession(
-            android_bearer_provider,
-            internals.collaborators.call_supervisor,
-            timeout=timeout,
-        )
-        client._android_bearer_provider = android_bearer_provider
-        client._android_session = android_session
-        android_asset_downloads = AndroidAssetDownloadService(
-            bearer_provider=android_bearer_provider,
-            supervisor=internals.collaborators.call_supervisor,
-        )
-        android_upload_pipeline = AndroidUploadPipeline(
-            session=android_session,
-            bearer_provider=android_bearer_provider,
-            upload_timeout=upload_timeout,
-            max_concurrent_uploads=max_concurrent_uploads,
-            record_upload_queue_wait=internals.collaborators.metrics.record_upload_queue_wait,
-        )
-        android_phenotype = PhenotypeTokenProvider()
-        client.sources = AndroidSourcesAPI(
-            android_session,
-            android_upload_pipeline,
-            drive_download=android_upload_pipeline.drive_download_scope,
-            phenotype=android_phenotype,
-        )
-        client.notebooks = AndroidNotebooksAPI(android_session, client.sources)
-        client.notes = AndroidNotesAPI(android_session)
-        note_backed_artifacts = NoteBackedMindMapArtifactAdapter(
-            client.notes._list_note_backed_mind_maps,
-        )
-        client.artifacts = AndroidArtifactsAPI(
-            session=android_session,
-            supervisor=internals.collaborators.call_supervisor,
-            notebooks=client.notebooks,
-            mind_maps=note_backed_artifacts,
-            asset_downloads=android_asset_downloads,
-        )
-        client.mind_maps = AndroidMindMapsAPI(
-            supervisor=internals.collaborators.call_supervisor,
-            artifacts=client.artifacts,
-            notes=client.notes,
-        )
-        client.chat = AndroidChatAPI(
-            session=android_session,
-            loop_guard=internals.collaborators.call_supervisor,
-            chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
-            chat_response_max_bytes=chat_response_max_bytes,
-            notebooks=client.notebooks,
-            created_chat_sessions=client.notebooks,
-        )
-        client.research = AndroidResearchAPI(
-            android_session,
-            client.sources,
-            base_timeout=timeout,
-            import_research_timeout=import_research_timeout,
-        )
-        client.settings = AndroidSettingsAPI(android_session)
-        client.sharing = AndroidSharingAPI(android_session)
-        client.labels = AndroidLabelsAPI(
-            android_session,
-            list_sources=client.sources.list,
-        )
-        client.collections = AndroidCollectionsAPI(
-            android_session,
-            list_notebooks=client.notebooks.list,
-        )
-        android_transports = (
-            android_session,
-            android_asset_downloads,
-            android_upload_pipeline,
-            android_phenotype,
-        )
-        android_loop_participants = (
-            android_bearer_provider,
-            android_session,
-            android_upload_pipeline,
-        )
-    else:
-        client.collections = WebCollectionsAPI(
-            internals.executor,
-            list_notebooks=client.notebooks.list,
-        )
+    client.labels = WebLabelsAPI(web.executor, list_sources=client.sources.list)
+    client.collections = WebCollectionsAPI(
+        web.executor,
+        list_notebooks=client.notebooks.list,
+    )
 
     client._backends = _derive_installed_backends(client)
-    if client._backend_preference.preferred == "android":
-        unqualified = [name for name, selected in client._backends.items() if selected == "web"]
-        if unqualified:
-            logger.info(
-                "Android backend preference selected; unqualified namespaces remain web: %s",
-                ", ".join(unqualified),
-            )
 
     # The protocol-neutral root is constructed last, after every concrete
     # transport and loop participant exists. Its tuples never mutate after
     # publication, so open/close waves cannot observe a partially assembled
     # graph or silently omit a later-added owner.
-    transports: tuple[TransportLifecycle, ...] = (
-        internals.collaborators.web_transport,
-        source_uploader,
-        *android_transports,
-    )
-    loop_participants: tuple[LoopParticipant, ...] = (
-        internals.collaborators.call_supervisor,
-        internals.collaborators.reqid,
-        internals.collaborators.auth_coord,
+    transports = (web.web_transport, web.source_uploader)
+    loop_participants = (
+        shared.call_supervisor,
+        web.reqid,
+        web.auth_coord,
         client.chat,
-        *android_loop_participants,
     )
 
     lifecycle = ClientLifecycle(
-        supervisor=internals.collaborators.call_supervisor,
+        supervisor=shared.call_supervisor,
         transports=transports,
         loop_participants=loop_participants,
     )
     client._collaborators = dataclasses.replace(
-        internals.collaborators,
+        shared,
         _lifecycle=lifecycle,
     )
-    client._composed.bind_runtime_collaborators(client._collaborators)
+    client._rpc_call_deprecation_warned = False
+    web.composed.bind_runtime_collaborators(client._collaborators)

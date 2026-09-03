@@ -34,10 +34,9 @@ src/notebooklm/
 ├── _app/                # Transport-neutral business logic shared by adapters
 │   └── login_browser.py # Markup-free browser-login plan and orchestration
 ├── _browser/            # Optional Playwright-backed credential acquisition
-├── _client_composed.py  # Client-owned composition holder
 ├── _runtime/            # Neutral runtime contracts, config, helpers, init, lifecycle
 ├── _web/contracts.py    # Web-only Kernel and RpcCaller Protocols
-├── _web/transport/      # Web HTTP transport, executor, middleware, auth, persistence
+├── _web/transport/      # Web runtime bundle, composition holder, HTTP transport, middleware
 ├── _web/wire/           # Web batchexecute codecs, overrides, and strict indexing
 ├── _android/            # Android gRPC/Scotty adapters, codecs, and lazy generated protos
 ├── _notebooks.py        # Backend-neutral NotebooksAPI + share-URL builder
@@ -52,9 +51,9 @@ src/notebooklm/
 ├── _web/artifacts.py    # WebArtifactsAPI implementation
 ├── _web/artifact/       # Web artifact listing/generation/download-selection services
 ├── _chat.py             # Backend-neutral ChatAPI orchestration
-├── _research.py         # Lazy ResearchAPI compatibility shim
-├── _web/research.py     # ResearchAPI web implementation
-├── _web/research_import.py # Research import/verification helpers
+├── _research.py         # BaseResearchAPI + shared import classification/workflows
+├── _research_import.py  # Neutral import policies/classification/reconciliation
+├── _web/research.py     # WebResearchAPI wire hooks + verification policy
 ├── _notes.py            # Backend-neutral abstract NotesAPI
 ├── _web/notes.py        # WebNotesAPI + NoteService implementation
 ├── _mind_maps_api.py    # Backend-neutral abstract MindMapsAPI
@@ -106,8 +105,8 @@ src/notebooklm/
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
-│           Raw Web RPC Facade (`rpc/`, Web-specific)         │
-│                __init__.py, types.py (RPCMethod)            │
+│          Raw facades (`raw.py`; `rpc/` IDs are Web-only)    │
+│     WebRawAPI.call or AndroidRawAPI.unary/unary_stream      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -118,7 +117,7 @@ src/notebooklm/
 | **Adapters** | `cli/`, `mcp/`, `server/` | User commands/tools/routes, transport-specific input/output, auth envelopes |
 | **App core** | `_app/*.py` | Transport-neutral workflows reused by adapters |
 | **Client** | `client.py`, `_*.py` | High-level Python API, returns typed dataclasses |
-| **Runtime** | `client.py`, `_client_composed.py`, `_runtime/`, `_web/transport/`, `_android/session.py`, transfer participants | `NotebookLMClient` composition root; protocol-neutral root lifecycle and call supervision; backend resource lifecycles, admission, telemetry, and feature-owned polling/upload state |
+| **Runtime** | `client.py`, `_runtime/`, `_web/transport/`, `_android/session.py`, transfer participants | `NotebookLMClient` composition root; protocol-neutral root lifecycle and call supervision; backend resource lifecycles, admission, telemetry, and feature-owned polling/upload state |
 | **Web wire** | `_web/wire/*.py` | Batchexecute encoding/decoding, runtime ID overrides, strict positional access |
 | **Android wire** | `_android/codecs/`, `_android/proto/` | Lazy generated protobuf contracts, request construction, and public-type projection for selected Android namespaces |
 | **RPC facade** | `rpc/*.py` | Public power-user compatibility exports and method IDs |
@@ -126,7 +125,9 @@ src/notebooklm/
 #### Runtime seam modules
 
 The client runtime is split across `NotebookLMClient` (composition root),
-`ClientComposed` (holder), `_runtime/init.py` (construction helpers),
+`_runtime/init.py` (neutral validation/shared collaborators),
+`_web/transport/init.py` (web bundle construction),
+`_web/transport/composed.py` (`ClientComposed` holder),
 `_web/transport/kernel.py` (HTTP client owner), and single-responsibility collaborator
 modules. (The legacy `_core.py` compatibility shim was deleted in v0.5.0;
 callers import directly from the canonical modules.) Each helper exposes
@@ -134,10 +135,12 @@ a narrow Protocol surface so it can be unit-tested against a stub:
 
 | Module | Class | Responsibility |
 |---|---|---|
-| `_client_composed.py` | `ClientComposed` | Write-once holder for transport, executor, chain host, middleware metadata, and the runtime collaborator bundle. It owns no loop primitive or RPC semaphore. |
-| `_runtime/init.py` | `RuntimeCollaborators` helpers | Validates constructor args, builds collaborators, wires middleware, and binds `ClientComposed`. |
+| `_runtime/init.py` | `SharedRuntime` helpers | Validates constructor args and builds the backend-neutral metrics/supervisor bundle. It imports no backend implementation. |
+| `_web/transport/init.py` | `WebRuntime` helpers | Builds request-id/auth/kernel/persistence/transport only for Web selection or first deprecated sidecar use, wires middleware, and returns the web bundle including executor and uploader. |
+| `_android/runtime.py` | `AndroidRuntime` | Immutable owner bundle for the bearer provider, gRPC session, upload/asset transports, and Phenotype provider. |
+| `_web/transport/sidecar.py` | `LazyWebSidecar` | Pre-registered inert Android lifecycle proxy for deprecated root `rpc_call`; owns one-time Web materialisation, close-race serialization, reopen, and phase delegation without a drain hook or keepalive. |
+| `_web/transport/composed.py` | `ClientComposed` | Write-once holder for web transport, executor, chain host, middleware metadata, and the shared runtime bundle. It owns no loop primitive or RPC semaphore. |
 | `_client_metrics.py` | `ClientMetrics` | `ClientMetricsSnapshot` counters, queue-wait recorders, `on_rpc_event` async callback. |
-| `_transport_drain.py` | `TransportDrainTracker` | Transitional in-flight bookkeeping owned by `CallSupervisor`; it is not the public drain-policy or generation owner. |
 | `_runtime/call_supervisor.py` | `CallSupervisor` | Concrete client-wide admission authority: generation-bearing call/operation leases, drain hooks, admitted child tasks, terminal RPC metrics, and the global RPC semaphore. |
 | `_web/transport/reqid_counter.py` | `ReqidCounter` | Monotonic `_reqid` counter for chat backend (baseline 100000, step 100000). |
 | `_web/transport/auth.py` | `AuthRefreshCoordinator` | Refresh-task lifecycle, refresh lock, `AuthSnapshot` rotation. |
@@ -151,6 +154,7 @@ a narrow Protocol surface so it can be unit-tested against a stub:
 | `_web/transport/errors.py` | transport exceptions, `parse_retry_after`, `raise_mapped_post_error` | Terminal `Kernel.post` error mapping for middleware retry/auth behavior. |
 | `_web/transport/streaming_post.py` | `stream_post_with_size_cap` | Low-level POST streaming and response-size guard. |
 | `_android/session.py` | `AndroidSession` | Selected-Android bearer/gRPC lifecycle participant: lazy channel, deadline/status mapping, and shared `CallSupervisor` admission/telemetry. |
+| `_android/epoch.py` | Android workflow epoch context | Session-tagged task-local epoch propagation shared by Android namespace scope hooks and omitted-epoch session calls. |
 | `_conversation_cache.py` | `ConversationCache` | Per-instance true-LRU conversation cache for `ChatAPI` continuity. Caps the conversation count (`MAX_CONVERSATION_CACHE_SIZE`) and the turns retained per conversation (`MAX_TURNS_PER_CONVERSATION`). |
 | `_polling_registry.py` | `PollRegistry` | Pending-poll registry shared by long-running artifact generations. |
 | `_web/transport/cookie_persistence.py` | `CookiePersistence` | Per-path typed baselines, ordered `ProfileStore` cookie merges, `__Secure-1PSIDTS` rotation, and the concrete v0.x snapshot adapter. |
@@ -200,9 +204,10 @@ The architecture tests encode the current layer contract:
   import manifest. When a docs change adds or removes a supported import path,
   update the manifest in the same PR so public API drift is intentional and
   reviewable. The behavioral half of the public-shim suite (the
-  `select_cited_sources` / `ResearchAPI` back-compat delegations, the
-  `UnknownTypeWarning` filter behaviour, and `NotebookLMClient.rpc_call`
-  forwarding) stays in `tests/unit/test_public_shims.py`.
+  `select_cited_sources` delegation, the Web-only `ResearchAPI` compatibility
+  alias and research import-order boundary, the `UnknownTypeWarning` filter
+  behaviour, and the deprecated `NotebookLMClient.rpc_call`
+  forwarding/warning contract) stays in `tests/unit/test_public_shims.py`.
 - `tests/_guardrails/test_cli_boundary.py` parses `src/notebooklm/cli/**/*.py`
   and rejects CLI imports from `notebooklm._*`, `notebooklm.rpc.*`, or
   `_private` names exposed by public modules. Promote needed symbols through a
@@ -237,9 +242,12 @@ wins over `NOTEBOOKLM_BACKEND`; otherwise Web is the default. Android selection
 installs Android adapters for all eleven typed namespaces together, and
 `client.backends` reports that immutable installed graph. The current Android
 namespace objects have no Web operation collaborators. `client.rpc_call(...)`
-is not backend-neutral: `RPCMethod` values are batchexecute IDs, so that raw
-escape hatch remains Web-specific. See the Android [entry point](android/README.md)
-and [architecture flow](architecture.md#android-grpc-path).
+is deprecated and not backend-neutral: `RPCMethod` values are batchexecute IDs,
+so Android preserves it through a lazy, no-keepalive Web sidecar only during the
+0.x warning window. New code uses the backend-selected `client.raw` property:
+`raw.call(...)` on Web and `raw.unary(...)` / `unary_stream(...)` on Android.
+See the Android [entry point](android/README.md) and
+[architecture flow](architecture.md#android-grpc-path).
 
 **Naming conventions.** See [`docs/conventions.md`](./conventions.md) for the
 canonical tiebreakers on waiting/polling verbs (`poll_X` / `wait_for_X` /

@@ -29,7 +29,7 @@ from notebooklm._android.research import (
 )
 from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._app.research import poll_and_classify
-from notebooklm._research import BaseResearchAPI, ResearchAPI
+from notebooklm._research import BaseResearchAPI
 from notebooklm._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_IMPORT_RESEARCH_BASE_TIMEOUT,
@@ -173,12 +173,12 @@ def test_exact_public_manifest_and_abstract_set() -> None:
         "select_cited_sources",
     }
     assert BaseResearchAPI.__abstractmethods__ == frozenset(
-        {"start", "discover", "poll", "cancel", "import_sources"}
+        {"_send_import", "start", "discover", "poll", "cancel"}
     )
-    assert ResearchAPI is WebResearchAPI
     assert AndroidResearchAPI.__abstractmethods__ == frozenset()
     for name in (
         "wait_for_completion",
+        "import_sources",
         "import_sources_with_verification",
         "extract_report_urls",
         "select_cited_sources",

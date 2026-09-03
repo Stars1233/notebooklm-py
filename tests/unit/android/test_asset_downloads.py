@@ -18,8 +18,7 @@ from notebooklm._android.auth import BearerCredential
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._runtime.call_supervisor import CallSupervisor
 from notebooklm._runtime.lifecycle import TransportLifecycle
-from notebooklm._transport_drain import TransportDrainTracker
-from notebooklm.exceptions import ArtifactDownloadError, UnsupportedOperationError
+from notebooklm.exceptions import ArtifactDownloadError, AuthError
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic-png-body"
 MP4 = b"\x00\x00\x00\x18ftypmp42synthetic-mp4-body"
@@ -180,10 +179,42 @@ class BlockingCloseClient(FakeClient):
             raise RuntimeError("raw close failure")
 
 
+class BlockingExitContext(FakeResponseContext):
+    def __init__(self, outcome: FakeResponse | BaseException) -> None:
+        super().__init__(outcome)
+        self.exit_started = asyncio.Event()
+        self.exit_release = asyncio.Event()
+        self.exit_finished = asyncio.Event()
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.exits += 1
+        self.exit_started.set()
+        await self.exit_release.wait()
+        self.exit_finished.set()
+
+
+class BlockingExitClient(FakeClient):
+    def __init__(self, outcome: FakeResponse | BaseException) -> None:
+        super().__init__([outcome])
+        self.context = BlockingExitContext(outcome)
+
+    def stream(
+        self,
+        method: str,
+        url: str,
+        *,
+        headers: dict[str, str],
+        follow_redirects: bool,
+    ) -> FakeResponseContext:
+        self.requests.append((method, url, dict(headers), follow_redirects))
+        self.outcomes.pop(0)
+        self.contexts.append(self.context)
+        return self.context
+
+
 def _supervisor() -> CallSupervisor:
     return CallSupervisor(
         metrics=ClientMetrics(),
-        drain_tracker=TransportDrainTracker(),
         max_concurrent_rpcs=2,
     )
 
@@ -751,7 +782,7 @@ async def test_untrusted_redirect_rejects_before_next_dispatch(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_hop_limit_is_bounded_and_never_dispatches_a_tenth_request(
+async def test_hop_limit_is_bounded_at_twenty_redirects(
     tmp_path: Path,
 ) -> None:
     client = FakeClient(
@@ -760,7 +791,7 @@ async def test_hop_limit_is_bounded_and_never_dispatches_a_tenth_request(
                 302,
                 headers={"location": f"https://google.com/hop-{hop}?cap=hop-secret-{hop}"},
             )
-            for hop in range(9)
+            for hop in range(21)
         ]
     )
     service, _, _ = await _open_service(client)
@@ -768,7 +799,7 @@ async def test_hop_limit_is_bounded_and_never_dispatches_a_tenth_request(
     with pytest.raises(ArtifactDownloadError, match="too_many_hops"):
         await service.download_url(INITIAL, str(tmp_path / "out.png"))
 
-    assert len(client.requests) == 9
+    assert len(client.requests) == 21
 
 
 @pytest.mark.asyncio
@@ -841,9 +872,9 @@ async def test_bounded_response_failures_preserve_existing_destination(
 async def test_401_invalidates_for_next_caller_without_replay(tmp_path: Path) -> None:
     client = FakeClient([FakeResponse(401)])
     service, bearer, _ = await _open_service(client)
-    with pytest.raises(ArtifactDownloadError) as raised:
+    with pytest.raises(AuthError) as raised:
         await service.download_url(INITIAL, str(tmp_path / "out.png"))
-    assert raised.value.status_code == 401
+    assert "notebooklm login" in str(raised.value)
     assert bearer.invalidations == [17]
     assert len(client.requests) == 1
 
@@ -857,9 +888,9 @@ async def test_signed_gcs_401_does_not_invalidate_lh3_bearer(tmp_path: Path) -> 
         ]
     )
     service, bearer, _ = await _open_service(client)
-    with pytest.raises(ArtifactDownloadError) as raised:
+    with pytest.raises(AuthError) as raised:
         await service.download_url(INITIAL, str(tmp_path / "out.png"))
-    assert raised.value.status_code == 401
+    assert "notebooklm login" in str(raised.value)
     assert bearer.invalidations == []
     assert len(client.requests) == 2
 
@@ -1073,12 +1104,17 @@ async def test_reopen_epoch_fences_old_service_generation_before_dispatch(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_batch_seam_is_explicitly_unsupported() -> None:
-    client = FakeClient([])
+async def test_batch_download_uses_the_neutral_transfer_plane(tmp_path: Path) -> None:
+    client = FakeClient([_png_response()])
     service, _, _ = await _open_service(client)
-    with pytest.raises(UnsupportedOperationError):
-        await service.download_urls_batch([(INITIAL, "out.png")])
-    assert client.requests == []
+    output = tmp_path / "out.png"
+
+    result = await service.download_urls_batch([(INITIAL, str(output))])
+
+    assert result.succeeded == [str(output)]
+    assert result.failed == []
+    assert output.read_bytes() == PNG
+    assert len(client.requests) == 1
 
 
 @pytest.mark.asyncio
@@ -1257,10 +1293,69 @@ async def test_a_retired_or_closing_generation_fails_the_epoch_fence(
     service._active_epoch = active_epoch
 
     with pytest.raises(RuntimeError, match="retired resource generation") as raised:
-        service._assert_epoch(expected)
+        service.assert_epoch(expected)
 
     assert f"expected={expected}" in str(raised.value)
     assert f"active={active_epoch}" in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_retirement_during_bearer_await_preserves_the_lifecycle_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A post-await epoch failure must not be relabeled as a transport error."""
+    client = FakeClient([_png_response()])
+    service, bearer, _ = await _open_service(client)
+
+    async def _retire_while_minting(expected_epoch: int) -> BearerCredential:
+        bearer.calls.append(expected_epoch)
+        await asyncio.sleep(0)
+        service._active_epoch = expected_epoch + 1
+        return BearerCredential(BEARER, generation=17)
+
+    monkeypatch.setattr(bearer, "get", _retire_while_minting)
+
+    with pytest.raises(RuntimeError, match="retired resource generation"):
+        await service.download_url(INITIAL, str(tmp_path / "out.png"))
+
+    assert bearer.calls == [1]
+    assert client.requests == []
+
+
+@pytest.mark.asyncio
+async def test_retirement_after_streaming_preserves_the_lifecycle_failure(
+    tmp_path: Path,
+) -> None:
+    """The pre-publish fence must not be relabeled as a transport error."""
+    response = _png_response(chunks=[PNG])
+    client = FakeClient([response])
+    service, _, _ = await _open_service(client)
+    destination = tmp_path / "out.png"
+
+    async def _retire_after_body():
+        yield PNG
+        service._active_epoch = 2
+
+    response.aiter_bytes = _retire_after_body  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="retired resource generation"):
+        await service.download_url(INITIAL, str(destination))
+
+    assert not destination.exists()
+    assert list(tmp_path.glob(".*.part")) == []
+    assert client.contexts[0].exits == 1
+
+
+def test_android_downloads_disable_exception_cause_chaining_at_construction() -> None:
+    """Neither Android single nor batch transfers should build a URL-bearing cause."""
+    service = AndroidAssetDownloadService(
+        bearer_provider=FakeBearer(),  # type: ignore[arg-type]
+        supervisor=_supervisor(),
+        client_factory=lambda: FakeClient([]),
+    )
+
+    assert service._chain is False
 
 
 @pytest.mark.asyncio
@@ -1268,7 +1363,7 @@ async def test_the_matching_open_generation_passes_the_epoch_fence() -> None:
     """Guards the test above from passing because the fence rejects everything."""
     service, _, _ = await _open_service(FakeClient([]), epoch=4)
 
-    assert service._assert_epoch(4) is None
+    assert service.assert_epoch(4) is None
 
 
 @pytest.mark.asyncio
@@ -1389,6 +1484,96 @@ async def test_a_second_close_cancellation_does_not_displace_the_first() -> None
     assert raised.value.args == (("first",) if sys.version_info >= (3, 11) else ())
     assert raised.value.args != ("second",)
     assert client.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_transfer_cancellation_waits_for_response_exit_and_preserves_first_request(
+    tmp_path: Path,
+) -> None:
+    client = BlockingExitClient(_png_response())
+    service, _, _ = await _open_service(client)
+    destination = tmp_path / "published-before-response-exit.png"
+
+    transfer = asyncio.create_task(service.download_url(INITIAL, str(destination)))
+    await client.context.exit_started.wait()
+    assert destination.read_bytes() == PNG, "publication precedes advisory response teardown"
+
+    transfer.cancel("first")
+    await asyncio.sleep(0)
+    transfer.cancel("second")
+    await asyncio.sleep(0)
+    assert not transfer.done(), "response teardown remains strongly retained"
+
+    client.context.exit_release.set()
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await transfer
+
+    assert raised.value.args == (("first",) if sys.version_info >= (3, 11) else ())
+    assert raised.value.args != ("second",)
+    assert client.context.exit_finished.is_set()
+    assert client.context.exits == 1
+    assert client.closed == 1
+    assert service._clients == set()
+    assert service._tasks == set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("batch", [False, True], ids=["single", "batch"])
+async def test_transfer_cancellation_waits_for_client_close_and_preserves_first_request(
+    tmp_path: Path,
+    batch: bool,
+) -> None:
+    client = BlockingCloseClient()
+    client.outcomes.append(_png_response())
+    service, _, _ = await _open_service(client)
+    destination = tmp_path / f"published-before-{'batch' if batch else 'single'}-close.png"
+
+    if batch:
+        transfer = asyncio.create_task(service.download_urls_batch([(INITIAL, str(destination))]))
+    else:
+        transfer = asyncio.create_task(service.download_url(INITIAL, str(destination)))
+    await client.close_started.wait()
+    assert destination.read_bytes() == PNG, "publication precedes advisory client teardown"
+
+    transfer.cancel("first")
+    await asyncio.sleep(0)
+    transfer.cancel("second")
+    await asyncio.sleep(0)
+    assert not transfer.done(), "client teardown remains strongly retained"
+
+    client.close_release.set()
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await transfer
+
+    assert raised.value.args == (("first",) if sys.version_info >= (3, 11) else ())
+    assert raised.value.args != ("second",)
+    assert client.closed == 1
+    assert service._clients == set()
+    assert service._tasks == set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["response", "client"])
+async def test_cleanup_originated_cancellation_is_not_advisory(
+    tmp_path: Path,
+    origin: str,
+) -> None:
+    cancellation = asyncio.CancelledError(f"{origin} cleanup cancelled")
+    if origin == "response":
+        client: FakeClient = ExitFailingClient([_png_response()], error=cancellation)
+    else:
+        client = CloseFailingClient([_png_response()], error=cancellation)
+    service, _, _ = await _open_service(client)
+    destination = tmp_path / f"published-before-{origin}-cancellation.png"
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        await service.download_url(INITIAL, str(destination))
+
+    assert raised.value is cancellation
+    assert destination.read_bytes() == PNG
+    assert client.closed == 1
+    assert service._clients == set()
+    assert service._tasks == set()
 
 
 # ---------------------------------------------------------------------------
@@ -1555,7 +1740,9 @@ async def test_an_undeletable_partial_file_does_not_replace_the_real_failure(
         [FakeResponse(200, headers={"content-type": "image/png"}, chunks=[b"not a png"])]
     )
     service, _, _ = await _open_service(client)
-    monkeypatch.setattr(assets_module.Path, "unlink", _refuse_unlink)
+    from notebooklm._artifact import _guarded_transfer
+
+    monkeypatch.setattr(_guarded_transfer.Path, "unlink", _refuse_unlink)
 
     with pytest.raises(ArtifactDownloadError, match="code=signature"):
         await service.download_url(INITIAL, str(tmp_path / "out.png"))

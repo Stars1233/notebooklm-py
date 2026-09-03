@@ -3,23 +3,23 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import Any, cast
 
-from .._idempotency import mark_unconfirmed
+from .._idempotency import call_unconfirmed_on_transport_loss, mark_unconfirmed
 from .._notebook_metadata import NotebookSourceLister
-from .._research import _INITIAL_INTERVAL_UNSET, BaseResearchAPI, validate_discover
+from .._research import BaseResearchAPI, validate_discover
+from .._research_import import _ANDROID_RESEARCH_IMPORT_POLICY, _ResearchImportBatch
+from .._runtime.call_supervisor import OperationLease
 from .._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_TIMEOUT,
     resolve_import_research_read_timeout,
 )
 from .._types.research import (
-    RESEARCH_RESULT_TYPE_REPORT,
     RESEARCH_SOURCE_TYPE_WEB,
     RESEARCH_STATUS_CODE_COMPLETED,
-    ResearchSource,
-    ResearchSourceInput,
     ResearchStart,
     ResearchStatus,
     ResearchTask,
@@ -28,7 +28,6 @@ from ..exceptions import (
     DecodingError,
     NetworkError,
     RateLimitError,
-    ResearchTaskMismatchError,
     ServerError,
     ValidationError,
 )
@@ -37,9 +36,9 @@ from .codecs.research import (
     decode_discovered_source,
     decode_research_jobs,
 )
+from .epoch import bind_workflow_epoch, reset_workflow_epoch
 from .session import AndroidSession
 from .upload import android_request_context
-from .write_safety import call_unconfirmed_on_transport_loss
 
 
 def _proto() -> Any:
@@ -102,6 +101,17 @@ def _validate_start(source: str, mode: str, query: str) -> tuple[str, str]:
 class AndroidResearchAPI(BaseResearchAPI):
     """Android bearer-gRPC adapter for the complete public Research contract."""
 
+    _import_policy = _ANDROID_RESEARCH_IMPORT_POLICY
+
+    @asynccontextmanager
+    async def _operation_scope(self, label: str) -> AsyncIterator[OperationLease]:
+        async with self._transport.operation_scope(label) as lease:
+            token = bind_workflow_epoch(self._transport, lease.epoch)
+            try:
+                yield lease
+            finally:
+                reset_workflow_epoch(token)
+
     def __init__(
         self,
         session: AndroidSession,
@@ -143,7 +153,10 @@ class AndroidResearchAPI(BaseResearchAPI):
                     replay_safe=False,
                     response_type=_proto().DiscoverSourcesResponse,
                     expected_epoch=lease.epoch,
-                )
+                ),
+                method=DISCOVER_SOURCES_METHOD,
+                what="DiscoverSources",
+                chain=None,
             )
             try:
                 task_id = response.discover_sources_feedback_key.discover_sources_id
@@ -196,7 +209,10 @@ class AndroidResearchAPI(BaseResearchAPI):
                         replay_safe=False,
                         response_type=_proto().DiscoverSourcesManifoldResponse,
                         expected_epoch=lease.epoch,
-                    )
+                    ),
+                    method=START_FAST_METHOD,
+                    what="DiscoverSourcesManifold",
+                    chain=None,
                 )
                 try:
                     run_id = _canonical_uuid(
@@ -217,7 +233,10 @@ class AndroidResearchAPI(BaseResearchAPI):
                     replay_safe=False,
                     response_type=_proto().DiscoverSourcesAsyncResponse,
                     expected_epoch=lease.epoch,
-                )
+                ),
+                method=START_DEEP_METHOD,
+                what="DiscoverSourcesAsync",
+                chain=None,
             )
             try:
                 run_id = _canonical_uuid(
@@ -262,22 +281,6 @@ class AndroidResearchAPI(BaseResearchAPI):
                 return self._public_poll_result(selected_task, tasks)
             return ResearchTask.not_found(task_id) if task_id else ResearchTask.empty()
 
-    async def _wait_for_completion(
-        self,
-        notebook_id: str,
-        task_id: str | None = None,
-        *,
-        timeout: float = 1800,
-        initial_interval: float = _INITIAL_INTERVAL_UNSET,
-    ) -> ResearchTask:
-        async with self._transport.operation_scope("research.wait_for_completion"):
-            return await super()._wait_for_completion(
-                notebook_id,
-                task_id,
-                timeout=timeout,
-                initial_interval=initial_interval,
-            )
-
     async def cancel(self, notebook_id: str, run_id: str) -> None:
         run_id = _validated_run_id(run_id)
         async with self._transport.operation_scope("research.cancel") as lease:
@@ -304,53 +307,35 @@ class AndroidResearchAPI(BaseResearchAPI):
                     return
                 raise mark_unconfirmed(exc) from None
 
-    async def import_sources(
+    async def _send_import(
         self,
         notebook_id: str,
-        task_id: str,
-        sources: Sequence[ResearchSourceInput],
+        batch: _ResearchImportBatch,
         *,
-        _remaining_budget: float | None = None,
+        _remaining_budget: float | None,
     ) -> list[dict[str, str]]:
-        if not sources:
-            return []
-        run_id = _validated_run_id(task_id)
-        entries = []
-        for raw in list(sources):
-            source = (
-                raw if isinstance(raw, ResearchSource) else ResearchSource.from_public_dict(raw)
+        entries = [
+            _source_proto().UserContent(
+                text_content=_source_proto().TextContent(
+                    source_name=item.source.title,
+                    content=item.source.report_markdown,
+                ),
+                text_content_type=_source_proto().UserContent.CONTENT_TYPE_MARKDOWN,
             )
-            if source.research_task_id and source.research_task_id != run_id:
-                raise ResearchTaskMismatchError(
-                    task_id=run_id,
-                    source_research_task_id=source.research_task_id,
+            if item.kind == "report"
+            else _source_proto().UserContent(
+                web_content=_source_proto().WebContent(
+                    url=item.source.url,
+                    source_name=item.source.title,
                 )
-            if source.result_type == RESEARCH_RESULT_TYPE_REPORT and source.report_markdown:
-                entries.append(
-                    _source_proto().UserContent(
-                        text_content=_source_proto().TextContent(
-                            source_name=source.title,
-                            content=source.report_markdown,
-                        ),
-                        text_content_type=_source_proto().UserContent.CONTENT_TYPE_MARKDOWN,
-                    )
-                )
-            elif source.url:
-                entries.append(
-                    _source_proto().UserContent(
-                        web_content=_source_proto().WebContent(
-                            url=source.url,
-                            source_name=source.title,
-                        )
-                    )
-                )
-        if not entries:
-            return []
+            )
+            for item in batch.items
+        ]
         async with self._transport.operation_scope("research.import_sources") as lease:
             response = await self._transport.unary(
                 FINISH_RUN_METHOD,
                 _proto().FinishDiscoverSourcesRunRequest(
-                    source_discovery_job_id=run_id,
+                    source_discovery_job_id=batch.task_id,
                     project_id=notebook_id,
                     user_content=entries,
                 ),
@@ -369,30 +354,6 @@ class AndroidResearchAPI(BaseResearchAPI):
                 for header in response.sources
                 if header.HasField("source_id") and header.source_id.id
             ]
-
-    async def _import_sources_with_verification(
-        self,
-        notebook_id: str,
-        task_id: str,
-        sources: Sequence[ResearchSourceInput],
-        *,
-        max_elapsed: float = 1800,
-        initial_delay: float = 5,
-        backoff_factor: float = 2,
-        max_delay: float = 60,
-        allow_duplicate: bool = False,
-    ) -> list[dict[str, str]]:
-        async with self._transport.operation_scope("research.import_sources_with_verification"):
-            return await super()._import_sources_with_verification(
-                notebook_id,
-                task_id,
-                sources,
-                max_elapsed=max_elapsed,
-                initial_delay=initial_delay,
-                backoff_factor=backoff_factor,
-                max_delay=max_delay,
-                allow_duplicate=allow_duplicate,
-            )
 
 
 __all__ = ["AndroidResearchAPI"]

@@ -598,13 +598,14 @@ async def test_cold_and_live_l4_recovery_share_one_master_token_mint(tmp_path, m
     )
     async with NotebookLMClient(live_auth) as client:
         collaborators = client._collaborators
+        web = client._web_runtime
         lifecycle = collaborators.lifecycle
         generation = collaborators.call_supervisor._current
         expected_epoch = lifecycle._epoch
         assert lifecycle.is_open()
         assert expected_epoch > 0
         assert generation is not None and generation.epoch == expected_epoch
-        assert collaborators.kernel._active_epoch == expected_epoch
+        assert web.kernel._active_epoch == expected_epoch
 
         with patch.object(
             MintService,
@@ -624,7 +625,7 @@ async def test_cold_and_live_l4_recovery_share_one_master_token_mint(tmp_path, m
             live = asyncio.create_task(
                 session_mod._try_master_token_reauth(
                     auth=live_auth,
-                    kernel=collaborators.kernel,
+                    kernel=web.kernel,
                     expected_epoch=expected_epoch,
                 )
             )
@@ -637,7 +638,7 @@ async def test_cold_and_live_l4_recovery_share_one_master_token_mint(tmp_path, m
         assert live_result is True
         assert cold_result.cookie_jar.get("SID", domain=".google.com") == "fresh"
         assert (
-            collaborators.kernel.get_http_client(expected_epoch=expected_epoch).cookies.get(
+            web.kernel.get_http_client(expected_epoch=expected_epoch).cookies.get(
                 "SID", domain=".google.com"
             )
             == "fresh"

@@ -57,9 +57,6 @@ def mock_core():
     core.authuser_header = MagicMock(
         side_effect=lambda: _authuser_header(core.auth.authuser, core.auth.account_email)
     )
-    core._drain_tracker = MagicMock()
-    core._drain_tracker.begin_transport_post = AsyncMock(return_value=object())
-    core._drain_tracker.finish_transport_post = AsyncMock()
     core.operation_scope = MagicMock()
 
     def operation_scope(_label):
@@ -1538,10 +1535,12 @@ class TestAddFile:
         assert result.id == "src_doc"
         assert result.title == "doc.txt"
         warning_records = [
-            rec for rec in caplog.records if "rename to 'Custom' failed" in rec.message
+            rec for rec in caplog.records if "title finalization failed" in rec.message
         ]
-        assert warning_records
-        assert warning_records[0].exc_info is not None
+        assert len(warning_records) == 1
+        assert "Custom" not in caplog.text
+        assert str(rename_error) not in caplog.text
+        assert warning_records[0].exc_info is None
 
     @pytest.mark.asyncio
     async def test_add_file_with_title_preserves_waited_metadata(

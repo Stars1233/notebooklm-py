@@ -15,7 +15,6 @@ from notebooklm._auth.storage import snapshot_cookie_jar
 from notebooklm._runtime.config import CORE_LOGGER_NAME
 from notebooklm._runtime.helpers import _resolve_keepalive_interval
 from notebooklm._runtime.lifecycle import ClientLifecycle
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm._web.transport.kernel import Kernel
 from notebooklm._web.transport.lifecycle import (
     WebTransportLifecycle,
@@ -534,41 +533,33 @@ def test_assembly_selects_default_and_custom_web_rotators() -> None:
     custom_rotator = AsyncMock(return_value=None)
     custom_client = build_client_shell_for_tests(auth, cookie_rotator=custom_rotator)
 
-    assert default_client._collaborators.web_transport._cookie_rotator is _default_cookie_rotator
-    assert custom_client._collaborators.web_transport._cookie_rotator is custom_rotator
+    assert default_client._web_runtime.web_transport._cookie_rotator is _default_cookie_rotator
+    assert custom_client._web_runtime.web_transport._cookie_rotator is custom_rotator
 
 
 def test_production_assembly_freezes_exact_root_ownership_graph() -> None:
     auth = AuthTokens(csrf_token="CSRF", session_id="SID", cookies={"SID": "v1"})
     client = build_client_shell_for_tests(auth)
     collaborators = client._collaborators
+    web = client._web_runtime
     lifecycle = collaborators.lifecycle
 
     assert lifecycle._supervisor is collaborators.call_supervisor
     assert lifecycle._transports == (
-        collaborators.web_transport,
-        client._source_uploader,
+        web.web_transport,
+        web.source_uploader,
     )
     assert lifecycle._loop_participants == (
         collaborators.call_supervisor,
-        collaborators.reqid,
-        collaborators.auth_coord,
+        web.reqid,
+        web.auth_coord,
         client.chat,
     )
-    assert lifecycle._transports.count(client._source_uploader) == 1
-    assert client._source_uploader not in lifecycle._loop_participants
+    assert lifecycle._transports.count(web.source_uploader) == 1
+    assert web.source_uploader not in lifecycle._loop_participants
     assert client.sources._supervisor is collaborators.call_supervisor
-    assert client._source_uploader._supervisor is collaborators.call_supervisor
-    assert client._source_uploader._rpc is client._rpc_executor
-    assert client._source_uploader._kernel is collaborators.kernel
-    assert client._composed.runtime_collaborators is collaborators
-    assert client._composed.runtime_collaborators.lifecycle is lifecycle
-
-
-def test_drain_tracker_reset_after_open_clears_draining_flag() -> None:
-    tracker = TransportDrainTracker()
-    tracker._draining = True
-
-    tracker.reset_after_open()
-
-    assert tracker._draining is False
+    assert web.source_uploader._supervisor is collaborators.call_supervisor
+    assert web.source_uploader._rpc is web.executor
+    assert web.source_uploader._kernel is web.kernel
+    assert web.composed.runtime_collaborators is collaborators
+    assert web.composed.runtime_collaborators.lifecycle is lifecycle

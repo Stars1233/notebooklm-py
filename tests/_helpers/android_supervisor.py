@@ -7,9 +7,9 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
+from notebooklm._android.epoch import workflow_epoch_for
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 
 Handler = Callable[[Any, dict[str, Any]], Any]
 
@@ -18,9 +18,9 @@ class SupervisedAndroidTransport:
     """Dispatch fake unary calls through the production admission supervisor."""
 
     def __init__(self) -> None:
+        self._workflow_session_id = object()
         self.supervisor = CallSupervisor(
             metrics=ClientMetrics(),
-            drain_tracker=TransportDrainTracker(),
             max_concurrent_rpcs=None,
         )
         self.supervisor.set_bound_loop(asyncio.get_running_loop())
@@ -34,11 +34,14 @@ class SupervisedAndroidTransport:
         return self.supervisor.operation_scope(label, **kwargs)
 
     async def unary(self, method: str, request: Any, **kwargs: Any) -> Any:
+        expected_epoch = kwargs.get("expected_epoch")
+        if expected_epoch is None:
+            expected_epoch = workflow_epoch_for(self)
         async with self.supervisor.call_scope(
             method,
             None,
             None,
-            expected_epoch=kwargs.get("expected_epoch"),
+            expected_epoch=expected_epoch,
         ):
             self.calls.append((method, request, kwargs))
             result = self.handlers[method]

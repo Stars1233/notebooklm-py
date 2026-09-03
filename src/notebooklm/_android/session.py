@@ -5,21 +5,30 @@ from __future__ import annotations
 import asyncio
 import importlib
 import logging
-import math
 import time
 from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, Generic, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
-from .._deadline import RuntimeDeadline
+from .._backoff import (
+    RETRY_BACKOFF_BASE_SECONDS,
+    RETRY_BACKOFF_CAP_SECONDS,
+    RETRY_BACKOFF_JITTER_RATIO,
+    RETRY_BACKOFF_MIN_SECONDS,
+    compute_backoff_delay,
+)
+from .._deadline import RuntimeDeadline, await_with_deadline
 from .._loop_affinity import assert_bound_loop
-from .._loop_bound import LoopBoundPrimitive
+from .._loop_bound import EpochFenced
+from .._runtime.auth_refresh_retry import RefreshBudget, refresh_and_count
 from .._runtime.call_supervisor import CallLease, CallSupervisor, OperationLease
-from .._runtime.config import DEFAULT_CHAT_RESPONSE_MAX_BYTES
+from .._runtime.config import CORE_LOGGER_NAME, DEFAULT_CHAT_RESPONSE_MAX_BYTES
+from .._runtime.helpers import is_auth_error, resolve_sleep
 from ..exceptions import MissingDependencyError, RPCResponseTooLargeError
 from .auth import BearerCredential, BearerProvider
+from .epoch import workflow_epoch_for
 from .errors import (
     GrpcStatus,
     grpc_status,
@@ -27,9 +36,14 @@ from .errors import (
     raise_grpc_status,
     sanitize_escaping_exception,
 )
+from .retry_policy import replay_safe_for
 
 ReqT = TypeVar("ReqT")
 RespT = TypeVar("RespT")
+
+RequestSerializer = Callable[[ReqT], bytes]
+ResponseDeserializer = Callable[[bytes], RespT]
+ResponseSizer = Callable[[RespT], int]
 
 ANDROID_GRPC_TARGET = "notebooklm-pa.googleapis.com:443"
 # grpcio otherwise enforces a 4 MiB receive ceiling before this library can
@@ -53,6 +67,10 @@ _ANDROID_NOTES_PROTO = (
     "notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1.notes_pb2"
 )
 logger = logging.getLogger(__name__)
+retry_logger = logging.getLogger(CORE_LOGGER_NAME)
+
+if TYPE_CHECKING:
+    from .._client_metrics import ClientMetrics
 
 
 class _DefaultTelemetry(Enum):
@@ -60,6 +78,66 @@ class _DefaultTelemetry(Enum):
 
 
 _DEFAULT_TELEMETRY = _DefaultTelemetry.METHOD
+
+
+class _RetryClass(Enum):
+    AUTH = auto()
+    RATE_LIMIT = auto()
+    SERVER = auto()
+
+
+_RAW_REPLAY_CAPABILITY = object()
+
+
+@dataclass(frozen=True)
+class _RawReplayClassification:
+    """Explicit replay decision carried only by the public raw adapter.
+
+    Typed adapters never construct this capability and therefore remain bound
+    to the total Android method manifest below.  Raw method paths are unknown
+    by definition, so their descriptor supplies the separate, fail-closed
+    classification required by the public escape hatch.
+    """
+
+    replay_safe: bool
+    capability: object
+
+
+def classify_raw_replay(replay_safe: bool) -> _RawReplayClassification:
+    """Create the private capability used for an explicitly classified raw call."""
+
+    if type(replay_safe) is not bool:
+        raise TypeError("raw replay classification must be bool")
+    return _RawReplayClassification(replay_safe, _RAW_REPLAY_CAPABILITY)
+
+
+def _resolve_replay_safe(
+    method: str,
+    replay_safe: bool,
+    operation_variant: str | None,
+    raw_replay: _RawReplayClassification | None,
+) -> bool:
+    if raw_replay is not None:
+        if raw_replay.capability is not _RAW_REPLAY_CAPABILITY:
+            raise ValueError("invalid raw replay classification")
+        policy_replay_safe = raw_replay.replay_safe
+        if replay_safe is not policy_replay_safe:
+            raise ValueError(
+                f"Android RPC replay_safe={replay_safe} disagrees with raw classification "
+                f"{policy_replay_safe} for {method}"
+            )
+        return policy_replay_safe
+
+    del operation_variant
+    return replay_safe_for(method, replay_safe)
+
+
+_GRPC_RETRY_CLASS = {
+    8: _RetryClass.RATE_LIMIT,
+    13: _RetryClass.SERVER,
+    14: _RetryClass.SERVER,
+    16: _RetryClass.AUTH,
+}
 
 
 class _DeadlineSignal(Exception):
@@ -81,6 +159,20 @@ class _AttemptSuccess(Generic[RespT]):
 class _AttemptFailure:
     status: GrpcStatus
     bearer_generation: int | None
+
+
+def _grpc_status_error(
+    status: GrpcStatus,
+    *,
+    method: str,
+    timeout_seconds: float | None,
+) -> Exception:
+    """Build the public sanitized status error without retaining a wire cause."""
+
+    try:
+        raise_grpc_status(status, method=method, timeout_seconds=timeout_seconds)
+    except Exception as error:
+        return error
 
 
 def _default_grpc_loader(
@@ -112,25 +204,6 @@ def _default_protobuf_loader(
         raise MissingDependencyError(_ANDROID_PROTOBUF_EXTRA) from None
 
 
-async def _await_with_deadline(
-    awaitable: Awaitable[RespT],
-    deadline: RuntimeDeadline | None,
-) -> RespT:
-    if deadline is None:
-        return await awaitable
-    timed_out = False
-    try:
-        return await asyncio.wait_for(awaitable, timeout=deadline.remaining())
-    # Before Python 3.11 ``asyncio.TimeoutError`` is distinct from the
-    # built-in ``TimeoutError``. Catch the asyncio spelling so every supported
-    # interpreter reaches the same Android deadline translation below.
-    except asyncio.TimeoutError:
-        timed_out = True
-    if timed_out:  # pragma: no branch - documents the exception translation boundary
-        raise _DeadlineSignal
-    raise AssertionError("deadline wait exited without a result")  # pragma: no cover
-
-
 class _Serializable(Protocol):
     def SerializeToString(self) -> bytes: ...
 
@@ -145,7 +218,7 @@ def _serialize_message(message: object) -> bytes:
 MetadataAugmentor = Callable[[str], Awaitable[Sequence[tuple[str, str | bytes]]]]
 
 
-class AndroidSession(LoopBoundPrimitive):
+class AndroidSession(EpochFenced):
     """One lazy gRPC channel plus protocol-neutral call supervision."""
 
     name = "android"
@@ -156,22 +229,34 @@ class AndroidSession(LoopBoundPrimitive):
         call_supervisor: CallSupervisor,
         *,
         timeout: float | None = 30.0,
+        rate_limit_max_retries: int = 3,
+        server_error_max_retries: int = 3,
+        refresh_retry_delay: float = 0.2,
+        metrics: ClientMetrics | None = None,
+        sleep: Callable[[float], Awaitable[object]] | None = None,
         grpc_loader: Callable[[], Any] = _default_grpc_loader,
         protobuf_loader: Callable[[], Any] = _default_protobuf_loader,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
+        super().__init__(
+            "Android transport call belongs to a retired resource generation",
+            assert_loop=True,
+        )
         self._bearer_provider = bearer_provider
         self._call_supervisor = call_supervisor
         self._timeout = timeout
+        self._rate_limit_max_retries = rate_limit_max_retries
+        self._server_error_max_retries = server_error_max_retries
+        self._refresh_retry_delay = refresh_retry_delay
+        self._metrics = metrics
+        self._sleep = sleep
         self._grpc_loader = grpc_loader
         self._protobuf_loader = protobuf_loader
         self._monotonic = monotonic
-        self._bound_loop: asyncio.AbstractEventLoop | None = None
-        self._active_epoch: int | None = None
-        self._closing = False
+        self._workflow_session_id = object()
         self._connection_lock: asyncio.Lock | None = None
         self._channel: Any | None = None
-        self._callables: dict[tuple[str, str, type[Any]], Any] = {}
+        self._callables: dict[tuple[str, str, int, int], Any] = {}
 
     @property
     def active_epoch(self) -> int | None:
@@ -201,17 +286,15 @@ class AndroidSession(LoopBoundPrimitive):
         # namespace. Channel construction remains lazy until the first call.
         self._grpc_loader()
         self._protobuf_loader()
-        self._active_epoch = epoch
-        self._closing = False
-        await self._bearer_provider.activate(epoch)
+        self.activate(epoch)
+        await self._bearer_provider.activate_for_epoch(epoch)
 
     async def prepare_close(self) -> None:
         """Fence new channel/token publication before the first await."""
 
         if self._bound_loop is not None:
             assert_bound_loop(self._bound_loop)
-        self._closing = True
-        self._active_epoch = None
+        self.fence()
         await self._bearer_provider.prepare_close()
 
     async def close_resources(self) -> None:
@@ -236,11 +319,21 @@ class AndroidSession(LoopBoundPrimitive):
         assert_bound_loop(self._bound_loop)
         return epoch
 
+    def _resolve_expected_epoch(self, expected_epoch: int | None) -> int:
+        """Resolve explicit or task-local workflow fencing for one call."""
+
+        active_epoch = self._require_active()
+        if expected_epoch is None:
+            expected_epoch = workflow_epoch_for(self)
+        if expected_epoch is None:
+            return active_epoch
+        if expected_epoch != active_epoch:
+            self.assert_epoch(expected_epoch)
+        return expected_epoch
+
     def _deadline(self, timeout: float | None) -> RuntimeDeadline | None:
         resolved = self._timeout if timeout is None else timeout
-        if resolved is None or not math.isfinite(float(resolved)):
-            return None
-        return RuntimeDeadline.start(float(resolved), monotonic=self._monotonic)
+        return RuntimeDeadline.from_timeout(resolved, monotonic=self._monotonic)
 
     @staticmethod
     def _telemetry_method(
@@ -257,7 +350,7 @@ class AndroidSession(LoopBoundPrimitive):
         expected_epoch: int,
         deadline: RuntimeDeadline | None,
     ) -> Any:
-        self._assert_epoch(expected_epoch)
+        self.assert_epoch(expected_epoch)
         channel = self._channel
         if channel is not None:
             return channel
@@ -266,9 +359,9 @@ class AndroidSession(LoopBoundPrimitive):
         if lock is None:
             lock = asyncio.Lock()
             self._connection_lock = lock
-        await _await_with_deadline(lock.acquire(), deadline)
+        await await_with_deadline(lock.acquire(), deadline, on_timeout=_DeadlineSignal)
         try:
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             channel = self._channel
             if channel is None:
                 grpc = self._grpc_loader()
@@ -278,19 +371,11 @@ class AndroidSession(LoopBoundPrimitive):
                     credentials,
                     options=_ANDROID_GRPC_CHANNEL_OPTIONS,
                 )
-                self._assert_epoch(expected_epoch)
+                self.assert_epoch(expected_epoch)
                 self._channel = channel
             return channel
         finally:
             lock.release()
-
-    def _assert_epoch(self, expected_epoch: int) -> None:
-        assert_bound_loop(self._bound_loop)
-        if self._closing or self._active_epoch != expected_epoch:
-            raise RuntimeError(
-                "Android transport call belongs to a retired resource generation "
-                f"(expected={expected_epoch}, active={self._active_epoch})."
-            )
 
     def operation_scope(
         self,
@@ -300,12 +385,10 @@ class AndroidSession(LoopBoundPrimitive):
     ) -> AbstractAsyncContextManager[OperationLease]:
         """Expose the one supervisor-owned workflow admission seam."""
 
-        return self._call_supervisor.operation_scope(label, expected_epoch=expected_epoch)
-
-    def assert_epoch(self, expected_epoch: int) -> None:
-        """Reject a workflow lease from a retired resource generation."""
-
-        self._assert_epoch(expected_epoch)
+        return self._call_supervisor.operation_scope(
+            label,
+            expected_epoch=self._resolve_expected_epoch(expected_epoch),
+        )
 
     async def prepare_metadata(
         self,
@@ -340,11 +423,11 @@ class AndroidSession(LoopBoundPrimitive):
     ) -> tuple[tuple[str, str | bytes], ...]:
         credential: BearerCredential | None = None
         try:
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             credential = await self._bearer_provider.get(expected_epoch=expected_epoch)
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             metadata = tuple(await metadata_augmentor(credential.token))
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             return metadata
         finally:
             del credential
@@ -352,48 +435,76 @@ class AndroidSession(LoopBoundPrimitive):
     async def _unary_callable(
         self,
         method: str,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         *,
         expected_epoch: int,
         deadline: RuntimeDeadline | None,
+        request_serializer: RequestSerializer[ReqT] | None,
+        response_deserializer: ResponseDeserializer[RespT] | None,
     ) -> Any:
         channel = await self._ensure_channel(
             expected_epoch=expected_epoch,
             deadline=deadline,
         )
-        key = ("unary", method, response_type)
+        serializer = request_serializer or _serialize_message
+        if response_deserializer is None:
+            if response_type is None:
+                raise TypeError("response_type or response_deserializer is required")
+            deserializer = cast(
+                ResponseDeserializer[RespT],
+                cast(Any, response_type).FromString,
+            )
+            deserializer_key: object = response_type
+        else:
+            deserializer = response_deserializer
+            deserializer_key = response_deserializer
+        key = ("unary", method, id(serializer), id(deserializer_key))
         callable_ = self._callables.get(key)
         if callable_ is None:
             callable_ = channel.unary_unary(
                 method,
-                request_serializer=_serialize_message,
-                response_deserializer=cast(Any, response_type).FromString,
+                request_serializer=serializer,
+                response_deserializer=deserializer,
             )
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             self._callables[key] = callable_
         return callable_
 
     async def _stream_callable(
         self,
         method: str,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         *,
         expected_epoch: int,
         deadline: RuntimeDeadline | None,
+        request_serializer: RequestSerializer[ReqT] | None,
+        response_deserializer: ResponseDeserializer[RespT] | None,
     ) -> Any:
         channel = await self._ensure_channel(
             expected_epoch=expected_epoch,
             deadline=deadline,
         )
-        key = ("stream", method, response_type)
+        serializer = request_serializer or _serialize_message
+        if response_deserializer is None:
+            if response_type is None:
+                raise TypeError("response_type or response_deserializer is required")
+            deserializer = cast(
+                ResponseDeserializer[RespT],
+                cast(Any, response_type).FromString,
+            )
+            deserializer_key: object = response_type
+        else:
+            deserializer = response_deserializer
+            deserializer_key = response_deserializer
+        key = ("stream", method, id(serializer), id(deserializer_key))
         callable_ = self._callables.get(key)
         if callable_ is None:
             callable_ = channel.unary_stream(
                 method,
-                request_serializer=_serialize_message,
-                response_deserializer=cast(Any, response_type).FromString,
+                request_serializer=serializer,
+                response_deserializer=deserializer,
             )
-            self._assert_epoch(expected_epoch)
+            self.assert_epoch(expected_epoch)
             self._callables[key] = callable_
         return callable_
 
@@ -402,23 +513,29 @@ class AndroidSession(LoopBoundPrimitive):
         lease: CallLease,
         method: str,
         request: ReqT,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         metadata_augmentor: MetadataAugmentor | None = None,
+        caller_metadata: Sequence[tuple[str, str | bytes]] = (),
+        request_serializer: RequestSerializer[ReqT] | None = None,
+        response_deserializer: ResponseDeserializer[RespT] | None = None,
     ) -> _AttemptSuccess[RespT] | _AttemptFailure:
         credential: BearerCredential | None = None
-        metadata: tuple[tuple[str, str | bytes], ...] | None = None
+        wire_metadata: tuple[tuple[str, str | bytes], ...] | None = None
         wire_call: Awaitable[RespT] | None = None
         try:
             try:
-                credential = await _await_with_deadline(
+                credential = await await_with_deadline(
                     self._bearer_provider.get(expected_epoch=lease.epoch),
                     lease.deadline,
+                    on_timeout=_DeadlineSignal,
                 )
                 callable_ = await self._unary_callable(
                     method,
                     response_type,
                     expected_epoch=lease.epoch,
                     deadline=lease.deadline,
+                    request_serializer=request_serializer,
+                    response_deserializer=response_deserializer,
                 )
             except _DeadlineSignal:
                 return _AttemptFailure(
@@ -426,27 +543,35 @@ class AndroidSession(LoopBoundPrimitive):
                     None if credential is None else credential.generation,
                 )
 
-            self._assert_epoch(lease.epoch)
-            metadata = (("authorization", f"Bearer {credential.token}"),)
+            self.assert_epoch(lease.epoch)
+            wire_metadata = (("authorization", f"Bearer {credential.token}"),) + tuple(
+                caller_metadata
+            )
             if metadata_augmentor is not None:
                 try:
-                    extra = await _await_with_deadline(
-                        metadata_augmentor(credential.token), lease.deadline
+                    extra = await await_with_deadline(
+                        metadata_augmentor(credential.token),
+                        lease.deadline,
+                        on_timeout=_DeadlineSignal,
                     )
                 except _DeadlineSignal:
                     return _AttemptFailure(
                         GrpcStatus("DEADLINE_EXCEEDED", 4),
                         credential.generation,
                     )
-                self._assert_epoch(lease.epoch)
-                metadata = metadata + tuple(extra)
+                self.assert_epoch(lease.epoch)
+                wire_metadata = wire_metadata + tuple(extra)
             try:
                 wire_call = callable_(
                     request,
-                    metadata=metadata,
+                    metadata=wire_metadata,
                     timeout=None if lease.deadline is None else lease.deadline.remaining(),
                 )
-                value = await _await_with_deadline(wire_call, lease.deadline)
+                value = await await_with_deadline(
+                    wire_call,
+                    lease.deadline,
+                    on_timeout=_DeadlineSignal,
+                )
             except _DeadlineSignal:
                 return _AttemptFailure(
                     GrpcStatus("DEADLINE_EXCEEDED", 4),
@@ -466,7 +591,7 @@ class AndroidSession(LoopBoundPrimitive):
                 )
             return _AttemptSuccess(value)
         finally:
-            del credential, metadata, wire_call
+            del credential, caller_metadata, wire_metadata, wire_call
 
     async def unary(
         self,
@@ -474,14 +599,25 @@ class AndroidSession(LoopBoundPrimitive):
         request: ReqT,
         *,
         replay_safe: bool,
+        operation_variant: str | None = None,
         timeout: float | None = None,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         telemetry_method: str | None | _DefaultTelemetry = _DEFAULT_TELEMETRY,
         expected_epoch: int | None = None,
         metadata_augmentor: MetadataAugmentor | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] = (),
+        request_serializer: RequestSerializer[ReqT] | None = None,
+        response_deserializer: ResponseDeserializer[RespT] | None = None,
+        raw_replay: _RawReplayClassification | None = None,
     ) -> RespT:
         """Invoke a unary RPC without retaining this secret owner in failures."""
 
+        policy_replay_safe = _resolve_replay_safe(
+            method,
+            replay_safe,
+            operation_variant,
+            raw_replay,
+        )
         session = self
         failure: BaseException | None = None
         result: RespT | None = None
@@ -490,11 +626,14 @@ class AndroidSession(LoopBoundPrimitive):
                 method,
                 request,
                 metadata_augmentor=metadata_augmentor,
-                replay_safe=replay_safe,
+                replay_safe=policy_replay_safe,
                 timeout=timeout,
                 response_type=response_type,
                 telemetry_method=telemetry_method,
                 expected_epoch=expected_epoch,
+                caller_metadata=metadata,
+                request_serializer=request_serializer,
+                response_deserializer=response_deserializer,
             )
         except BaseException as error:
             failure = sanitize_escaping_exception(error)
@@ -511,17 +650,17 @@ class AndroidSession(LoopBoundPrimitive):
         *,
         replay_safe: bool,
         timeout: float | None,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         telemetry_method: str | None | _DefaultTelemetry,
         expected_epoch: int | None,
         metadata_augmentor: MetadataAugmentor | None = None,
+        caller_metadata: Sequence[tuple[str, str | bytes]] = (),
+        request_serializer: RequestSerializer[ReqT] | None = None,
+        response_deserializer: ResponseDeserializer[RespT] | None = None,
     ) -> RespT:
         """Invoke one typed unary RPC with bounded replay of safe reads."""
 
-        active_epoch = self._require_active()
-        if expected_epoch is not None and expected_epoch != active_epoch:
-            self._assert_epoch(expected_epoch)
-        expected_epoch = active_epoch
+        expected_epoch = self._resolve_expected_epoch(expected_epoch)
         telemetry = self._telemetry_method(method, telemetry_method)
         self._call_supervisor.record_started(telemetry)
         deadline = self._deadline(timeout)
@@ -533,32 +672,89 @@ class AndroidSession(LoopBoundPrimitive):
                 deadline,
                 expected_epoch=expected_epoch,
             ) as lease:
-                auth_replayed = False
-                unavailable_replayed = False
-                for _attempt in range(3):
+                refresh_budget = RefreshBudget()
+                rate_limit_retries = 0
+                server_error_retries = 0
+                while True:
                     outcome = await self._unary_attempt(
-                        lease, method, request, response_type, metadata_augmentor
+                        lease,
+                        method,
+                        request,
+                        response_type,
+                        metadata_augmentor,
+                        caller_metadata,
+                        request_serializer,
+                        response_deserializer,
                     )
                     if isinstance(outcome, _AttemptSuccess):
                         return outcome.value
-                    if outcome.status.name == "UNAUTHENTICATED":
-                        if outcome.bearer_generation is not None:
-                            self._bearer_provider.invalidate(outcome.bearer_generation)
-                        if replay_safe and not auth_replayed:
-                            auth_replayed = True
-                            continue
-                    if (
-                        outcome.status.name == "UNAVAILABLE"
-                        and replay_safe
-                        and not unavailable_replayed
-                    ):
-                        unavailable_replayed = True
-                        continue
-                    raise_grpc_status(
+                    error = _grpc_status_error(
                         outcome.status,
                         method=method,
                         timeout_seconds=None if deadline is None else deadline.timeout,
                     )
+                    retry_class = _GRPC_RETRY_CLASS.get(outcome.status.code)
+                    if is_auth_error(error):
+                        retry_class = _RetryClass.AUTH
+
+                    if retry_class is _RetryClass.AUTH:
+                        if outcome.bearer_generation is not None:
+                            self._bearer_provider.invalidate(outcome.bearer_generation)
+                        if replay_safe and refresh_budget.consume():
+
+                            def preserve_terminal_error(
+                                _refresh_error: Exception,
+                                *,
+                                terminal: Exception = error,
+                            ) -> BaseException:
+                                return terminal
+
+                            await refresh_and_count(
+                                refresh=lambda: self._bearer_provider.get(
+                                    expected_epoch=lease.epoch
+                                ),
+                                on_refresh_failure=preserve_terminal_error,
+                                sleep=resolve_sleep(self._sleep),
+                                refresh_retry_delay=self._refresh_retry_delay,
+                                log_label=telemetry or method,
+                                logger=retry_logger,
+                                metrics=self._metrics,
+                                retry_deadline=deadline,
+                            )
+                            continue
+                    elif (
+                        retry_class is _RetryClass.RATE_LIMIT
+                        and replay_safe
+                        and rate_limit_retries < self._rate_limit_max_retries
+                    ):
+                        await self._wait_before_retry(
+                            attempt=rate_limit_retries,
+                            deadline=deadline,
+                            label=telemetry or method,
+                            retry_class=retry_class,
+                            terminal_error=error,
+                        )
+                        rate_limit_retries += 1
+                        if self._metrics is not None:
+                            self._metrics.increment(rpc_rate_limit_retries=1)
+                        continue
+                    elif (
+                        retry_class is _RetryClass.SERVER
+                        and replay_safe
+                        and server_error_retries < self._server_error_max_retries
+                    ):
+                        await self._wait_before_retry(
+                            attempt=server_error_retries,
+                            deadline=deadline,
+                            label=telemetry or method,
+                            retry_class=retry_class,
+                            terminal_error=error,
+                        )
+                        server_error_retries += 1
+                        if self._metrics is not None:
+                            self._metrics.increment(rpc_server_error_retries=1)
+                        continue
+                    raise error
         except TimeoutError:
             queue_timed_out = True
         if queue_timed_out:
@@ -568,18 +764,69 @@ class AndroidSession(LoopBoundPrimitive):
             )
         raise AssertionError("unary call exited without a result")  # pragma: no cover
 
+    async def _wait_before_retry(
+        self,
+        *,
+        attempt: int,
+        deadline: RuntimeDeadline | None,
+        label: str,
+        retry_class: _RetryClass,
+        terminal_error: Exception,
+    ) -> None:
+        delay = max(
+            RETRY_BACKOFF_MIN_SECONDS,
+            compute_backoff_delay(
+                attempt,
+                base=RETRY_BACKOFF_BASE_SECONDS,
+                cap=RETRY_BACKOFF_CAP_SECONDS,
+                jitter_ratio=RETRY_BACKOFF_JITTER_RATIO,
+            ),
+        )
+        if deadline is not None:
+            remaining = deadline.remaining()
+            if remaining <= 0.0 or delay >= remaining:
+                raise terminal_error
+        actual_delay = delay if deadline is None else deadline.clamp_sleep(delay)
+        retry_logger.warning(
+            "%s Android %s error; backing off %.1fs before retry %d",
+            label,
+            "rate-limit" if retry_class is _RetryClass.RATE_LIMIT else "server",
+            actual_delay,
+            attempt + 1,
+        )
+        if actual_delay > 0:
+            await resolve_sleep(self._sleep)(actual_delay)
+
     async def stream(
         self,
         method: str,
         request: ReqT,
         *,
+        replay_safe: bool = False,
+        operation_variant: str | None = None,
         timeout: float | None = None,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         telemetry_method: str | None | _DefaultTelemetry = _DEFAULT_TELEMETRY,
         max_response_bytes: int | None = None,
+        metadata: Sequence[tuple[str, str | bytes]] = (),
+        request_serializer: RequestSerializer[ReqT] | None = None,
+        response_deserializer: ResponseDeserializer[RespT] | None = None,
+        response_sizer: ResponseSizer[RespT] | None = None,
+        raw_replay: _RawReplayClassification | None = None,
     ) -> AsyncIterator[RespT]:
         """Yield a stream without retaining this secret owner in failures."""
 
+        # Resolve the method through the same total policy table as unary calls
+        # so a new stream cannot bypass classification. Streams remain
+        # single-attempt even if a future read-only stream is added: the only
+        # currently admitted stream creates a chat turn, and web has no stream
+        # auth replay to mirror.
+        _resolve_replay_safe(
+            method,
+            replay_safe,
+            operation_variant,
+            raw_replay,
+        )
         session = self
         iterator = cast(
             AsyncGenerator[RespT, None],
@@ -590,6 +837,10 @@ class AndroidSession(LoopBoundPrimitive):
                 response_type=response_type,
                 telemetry_method=telemetry_method,
                 max_response_bytes=max_response_bytes,
+                caller_metadata=metadata,
+                request_serializer=request_serializer,
+                response_deserializer=response_deserializer,
+                response_sizer=response_sizer,
             ),
         )
         failure: BaseException | None = None
@@ -614,13 +865,17 @@ class AndroidSession(LoopBoundPrimitive):
         request: ReqT,
         *,
         timeout: float | None,
-        response_type: type[RespT],
+        response_type: type[RespT] | None,
         telemetry_method: str | None | _DefaultTelemetry,
         max_response_bytes: int | None,
+        caller_metadata: Sequence[tuple[str, str | bytes]],
+        request_serializer: RequestSerializer[ReqT] | None,
+        response_deserializer: ResponseDeserializer[RespT] | None,
+        response_sizer: ResponseSizer[RespT] | None,
     ) -> AsyncIterator[RespT]:
         """Yield a typed server stream while retaining one supervisor lease."""
 
-        expected_epoch = self._require_active()
+        expected_epoch = self._resolve_expected_epoch(None)
         telemetry = self._telemetry_method(method, telemetry_method)
         self._call_supervisor.record_started(telemetry)
         deadline = self._deadline(timeout)
@@ -634,22 +889,25 @@ class AndroidSession(LoopBoundPrimitive):
             ) as lease:
                 failure: _AttemptFailure | None = None
                 credential: BearerCredential | None = None
-                metadata: tuple[tuple[str, str], ...] | None = None
+                wire_metadata: tuple[tuple[str, str | bytes], ...] | None = None
                 call: Any | None = None
                 iterator: Any | None = None
                 exhausted = False
                 response_bytes = 0
                 try:
                     try:
-                        credential = await _await_with_deadline(
+                        credential = await await_with_deadline(
                             self._bearer_provider.get(expected_epoch=lease.epoch),
                             lease.deadline,
+                            on_timeout=_DeadlineSignal,
                         )
                         callable_ = await self._stream_callable(
                             method,
                             response_type,
                             expected_epoch=lease.epoch,
                             deadline=lease.deadline,
+                            request_serializer=request_serializer,
+                            response_deserializer=response_deserializer,
                         )
                     except _DeadlineSignal:
                         failure = _AttemptFailure(
@@ -658,13 +916,15 @@ class AndroidSession(LoopBoundPrimitive):
                         )
 
                     if failure is None:
-                        self._assert_epoch(lease.epoch)
+                        self.assert_epoch(lease.epoch)
                         assert credential is not None
-                        metadata = (("authorization", f"Bearer {credential.token}"),)
+                        wire_metadata = (("authorization", f"Bearer {credential.token}"),) + tuple(
+                            caller_metadata
+                        )
                         try:
                             call = callable_(
                                 request,
-                                metadata=metadata,
+                                metadata=wire_metadata,
                                 timeout=(
                                     None if lease.deadline is None else lease.deadline.remaining()
                                 ),
@@ -672,15 +932,20 @@ class AndroidSession(LoopBoundPrimitive):
                             iterator = call.__aiter__()
                             while True:
                                 try:
-                                    item = await _await_with_deadline(
+                                    item = await await_with_deadline(
                                         iterator.__anext__(),
                                         lease.deadline,
+                                        on_timeout=_DeadlineSignal,
                                     )
                                 except StopAsyncIteration:
                                     exhausted = True
                                     break
                                 if max_response_bytes is not None:
-                                    response_bytes += len(_serialize_message(item))
+                                    response_bytes += (
+                                        response_sizer(item)
+                                        if response_sizer is not None
+                                        else len(_serialize_message(item))
+                                    )
                                     if response_bytes > max_response_bytes:
                                         raise RPCResponseTooLargeError(
                                             f"RPC response exceeded {max_response_bytes} bytes "
@@ -717,7 +982,7 @@ class AndroidSession(LoopBoundPrimitive):
                                 cancel()
                             except Exception:
                                 pass
-                    del credential, metadata, call, iterator
+                    del credential, caller_metadata, wire_metadata, call, iterator
 
                 if failure is not None:
                     if (

@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ..._env import get_default_language
+from ..._idempotency import call_unconfirmed_on_transport_loss
 from ..._types.artifacts import _status_from_code
 from ..._types.enums import (
     AudioFormat,
@@ -128,24 +129,6 @@ class ArtifactGenerationService:
         """Generate a Video Overview."""
         if language is None:
             language = get_default_language()
-        normalized_style_prompt = style_prompt.strip() if style_prompt is not None else None
-        if video_format == VideoFormat.CINEMATIC and normalized_style_prompt:
-            raise ValidationError("style_prompt is not supported for cinematic videos")
-        # Short videos have a FIXED visual style — the server silently ignores any
-        # style code (live-verified: anime vs watercolor render identically). Reject
-        # an explicit style/style_prompt rather than pretend it takes effect (#1805).
-        if video_format == VideoFormat.SHORT and (
-            (video_style is not None and video_style != VideoStyle.AUTO_SELECT)
-            or normalized_style_prompt
-        ):
-            raise ValidationError(
-                "video_style and style_prompt are not supported for short videos "
-                "(short has a fixed visual style)"
-            )
-        if video_style == VideoStyle.CUSTOM and not normalized_style_prompt:
-            raise ValidationError("style_prompt is required when video_style is CUSTOM")
-        if normalized_style_prompt and video_style != VideoStyle.CUSTOM:
-            raise ValidationError("style_prompt requires video_style=VideoStyle.CUSTOM")
 
         if source_ids is None:
             source_ids = await self._notebooks.get_source_ids(notebook_id)
@@ -157,7 +140,7 @@ class ArtifactGenerationService:
             instructions=instructions,
             video_format=video_format,
             video_style=video_style,
-            style_prompt=normalized_style_prompt,
+            style_prompt=style_prompt,
         )
         return await self._call_generate(
             notebook_id,
@@ -361,14 +344,18 @@ class ArtifactGenerationService:
         params = build_revise_slide_params(artifact_id, slide_index, prompt)
         # v0.8.0 (#1342): a synchronous refusal (``RPCError``) propagates rather
         # than being swallowed into a soft ``status="failed"`` return.
-        result = await self._rpc.rpc_call(
-            RPCMethod.REVISE_SLIDE,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-            # See ``_call_generate``: a server-stated rejection reason beats the
-            # client's "feature unavailable" guess (#2188).
-            raise_on_null_status=True,
+        result = await call_unconfirmed_on_transport_loss(
+            lambda: self._rpc.rpc_call(
+                RPCMethod.REVISE_SLIDE,
+                params,
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+                # See ``_call_generate``: a server-stated rejection reason beats the
+                # client's "feature unavailable" guess (#2188).
+                raise_on_null_status=True,
+            ),
+            method=RPCMethod.REVISE_SLIDE,
+            what="the slide revision",
         )
         if result is None:
             logger.warning("REVISE_SLIDE returned null result for artifact %s", artifact_id)
@@ -409,14 +396,18 @@ class ArtifactGenerationService:
         # ``result is None`` guard below (the golden fixture pins the
         # normal-success row, so it records ``allow_null: false`` for that
         # happy-path decode — the two are not in conflict).
-        result = await self._rpc.rpc_call(
-            RPCMethod.RETRY_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-            # See ``_call_generate``: a server-stated rejection reason beats the
-            # client's "feature unavailable" guess (#2188).
-            raise_on_null_status=True,
+        result = await call_unconfirmed_on_transport_loss(
+            lambda: self._rpc.rpc_call(
+                RPCMethod.RETRY_ARTIFACT,
+                params,
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+                # See ``_call_generate``: a server-stated rejection reason beats the
+                # client's "feature unavailable" guess (#2188).
+                raise_on_null_status=True,
+            ),
+            method=RPCMethod.RETRY_ARTIFACT,
+            what="the failed-artifact retry",
         )
         if result is None:
             logger.warning("RETRY_ARTIFACT returned null result for artifact %s", artifact_id)
@@ -490,18 +481,22 @@ class ArtifactGenerationService:
 
         # GENERATE_MIND_MAP is the live ``ActOnSources`` — a generic
         # source-action op we drive with mind-map params; it is classified
-        # PROBE_THEN_CREATE in ``_idempotency.py``. ``operation_variant=None``
+        # NON_IDEMPOTENT_NO_RETRY in ``_web.policy``. ``operation_variant=None``
         # is passed explicitly to document this call site as the no-variant
         # default (the registry resolves the same entry either way; the explicit
         # kwarg is a future-proofing marker for a possible variant table).
-        result = await self._rpc.rpc_call(
-            RPCMethod.GENERATE_MIND_MAP,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-            # #2290: a status-tagged null is a server rejection, not an empty success.
-            raise_on_null_status=True,
-            operation_variant=None,
+        result = await call_unconfirmed_on_transport_loss(
+            lambda: self._rpc.rpc_call(
+                RPCMethod.GENERATE_MIND_MAP,
+                params,
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+                # #2290: a status-tagged null is a server rejection, not an empty success.
+                raise_on_null_status=True,
+                operation_variant=None,
+            ),
+            method=RPCMethod.GENERATE_MIND_MAP,
+            what="ActOnSources mind-map generation",
         )
 
         # The two-level ``[[mind_map_json]]`` leaf descent is centralised behind
@@ -569,27 +564,31 @@ class ArtifactGenerationService:
         if isinstance(descriptor, list) and descriptor[2:3]:
             (artifact_type,) = descriptor[2:3]
         logger.debug("Generating artifact type=%s in notebook %s", artifact_type, notebook_id)
-        # CREATE_ARTIFACT is PROBE_THEN_CREATE (``_idempotency.py``).
+        # CREATE_ARTIFACT is NON_IDEMPOTENT_NO_RETRY (``_web.policy``).
         # ``operation_variant=None`` marks this call site as the no-variant
         # default (a future-proofing marker; the registry resolves the same).
         # v0.8.0 (#1342): a synchronous refusal (couldn't-start, ``RPCError``)
         # propagates rather than being swallowed into a soft
         # ``status="failed"`` return.
-        result = await self._rpc.rpc_call(
-            RPCMethod.CREATE_ARTIFACT,
-            params,
-            source_path=f"/notebook/{notebook_id}",
-            allow_null=True,
-            operation_variant=None,
-            # ``allow_null=True`` keeps the "no task row" case decodable so the
-            # ``ArtifactFeatureUnavailableError`` below can name the artifact
-            # type. ``raise_on_null_status=True`` stops that guess from
-            # overwriting a reason the server DID give: live-verified
-            # 2026-08-13, a source-less notebook answers
-            # ``[["wrb.fr","R7cb6c",null,null,null,[3],"generic"]]`` — an
-            # explicit INVALID_ARGUMENT that used to be reported as
-            # "Audio generation is unavailable" (#2188).
-            raise_on_null_status=True,
+        result = await call_unconfirmed_on_transport_loss(
+            lambda: self._rpc.rpc_call(
+                RPCMethod.CREATE_ARTIFACT,
+                params,
+                source_path=f"/notebook/{notebook_id}",
+                allow_null=True,
+                operation_variant=None,
+                # ``allow_null=True`` keeps the "no task row" case decodable so the
+                # ``ArtifactFeatureUnavailableError`` below can name the artifact
+                # type. ``raise_on_null_status=True`` stops that guess from
+                # overwriting a reason the server DID give: live-verified
+                # 2026-08-13, a source-less notebook answers
+                # ``[["wrb.fr","R7cb6c",null,null,null,[3],"generic"]]`` — an
+                # explicit INVALID_ARGUMENT that used to be reported as
+                # "Audio generation is unavailable" (#2188).
+                raise_on_null_status=True,
+            ),
+            method=RPCMethod.CREATE_ARTIFACT,
+            what="CreateArtifact",
         )
         if result is None and null_result_artifact_type is not None:
             raise ArtifactFeatureUnavailableError(

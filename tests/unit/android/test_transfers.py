@@ -44,7 +44,6 @@ from notebooklm._android.sources import AndroidSourcesAPI
 from notebooklm._android.upload import AndroidUploadPipeline
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm.exceptions import (
     ArtifactNotFoundError,
     DecodingError,
@@ -125,9 +124,7 @@ def _artifacts_api(transport: FakeTransport) -> AndroidArtifactsAPI:
         async def list_note_backed(self, *_a: Any, **_k: Any) -> list[Any]:
             return []
 
-    supervisor = CallSupervisor(
-        metrics=ClientMetrics(), drain_tracker=TransportDrainTracker(), max_concurrent_rpcs=2
-    )
+    supervisor = CallSupervisor(metrics=ClientMetrics(), max_concurrent_rpcs=2)
     return AndroidArtifactsAPI(
         session=cast(AndroidSession, transport),
         supervisor=supervisor,
@@ -184,7 +181,6 @@ async def test_add_urls_async_sends_add_sources_request_and_decodes_stub_rows() 
     assert kwargs == {
         "replay_safe": False,
         "response_type": sources_pb2.AddSourcesAsyncResponse,
-        "expected_epoch": 7,
     }
     assert transport.scopes == ["source.add_urls_async"]
 
@@ -219,7 +215,7 @@ async def test_append_text_sends_doubly_nested_plain_text() -> None:
     assert request.source_id.id == SRC_A
     assert request.content.plain_text.header == "H"
     assert request.content.plain_text.body == "more text"
-    assert kwargs == {"replay_safe": False, "response_type": empty_pb2.Empty, "expected_epoch": 7}
+    assert kwargs == {"replay_safe": False, "response_type": empty_pb2.Empty}
     # Byte-level pin of the live-proven layout: {2: SourceId{1: id}, 4: {2: {1: h, 2: b}}}.
     assert request.SerializeToString() == (
         b"\x12\x07\n\x05src-a\x22\x10\x12\x0e\n\x01H\x12\x09more text"
@@ -341,8 +337,9 @@ async def test_copy_artifacts_not_found_malformed_and_unconfirmed() -> None:
     empty = FakeTransport(
         {COPY_ARTIFACTS_ASYNC_METHOD: [artifacts_pb2.CopyArtifactsAsyncResponse()]}
     )
-    with pytest.raises(ArtifactNotFoundError):
+    with pytest.raises(ArtifactNotFoundError) as missing:
         await _artifacts_api(empty).copy(NB, [ART_A], TARGET)
+    assert missing.value.method_id == COPY_ARTIFACTS_ASYNC_METHOD
     malformed = FakeTransport(
         {
             COPY_ARTIFACTS_ASYNC_METHOD: [
@@ -352,11 +349,16 @@ async def test_copy_artifacts_not_found_malformed_and_unconfirmed() -> None:
             ]
         }
     )
-    with pytest.raises(DecodingError):
+    with pytest.raises(DecodingError) as decoding:
         await _artifacts_api(malformed).copy(NB, [ART_A], TARGET)
-    lost = FakeTransport({COPY_ARTIFACTS_ASYNC_METHOD: [NetworkError("gone")]})
+    assert decoding.value.method_id == COPY_ARTIFACTS_ASYNC_METHOD
+    assert decoding.value.raw_response is None
+    error = NetworkError("gone")
+    lost = FakeTransport({COPY_ARTIFACTS_ASYNC_METHOD: [error]})
     with pytest.raises(NetworkError) as excinfo:
         await _artifacts_api(lost).copy(NB, [ART_A], TARGET)
+    assert excinfo.value is error
+    assert excinfo.value.__cause__ is None
     assert is_unconfirmed(excinfo.value)
     with pytest.raises(ValidationError):
         await _artifacts_api(FakeTransport()).copy(NB, [""], TARGET)

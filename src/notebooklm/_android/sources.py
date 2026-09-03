@@ -8,17 +8,19 @@ import logging
 import time
 import uuid
 from collections import Counter, defaultdict
-from collections.abc import Callable, Collection, Sequence
-from contextlib import AbstractAsyncContextManager
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, replace
 from enum import Enum, auto
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypeVar, cast
 
 from .._deadline import RuntimeDeadline
-from .._idempotency import mark_unconfirmed
+from .._idempotency import mark_unconfirmed, unresolved_commit_error
+from .._runtime.call_supervisor import OperationLease
 from .._source.batch import SourceUrlBatchItem
-from .._sources import SourcesAPI, validate_search
+from .._source.polling import SourcePoller
+from .._sources import SourcesAPI, _validate_add_text_idempotency, validate_search
 from .._types.documents import StructuredDocument
 from .._types.research import SourceGuide
 from .._url_utils import is_youtube_url
@@ -27,15 +29,12 @@ from ..exceptions import (
     ConfigurationError,
     DecodingError,
     NetworkError,
-    NonIdempotentRetryError,
     PlayBookNotExportableError,
     RateLimitError,
     RPCError,
     ServerError,
     SourceAddError,
     SourceNotFoundError,
-    SourceProcessingError,
-    SourceTimeoutError,
     ValidationError,
 )
 from ..types import PlayBook, RelevantChunk, Source, SourceFulltext, SourceStatus, SourceType
@@ -43,6 +42,7 @@ from .codecs.documents import decode_document, tailwind_doc_markdown, tailwind_d
 from .codecs.notebooks import decode_project, map_get_project_error, validate_project_identity
 from .codecs.sources import decode_source, decode_sources, select_document_guide
 from .drive_staging import _DRIVE_STAGED_UPLOAD_EXTENSIONS
+from .epoch import bind_workflow_epoch, reset_workflow_epoch
 from .phenotype import PhenotypeTokenProvider
 from .play_books import (
     build_expert_intelligence_content,
@@ -112,10 +112,9 @@ REFRESH_SOURCE_METHOD = f"/{_SERVICE}/RefreshSource"
 _FilterValue = TypeVar("_FilterValue")
 _CORRELATION_PREFIX = "nblm-"
 _CANONICAL_ID_LENGTH = 36
-# Post-upload readiness polling: sleep between GetProject looks, and the
-# smallest wire budget a single look may be handed (capped by the caller's
-# own ``wait_timeout``) so a deadline that reads as spent on the very tick it
-# was started still gets a real request out.
+# Post-upload readiness polling sleeps between GetProject looks. The smallest wire budget
+# a single look may be handed is capped by ``wait_timeout`` so a deadline that reads as spent
+# on its first tick still gets a real request out.
 _POLL_INTERVAL = 0.5
 _POLL_WIRE_FLOOR = 1.0
 
@@ -196,28 +195,23 @@ def _unresolved_add_error(
     cause: Exception | None = None,
     kind: str = "URL",
 ) -> SourceAddError:
-    return mark_unconfirmed(
-        SourceAddError(
-            subject,
-            cause=cause,
-            message=(
-                "UNRESOLVED — check the notebook source list before retrying. "
-                f"The Android {kind} add could not prove {stage} for {subject!r}; neither write "
-                "was replayed and no cleanup delete was sent."
+    return cast(
+        SourceAddError,
+        unresolved_commit_error(
+            ADD_SOURCES_METHOD,
+            f"the Android {kind} add",
+            SourceAddError(
+                subject,
+                cause=cause,
+                message=(
+                    "UNRESOLVED — check the notebook source list before retrying. "
+                    f"The Android {kind} add could not prove {stage} for {subject!r}; neither write "
+                    "was replayed and no cleanup delete was sent."
+                ),
             ),
-        )
+            preserve_exception=True,
+        ),
     )
-
-
-def _validate_add_text_idempotency(idempotent: bool) -> None:
-    if idempotent:
-        raise NonIdempotentRetryError(
-            "add_text cannot be marked idempotent: text sources have no "
-            "reliable server-side dedupe key (titles non-unique, content "
-            "not exposed). For idempotent text imports, embed a UUID in "
-            "the title and dedupe client-side. See "
-            "docs/python-api.md#idempotency."
-        )
 
 
 def _validate_drive_file_id(file_id: str) -> None:
@@ -369,6 +363,15 @@ def _merge_commit_proof(
 class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
     """Android source adapter installed by public Android backend selection."""
 
+    @asynccontextmanager
+    async def _operation_scope(self, label: str) -> AsyncIterator[OperationLease]:
+        async with self._transport.operation_scope(label) as lease:
+            token = bind_workflow_epoch(self._transport, lease.epoch)
+            try:
+                yield lease
+            finally:
+                reset_workflow_epoch(token)
+
     def __init__(
         self,
         session: AndroidSession,
@@ -381,15 +384,12 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
     ) -> None:
         """Bind the fully native source surface.
 
-        ``add_file_compat`` is an optional override for the Drive-staged upload
-        path (see ``_DRIVE_STAGED_UPLOAD_EXTENSIONS``). Public client assembly
-        supplies nothing: the adapter holds no Web collaborator. Direct adapter
-        callers may inject one to exercise a different uploader, or omit it and
-        get the native staging round-trip.
+        ``add_file_compat`` optionally overrides Drive staging for direct adapter
+        callers. Public client assembly supplies nothing: the adapter holds no
+        Web collaborator and uses the native staging round-trip.
 
-        ``monotonic`` is the clock behind the post-upload readiness deadline,
-        injectable like every other Android deadline so tests can drive the
-        wait with a stepping clock instead of racing ``time.monotonic()``.
+        ``monotonic`` makes the post-upload readiness deadline testable with a
+        stepping clock instead of racing ``time.monotonic()``.
         """
         self._transport = session
         self._searcher = AndroidSourceSearchService(session)
@@ -397,6 +397,7 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
         self._add_file_compat = add_file_compat
         self._phenotype = phenotype or PhenotypeTokenProvider()
         self._monotonic = monotonic
+        self._poller = SourcePoller()
         native_drive_download = getattr(upload_pipeline, "drive_download_scope", None)
         self._drive_download = drive_download or (
             native_drive_download if callable(native_drive_download) else None
@@ -557,24 +558,12 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
         ready: bool,
     ) -> Source:
         deadline = RuntimeDeadline.start(timeout, monotonic=self._monotonic)
-        last_status: int | None = None
-        if deadline.timeout <= 0.0:
-            # An explicit zero budget means "do not wait", not "look once".
-            raise SourceTimeoutError(source_id, timeout, last_status)
-        while True:
-            # Poll *before* consulting the deadline. A positive budget always
-            # buys one look at the server, even when the clock has already
-            # crossed it between ``RuntimeDeadline.start()`` and here — one
-            # coarse tick on Windows before 3.13, or an OS stall. Without this
-            # a source the server had already marked ERROR was reported as a
-            # timeout with ``last_status=None``.
-            # The wire budget is floored for the same reason: ``remaining()``
-            # can read ``0.0`` on that same tick, and the session turns that
-            # into an ``RPCTimeoutError`` before any bytes are sent.
+
+        async def get_source(project_id: str, expected_source_id: str) -> Source | None:
             response = await self._transport.unary(
                 GET_PROJECT_METHOD,
                 _read_proto().GetProjectRequest(
-                    project_id=notebook_id,
+                    project_id=project_id,
                     include_audio_overview_ids=True,
                 ),
                 replay_safe=True,
@@ -582,7 +571,7 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
                 expected_epoch=expected_epoch,
                 timeout=max(deadline.remaining(), min(deadline.timeout, _POLL_WIRE_FLOOR)),
             )
-            validate_project_identity(response.project, notebook_id, method_id=GET_PROJECT_METHOD)
+            validate_project_identity(response.project, project_id, method_id=GET_PROJECT_METHOD)
             decode_project(response.project, method_id=GET_PROJECT_METHOD)
             matches = []
             for row in response.project.sources:
@@ -590,37 +579,45 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
                     raw_id = row.source_id.id if row.HasField("source_id") else ""
                 except Exception:
                     continue
-                if raw_id == source_id:
+                if raw_id == expected_source_id:
                     matches.append(row)
             if len(matches) > 1:
                 raise DecodingError(
                     "Android upload polling returned duplicate source ids",
                     method_id=GET_PROJECT_METHOD,
                 )
-            if matches:
-                row = next(iter(matches))
-                last_status = row.settings.status if row.HasField("settings") else 0
-                if last_status == _settings_proto().SOURCE_STATUS_ERROR:
-                    raise SourceProcessingError(source_id, status=last_status)
-                accepted = (
-                    last_status == _settings_proto().SOURCE_STATUS_COMPLETE
-                    if ready
-                    else last_status
-                    in {
-                        _settings_proto().SOURCE_STATUS_PENDING,
-                        _settings_proto().SOURCE_STATUS_COMPLETE,
-                    }
-                )
-                if accepted:
-                    return decode_source(row, method_id=GET_PROJECT_METHOD)
-            if deadline.expired():
-                break
-            await asyncio.sleep(deadline.clamp_sleep(_POLL_INTERVAL))
-            if deadline.expired():
-                # Re-check after sleeping: the clamp can spend the whole budget,
-                # and only the *first* look may bypass the deadline.
-                break
-        raise SourceTimeoutError(source_id, timeout, last_status)
+            return (
+                None
+                if not matches
+                else decode_source(next(iter(matches)), method_id=GET_PROJECT_METHOD)
+            )
+
+        common: dict[str, Any] = {
+            "timeout": timeout,
+            "initial_interval": _POLL_INTERVAL,
+            "max_interval": _POLL_INTERVAL,
+            "backoff_factor": 1.0,
+            "transient_error_types": (),
+            "look_first": True,
+            "deadline": deadline,
+            "get_source": get_source,
+            "sleep": asyncio.sleep,
+            "monotonic": self._monotonic,
+            "logger": logger,
+        }
+        if ready:
+            return await self._poller.wait_until_ready(
+                notebook_id,
+                source_id,
+                missing_is_pending=True,
+                **common,
+            )
+        return await self._poller.wait_until_registered(
+            notebook_id,
+            source_id,
+            accept=lambda source: source.status in {SourceStatus.PROCESSING, SourceStatus.READY},
+            **common,
+        )
 
     async def _wait_uploaded_registered(
         self,
@@ -1083,26 +1080,47 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
             wait_timeout=wait_timeout,
         )
 
-    async def add_file(
+    async def _send_upload(
         self,
         notebook_id: str,
         file_path: str | Path,
-        mime_type: str | None = None,
+        mime_type: str | None,
         *,
-        wait: bool = False,
-        wait_timeout: float = 120.0,
-        title: str | None = None,
-        on_progress: Callable[[int, int], object] | None = None,
+        wait: bool,
+        wait_timeout: float,
+        title: str | None,
+        on_progress: Callable[[int, int], object] | None,
     ) -> Source:
-        # Choose the upload path from the same canonical target whose filename
-        # drives MIME inference in either uploader, so a misleading symlink
-        # suffix cannot route a file into the transaction that will reject it.
-        # Both uploaders still resolve/check the supplied canonical path inside
-        # their own admitted operation before opening it.
-        canonical_path = await asyncio.to_thread(Path(file_path).resolve)
-        if canonical_path.suffix.lower() in _DRIVE_STAGED_UPLOAD_EXTENSIONS:
-            if self._add_file_compat is not None:
-                return await self._add_file_compat(
+        adapter = self
+        pipeline = adapter._upload_pipeline
+        compat: AddFileCompat | None = None
+        result: Source | None = None
+        failure: BaseException | None = None
+        try:
+            canonical_path = await asyncio.to_thread(Path(file_path).resolve)
+            if canonical_path.suffix.lower() in _DRIVE_STAGED_UPLOAD_EXTENSIONS:
+                compat = adapter._add_file_compat
+                if compat is not None:
+                    result = await compat(
+                        notebook_id,
+                        canonical_path,
+                        mime_type,
+                        wait=wait,
+                        wait_timeout=wait_timeout,
+                        title=title,
+                        on_progress=on_progress,
+                    )
+                else:
+                    result = await pipeline.add_file_via_drive_staging(
+                        notebook_id,
+                        canonical_path,
+                        mime_type,
+                        wait_timeout=wait_timeout,
+                        title=title,
+                        import_drive_file=adapter.add_drive,
+                    )
+            else:
+                result = await pipeline.upload_file(
                     notebook_id,
                     canonical_path,
                     mime_type,
@@ -1110,41 +1128,20 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
                     wait_timeout=wait_timeout,
                     title=title,
                     on_progress=on_progress,
+                    register_tentative=adapter._register_file_tentative,
+                    wait_until_registered=adapter._wait_uploaded_registered,
+                    wait_until_ready=adapter._wait_uploaded_ready,
+                    rename_uploaded=adapter._rename_uploaded,
+                    finalize_uploaded=SourcesAPI._finalize_uploaded_file,
                 )
-            return await self._upload_pipeline.add_file_via_drive_staging(
-                notebook_id,
-                canonical_path,
-                mime_type,
-                wait_timeout=wait_timeout,
-                title=title,
-                import_drive_file=self.add_drive,
-            )
-
-        adapter = self
-        result: Source | None = None
-        failure: BaseException | None = None
-        try:
-            result = await adapter._upload_pipeline.upload_file(
-                notebook_id,
-                canonical_path,
-                mime_type,
-                wait=wait,
-                wait_timeout=wait_timeout,
-                title=title,
-                on_progress=on_progress,
-                register_tentative=adapter._register_file_tentative,
-                wait_until_registered=adapter._wait_uploaded_registered,
-                wait_until_ready=adapter._wait_uploaded_ready,
-                rename_uploaded=adapter._rename_uploaded,
-            )
         except BaseException as error:
             from .errors import sanitize_escaping_exception
 
             failure = sanitize_escaping_exception(error)
         finally:
-            del self, adapter
+            del self, adapter, pipeline, compat, file_path, title, on_progress
         if failure is not None:
-            raise failure
+            raise failure from None
         return cast(Source, result)
 
     async def add_drive(
@@ -1474,20 +1471,25 @@ class AndroidSourcesAPI(AndroidSourceTransferMixin, SourcesAPI):
         *,
         expected_epoch: int | None = None,
     ) -> bool:
-        unary_options: dict[str, Any] = {
-            "replay_safe": True,
-            "response_type": _write_proto().CheckSourceFreshnessResponse,
-        }
-        if expected_epoch is not None:
-            unary_options["expected_epoch"] = expected_epoch
-        response = await self._transport.unary(
-            CHECK_SOURCE_FRESHNESS_METHOD,
-            _write_proto().CheckSourceFreshnessRequest(
-                source_id=_read_proto().SourceId(id=source_id),
-                request_context=android_request_context(),
-            ),
-            **unary_options,
+        request = _write_proto().CheckSourceFreshnessRequest(
+            source_id=_read_proto().SourceId(id=source_id),
+            request_context=android_request_context(),
         )
+        if expected_epoch is None:
+            response = await self._transport.unary(
+                CHECK_SOURCE_FRESHNESS_METHOD,
+                request,
+                replay_safe=True,
+                response_type=_write_proto().CheckSourceFreshnessResponse,
+            )
+        else:
+            response = await self._transport.unary(
+                CHECK_SOURCE_FRESHNESS_METHOD,
+                request,
+                replay_safe=True,
+                response_type=_write_proto().CheckSourceFreshnessResponse,
+                expected_epoch=expected_epoch,
+            )
         if not response.HasField("source_freshness"):
             return True
         freshness = response.source_freshness

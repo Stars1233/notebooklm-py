@@ -127,7 +127,6 @@ async def test_create_keeps_base_baseline_then_single_send_workflow() -> None:
     assert kwargs == {
         "replay_safe": False,
         "response_type": read_pb2.Project,
-        "expected_epoch": 7,
     }
 
 
@@ -227,7 +226,7 @@ async def test_create_workflow_finishes_during_graceful_drain_in_one_epoch() -> 
     create_release.set()
 
     assert (await task).id == "new"
-    assert [kwargs["expected_epoch"] for _method, _request, kwargs in transport.calls] == [1, 1]
+    assert all("expected_epoch" not in kwargs for _method, _request, kwargs in transport.calls)
     await transport.supervisor.wait_for_idle(1, 0.1)
 
 
@@ -435,7 +434,9 @@ async def test_update_rejects_wrong_identity_or_stale_requested_properties(
 
 @pytest.mark.asyncio
 async def test_copy_validates_then_decodes_one_bare_project_response() -> None:
-    transport = SequenceTransport({COPY_PROJECT_METHOD: [_project("copy-1", "Copy")]})
+    transport = SequenceTransport(
+        {COPY_PROJECT_METHOD: [_project("copy-1", "Copy", chat_session_id="conversation-1")]}
+    )
     api = _api(transport)
 
     copied = await api.copy("source-1", "Copy")
@@ -448,6 +449,8 @@ async def test_copy_validates_then_decodes_one_bare_project_response() -> None:
     assert request.HasField("request_context")
     assert request.request_context.client_type != 0
     assert kwargs == {"replay_safe": False, "response_type": read_pb2.Project}
+    assert api._take_created_chat_session_id("copy-1") == "conversation-1"
+    assert api._take_created_chat_session_id("copy-1") is None
 
     for notebook_id, title in [("", "Copy"), ("source-1", ""), ("source-1", "  ")]:
         with pytest.raises(ValidationError):
@@ -486,13 +489,8 @@ async def test_copy_rejects_a_new_project_with_the_wrong_title() -> None:
 
 @pytest.mark.asyncio
 async def test_copy_lost_response_is_ambiguous_and_never_replayed() -> None:
-    transport = SequenceTransport(
-        {
-            COPY_PROJECT_METHOD: [
-                ServerError("lost response", method_id=COPY_PROJECT_METHOD, rpc_code=14)
-            ]
-        }
-    )
+    failure = ServerError("lost response", method_id=COPY_PROJECT_METHOD, rpc_code=14)
+    transport = SequenceTransport({COPY_PROJECT_METHOD: [failure]})
 
     with pytest.raises(RPCError, match="list notebooks.*manually") as caught:
         await _api(transport).copy("source-1", "Copy")
@@ -500,7 +498,9 @@ async def test_copy_lost_response_is_ambiguous_and_never_replayed() -> None:
     assert getattr(caught.value, "unconfirmed", False) is True
     assert caught.value.method_id == COPY_PROJECT_METHOD
     assert caught.value.rpc_code == 14
-    assert isinstance(caught.value.__cause__, ServerError)
+    assert caught.value is not failure
+    assert caught.value.__cause__ is None
+    assert caught.value.__suppress_context__ is True
     assert len(transport.calls) == 1
     assert transport.calls[0][2]["replay_safe"] is False
 

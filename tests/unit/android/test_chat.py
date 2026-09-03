@@ -37,7 +37,7 @@ from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import (
     notebooks_pb2 as wire_notebooks_pb2,
 )
 from notebooklm._android.session import AndroidSession
-from notebooklm._chat import ChatAPI
+from notebooklm._chat import ChatAPI, _TurnRoleSnapshot
 from notebooklm._types.documents import BlockKind, BlockStyle, ListStyle, StructuredDocument
 from notebooklm._types.enums import ChatGoal, ChatResponseLength
 from notebooklm.exceptions import (
@@ -786,6 +786,7 @@ async def test_base_ask_uses_latest_cumulative_final_without_concatenating_frame
     )
     assert request.request_context.client_type == 2
     assert kwargs == {
+        "replay_safe": False,
         "timeout": 180.0,
         "response_type": chat_pb2.GenerateFreeFormStreamedResponse,
         "telemetry_method": "chat.ask",
@@ -872,7 +873,9 @@ async def test_follow_up_maps_cached_turns_to_captured_conversation_events() -> 
     api, _, _ = _api(fake)
     api._cache.cache_conversation_turn("conversation-1", "Cached question?", "Cached answer.", 1)
 
-    assert await api._list_turn_roles("notebook-1", "conversation-1", 2) == [2, 1]
+    assert await api._list_turn_roles("notebook-1", "conversation-1", 2) == _TurnRoleSnapshot(
+        roles=(2, 1), exhausted=True
+    )
     result = await api.ask(
         "notebook-1",
         "Follow-up?",

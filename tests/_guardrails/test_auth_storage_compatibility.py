@@ -705,7 +705,10 @@ def test_phase9_closed_values_and_paired_compatibility_owners_are_exact() -> Non
             [("live", "httpx.Cookies", False), ("baseline", "CookieJar", False)],
             False,
         ),
-        tokens.LoadPolicy: ([("allow_headless", "bool", True)], True),
+        tokens.LoadPolicy: (
+            [("allow_headless", "bool", True), ("heal_psidts", "bool", True)],
+            True,
+        ),
         tokens.TokenAcquisition: (
             [
                 ("csrf_token", "str", False),
@@ -1110,9 +1113,9 @@ EXPECTED_DIRECT_CALLERS = {
     "AuthTokens": [
         "src/notebooklm/__init__.py",
         "src/notebooklm/_client_assembly.py",
-        "src/notebooklm/_runtime/init.py",
         "src/notebooklm/_web/transport/auth.py",
         "src/notebooklm/_web/transport/cookie_persistence.py",
+        "src/notebooklm/_web/transport/init.py",
         "src/notebooklm/_web/transport/kernel.py",
         "src/notebooklm/_web/transport/lifecycle.py",
         "src/notebooklm/cli/auth_runtime.py",

@@ -1041,6 +1041,16 @@
       "path": "tests/unit/test_auth_stored_auth.py"
     },
     {
+      "attribute": "merge_cookie_observation",
+      "count": 1,
+      "idiom": "monkeypatch.setattr",
+      "owner": "notebooklm._auth.profile_store.ProfileStore",
+      "owner_kind": "test",
+      "owner_qualname": "test_android_from_storage_uses_name_only_psidts_policy",
+      "package": "notebooklm._auth",
+      "path": "tests/unit/test_backend_selection.py"
+    },
+    {
       "attribute": "read_document",
       "count": 1,
       "idiom": "monkeypatch.setattr",
@@ -1645,7 +1655,7 @@
     "assignments": 0,
     "helper_or_fixture": 23,
     "private": 34,
-    "total": 188
+    "total": 189
   },
   "version": 1
 }

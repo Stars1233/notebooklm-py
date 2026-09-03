@@ -190,7 +190,7 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         loop only on the *contended* acquire path, so a stale lock cannot
         actually trip the cross-loop ``RuntimeError`` today. The discard brings
         the coordinator in line with its clear-on-rebind siblings
-        (:class:`~notebooklm._client_composed.ClientComposed`,
+        (:class:`~notebooklm._web.transport.composed.ClientComposed`,
         ``SourceUploadPipeline``, ``ChatAPI``) so any future ``await`` under
         one of these locks cannot activate the trap.
 
@@ -567,9 +567,7 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         Regression coverage:
         ``tests/unit/concurrency/test_session_close_refresh_race.py`` and
         the three focused unit tests added with this method in
-        ``tests/unit/test_runtime_auth.py`` (the two companion
-        ``reset_after_open`` tests for :class:`TransportDrainTracker` live
-        in ``tests/unit/test_runtime_lifecycle.py``).
+        ``tests/unit/test_runtime_auth.py``.
         """
         refresh_task = self._refresh_task
         if refresh_task is not None and not refresh_task.done():

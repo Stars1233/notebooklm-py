@@ -3,26 +3,31 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import Enum
 from types import SimpleNamespace
 
 import pytest
 
+import notebooklm._android.session as session_module
 from notebooklm._android.auth import BearerCredential
+from notebooklm._android.epoch import (
+    bind_workflow_epoch,
+    reset_workflow_epoch,
+    workflow_epoch_for,
+)
+from notebooklm._android.notebooks import GET_PROJECT_METHOD, AndroidNotebooksAPI
 from notebooklm._android.session import (
     ANDROID_GRPC_MAX_RECEIVE_MESSAGE_BYTES,
     ANDROID_GRPC_TARGET,
     AndroidSession,
-    _await_with_deadline,
     _default_grpc_loader,
     _default_protobuf_loader,
 )
 from notebooklm._client_metrics import ClientMetrics
-from notebooklm._deadline import RuntimeDeadline
+from notebooklm._deadline import RuntimeDeadline, await_with_deadline
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm.exceptions import (
     AuthError,
     ClientError,
@@ -33,8 +38,18 @@ from notebooklm.exceptions import (
     RPCTimeoutError,
     ServerError,
 )
+from notebooklm.raw import AndroidRawAPI, GrpcUnaryMethod, GrpcUnaryStreamMethod, ReplayPolicy
 
-METHOD = "/package.Service/Method"
+METHOD = (
+    "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GetProject"
+)
+MUTATION_METHOD = (
+    "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/CreateProject"
+)
+STREAM_METHOD = (
+    "/google.internal.labs.tailwind.orchestration.v1."
+    "LabsTailwindOrchestrationService/GenerateFreeFormStreamed"
+)
 BEARER = "ya29.session-secret"
 
 
@@ -90,7 +105,7 @@ class _Bearer:
         self.closed = 0
         self.wait: asyncio.Event | None = None
 
-    async def activate(self, epoch: int) -> None:
+    async def activate_for_epoch(self, epoch: int) -> None:
         self.activations.append(epoch)
 
     async def get(self, expected_epoch: int) -> BearerCredential:
@@ -163,7 +178,10 @@ class _Channel:
         def invoke(request, *, metadata, timeout):
             payload = request_serializer(request)
             self.invocations.append((method, payload, metadata, timeout))
-            outcomes = self.stream_outcomes.pop(0)
+            outcomes = [
+                response_deserializer(outcome) if isinstance(outcome, bytes) else outcome
+                for outcome in self.stream_outcomes.pop(0)
+            ]
             call = _StreamCall(outcomes)
             self.stream_calls.append(call)
             return call
@@ -194,7 +212,6 @@ def _supervisor(*, limit: int | None = 2, events=None) -> CallSupervisor:
     metrics = ClientMetrics(on_rpc_event=None if events is None else events.append)
     return CallSupervisor(
         metrics=metrics,
-        drain_tracker=TransportDrainTracker(),
         max_concurrent_rpcs=limit,
     )
 
@@ -206,6 +223,10 @@ async def _open(
     supervisor: CallSupervisor | None = None,
     timeout: float | None = 1.0,
     monotonic: Callable[[], float] = time.monotonic,
+    rate_limit_max_retries: int = 3,
+    server_error_max_retries: int = 3,
+    refresh_retry_delay: float = 0.2,
+    sleep: Callable[[float], Awaitable[object]] | None = None,
 ):
     channel = channel or _Channel()
     bearer = bearer or _Bearer()
@@ -220,6 +241,11 @@ async def _open(
         bearer,  # type: ignore[arg-type]
         supervisor,
         timeout=timeout,
+        rate_limit_max_retries=rate_limit_max_retries,
+        server_error_max_retries=server_error_max_retries,
+        refresh_retry_delay=refresh_retry_delay,
+        metrics=supervisor._metrics,
+        sleep=sleep,
         grpc_loader=lambda: grpc,
         monotonic=monotonic,
     )
@@ -259,6 +285,65 @@ async def test_open_is_lazy_and_unary_uses_fixed_tls_channel_and_metadata() -> N
 
 
 @pytest.mark.asyncio
+async def test_raw_calls_use_fixed_session_auth_codecs_and_constant_telemetry() -> None:
+    raw_method = "/example.raw.Service/GetThing"
+    raw_stream_method = "/example.raw.Service/WatchThings"
+    events = []
+    channel = _Channel()
+    channel.unary_outcomes = [b"raw-response"]
+    channel.stream_outcomes = [[b"one", b"two"]]
+    session, _, _, grpc, supervisor = await _open(
+        channel=channel,
+        supervisor=_supervisor(events=events),
+    )
+    raw = AndroidRawAPI(session)
+
+    unary = GrpcUnaryMethod(
+        raw_method,
+        response_type=_Message,
+        replay_policy=ReplayPolicy.SAFE_READ,
+    )
+    assert await raw.unary(
+        unary,
+        _Message(b"raw-request"),
+        metadata=(("x-caller", "value"),),
+    ) == _Message(b"raw-response")
+
+    stream = GrpcUnaryStreamMethod(raw_stream_method, response_type=_Message)
+    assert [item async for item in raw.unary_stream(stream, _Message(b"stream-request"))] == [
+        _Message(b"one"),
+        _Message(b"two"),
+    ]
+
+    assert grpc.targets[0][0] == ANDROID_GRPC_TARGET
+    assert channel.invocations[0][1:3] == (
+        b"raw-request",
+        (("authorization", f"Bearer {BEARER}"), ("x-caller", "value")),
+    )
+    assert channel.invocations[1][1:3] == (
+        b"stream-request",
+        (("authorization", f"Bearer {BEARER}"),),
+    )
+    assert [event.method for event in events] == ["raw.unary", "raw.unary_stream"]
+    assert supervisor._metrics.snapshot().rpc_calls_succeeded == 2
+
+
+@pytest.mark.asyncio
+async def test_unary_accepts_explicit_replay_opt_out_for_safe_method() -> None:
+    session, _, channel, _, _ = await _open()
+
+    result = await session.unary(
+        METHOD,
+        _Message(b"request"),
+        replay_safe=False,
+        response_type=_Message,
+    )
+
+    assert result == _Message(b"response")
+    assert len(channel.invocations) == 1
+
+
+@pytest.mark.asyncio
 async def test_unary_appends_augmented_metadata() -> None:
     session, _, channel, _, _ = await _open()
 
@@ -269,7 +354,7 @@ async def test_unary_appends_augmented_metadata() -> None:
     assert await session.unary(
         METHOD,
         _Message(b"request"),
-        replay_safe=False,
+        replay_safe=True,
         response_type=_Message,
         metadata_augmentor=augment,
     ) == _Message(b"response")
@@ -295,7 +380,7 @@ async def test_metadata_augmentor_rechecks_epoch_before_wire_dispatch() -> None:
         session.unary(
             METHOD,
             _Message(b"request"),
-            replay_safe=False,
+            replay_safe=True,
             response_type=_Message,
             metadata_augmentor=augment,
         )
@@ -390,22 +475,25 @@ async def test_safe_read_replays_unauthenticated_once_and_mutation_never_replays
     session, bearer, _, _, _ = await _open(
         channel=channel,
         bearer=_Bearer(["ya29.first", "ya29.second"]),
+        refresh_retry_delay=0,
     )
     assert await session.unary(
-        METHOD,
+        GET_PROJECT_METHOD,
         _Message(b"request"),
         replay_safe=True,
         response_type=_Message,
     ) == _Message(b"ok")
     assert len(channel.invocations) == 2
     assert bearer.invalidated == [1]
+    assert session._metrics is not None
+    assert session._metrics.snapshot().rpc_auth_retries == 1
 
     mutation_channel = _Channel()
     mutation_channel.unary_outcomes = [_RawRpcError(_Status.UNAUTHENTICATED), b"must-not-run"]
     mutation, mutation_bearer, _, _, _ = await _open(channel=mutation_channel)
     with pytest.raises(AuthError) as captured:
         await mutation.unary(
-            METHOD,
+            MUTATION_METHOD,
             _Message(b"mutation"),
             replay_safe=False,
             response_type=_Message,
@@ -419,7 +507,50 @@ async def test_safe_read_replays_unauthenticated_once_and_mutation_never_replays
 async def test_safe_read_replays_unavailable_once_and_mutation_never_replays() -> None:
     channel = _Channel()
     channel.unary_outcomes = [_RawRpcError(_Status.UNAVAILABLE), b"ok"]
-    session, _, _, _, _ = await _open(channel=channel)
+
+    async def sleep(_seconds: float) -> None:
+        return None
+
+    session, _, _, _, supervisor = await _open(channel=channel, timeout=5.0, sleep=sleep)
+
+    assert await session.unary(
+        GET_PROJECT_METHOD,
+        _Message(b"request"),
+        replay_safe=True,
+        response_type=_Message,
+    ) == _Message(b"ok")
+    assert len(channel.invocations) == 2
+    assert supervisor._metrics.snapshot().rpc_server_error_retries == 1
+
+    mutation_channel = _Channel()
+    mutation_channel.unary_outcomes = [_RawRpcError(_Status.UNAVAILABLE), b"must-not-run"]
+    mutation, _, _, _, _ = await _open(channel=mutation_channel)
+    with pytest.raises(ServerError) as captured:
+        await mutation.unary(
+            MUTATION_METHOD,
+            _Message(b"mutation"),
+            replay_safe=False,
+            response_type=_Message,
+        )
+    assert len(mutation_channel.invocations) == 1
+    assert captured.value.rpc_code == 14
+
+
+@pytest.mark.asyncio
+async def test_resource_exhausted_retries_with_injected_sleep_and_metrics(monkeypatch) -> None:
+    channel = _Channel()
+    channel.unary_outcomes = [_RawRpcError(_Status.RESOURCE_EXHAUSTED), b"ok"]
+    sleeps: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(session_module, "compute_backoff_delay", lambda *_args, **_kwargs: 1.25)
+    session, _, _, _, supervisor = await _open(
+        channel=channel,
+        timeout=10.0,
+        sleep=sleep,
+    )
 
     assert await session.unary(
         METHOD,
@@ -427,20 +558,51 @@ async def test_safe_read_replays_unavailable_once_and_mutation_never_replays() -
         replay_safe=True,
         response_type=_Message,
     ) == _Message(b"ok")
-    assert len(channel.invocations) == 2
+    assert sleeps == [1.25]
+    assert supervisor._metrics.snapshot().rpc_rate_limit_retries == 1
 
-    mutation_channel = _Channel()
-    mutation_channel.unary_outcomes = [_RawRpcError(_Status.UNAVAILABLE), b"must-not-run"]
-    mutation, _, _, _, _ = await _open(channel=mutation_channel)
-    with pytest.raises(ServerError) as captured:
-        await mutation.unary(
-            METHOD,
+
+@pytest.mark.parametrize("status", [_Status.RESOURCE_EXHAUSTED, _Status.INTERNAL])
+@pytest.mark.asyncio
+async def test_mutating_rpc_never_replays_new_retry_classes(status: _Status) -> None:
+    channel = _Channel()
+    channel.unary_outcomes = [_RawRpcError(status), b"must-not-run"]
+    sleeps: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    session, _, _, _, supervisor = await _open(channel=channel, sleep=sleep)
+    with pytest.raises((RateLimitError, ServerError)):
+        await session.unary(
+            MUTATION_METHOD,
             _Message(b"mutation"),
             replay_safe=False,
             response_type=_Message,
         )
-    assert len(mutation_channel.invocations) == 1
-    assert captured.value.rpc_code == 14
+
+    assert len(channel.invocations) == 1
+    assert sleeps == []
+    snapshot = supervisor._metrics.snapshot()
+    assert snapshot.rpc_rate_limit_retries == 0
+    assert snapshot.rpc_server_error_retries == 0
+
+
+@pytest.mark.asyncio
+async def test_unknown_method_is_single_attempt_even_when_declared_replay_safe() -> None:
+    channel = _Channel()
+    channel.unary_outcomes = [_RawRpcError(_Status.UNAVAILABLE), b"must-not-run"]
+    session, _, _, _, _ = await _open(channel=channel)
+
+    with pytest.raises(ServerError):
+        await session.unary(
+            "/package.Service/Method",
+            _Message(b"request"),
+            replay_safe=True,
+            response_type=_Message,
+        )
+
+    assert len(channel.invocations) == 1
 
 
 @pytest.mark.parametrize(
@@ -472,7 +634,7 @@ async def test_unary_status_mapping_is_sanitized(status, error_type) -> None:
 
     with pytest.raises(error_type) as captured:
         await session.unary(
-            METHOD,
+            MUTATION_METHOD,
             _Message(b"request"),
             replay_safe=False,
             response_type=_Message,
@@ -482,7 +644,7 @@ async def test_unary_status_mapping_is_sanitized(status, error_type) -> None:
     assert BEARER not in str(error)
     assert error.__cause__ is None
     assert error.__context__ is None
-    assert error.method_id == METHOD
+    assert error.method_id == MUTATION_METHOD
     traceback = error.__traceback__
     while traceback is not None:
         local_values = traceback.tb_frame.f_locals
@@ -512,7 +674,7 @@ async def test_unknown_wire_error_debug_log_contains_type_not_sensitive_message(
         await session.unary(
             METHOD,
             _Message(b"request"),
-            replay_safe=False,
+            replay_safe=True,
             response_type=_Message,
         )
 
@@ -527,7 +689,7 @@ async def test_stream_is_lazy_holds_scope_and_never_replays_auth_failure() -> No
     channel = _Channel()
     channel.stream_outcomes = [[_Message(b"one"), _RawRpcError(_Status.UNAUTHENTICATED)]]
     session, bearer, _, _, supervisor = await _open(channel=channel)
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
 
     assert supervisor._metrics.snapshot().rpc_calls_started == 0
     assert channel.invocations == []
@@ -542,6 +704,35 @@ async def test_stream_is_lazy_holds_scope_and_never_replays_auth_failure() -> No
     wire_timeout = channel.invocations[0][3]
     assert wire_timeout is not None and 0.0 < wire_timeout <= 1.0
     assert supervisor._current is not None and supervisor._current.in_flight == 0
+
+
+@pytest.mark.asyncio
+async def test_stream_auth_failure_invalidates_bearer_for_the_next_unary() -> None:
+    channel = _Channel()
+    channel.stream_outcomes = [[_RawRpcError(_Status.UNAUTHENTICATED)]]
+    channel.unary_outcomes = [b"ok"]
+    session, bearer, _, _, _ = await _open(
+        channel=channel,
+        bearer=_Bearer(["ya29.first", "ya29.second"]),
+    )
+
+    stream = session.stream(
+        STREAM_METHOD,
+        _Message(b"stream"),
+        replay_safe=False,
+        response_type=_Message,
+    )
+    with pytest.raises(AuthError):
+        await anext(stream)
+
+    assert await session.unary(
+        METHOD,
+        _Message(b"read"),
+        replay_safe=True,
+        response_type=_Message,
+    ) == _Message(b"ok")
+    assert bearer.invalidated == [1]
+    assert channel.invocations[-1][2] == (("authorization", "Bearer ya29.second"),)
 
 
 @pytest.mark.asyncio
@@ -563,7 +754,7 @@ async def test_stream_uses_one_aggregate_deadline_across_frames() -> None:
         timeout=1.0,
         monotonic=monotonic,
     )
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
 
     assert await anext(stream) == _Message(b"one")
     with pytest.raises(RPCTimeoutError):
@@ -578,7 +769,7 @@ async def test_stream_aclose_cancels_wire_call_and_releases_scope() -> None:
     channel = _Channel()
     channel.stream_outcomes = [[_Message(b"one"), _Message(b"two")]]
     session, _, _, _, supervisor = await _open(channel=channel)
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     assert await anext(stream) == _Message(b"one")
 
     await stream.aclose()
@@ -593,7 +784,7 @@ async def test_stream_enforces_cumulative_response_byte_cap_and_cancels_wire() -
     channel.stream_outcomes = [[_Message(b"one"), _Message(b"two")]]
     session, _, _, _, supervisor = await _open(channel=channel)
     stream = session.stream(
-        METHOD,
+        STREAM_METHOD,
         _Message(b"request"),
         response_type=_Message,
         max_response_bytes=3,
@@ -605,7 +796,7 @@ async def test_stream_enforces_cumulative_response_byte_cap_and_cancels_wire() -
 
     assert captured.value.limit_bytes == 3
     assert captured.value.bytes_read == 6
-    assert captured.value.method_id == METHOD
+    assert captured.value.method_id == STREAM_METHOD
     assert channel.stream_calls[0].cancelled
     assert supervisor._current is not None and supervisor._current.in_flight == 0
 
@@ -664,7 +855,7 @@ async def test_preopen_error_stream_laziness_missing_extra_and_phased_close() ->
             replay_safe=True,
             response_type=_Message,
         )
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     with pytest.raises(RuntimeError, match="Client not initialized"):
         await anext(stream)
 
@@ -782,7 +973,7 @@ def test_default_protobuf_loader_maps_generated_runtime_version_mismatch() -> No
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# _await_with_deadline
+# await_with_deadline
 # ---------------------------------------------------------------------------
 
 
@@ -793,7 +984,7 @@ async def test_an_absent_deadline_awaits_without_a_timeout_wrapper() -> None:
     async def _work() -> str:
         return "done"
 
-    assert await _await_with_deadline(_work(), None) == "done"
+    assert await await_with_deadline(_work(), None, on_timeout=TimeoutError) == "done"
 
 
 # ---------------------------------------------------------------------------
@@ -893,6 +1084,135 @@ async def test_a_unary_call_naming_a_retired_generation_is_refused() -> None:
     assert channel.invocations == []
 
 
+def test_workflow_epoch_is_session_tagged_and_nested_tokens_restore_the_outer_value() -> None:
+    first = object()
+    second = object()
+
+    outer = bind_workflow_epoch(first, 1)
+    try:
+        assert workflow_epoch_for(first) == 1
+        assert workflow_epoch_for(second) is None
+
+        inner = bind_workflow_epoch(first, 2)
+        try:
+            assert workflow_epoch_for(first) == 2
+        finally:
+            reset_workflow_epoch(inner)
+        assert workflow_epoch_for(first) == 1
+    finally:
+        reset_workflow_epoch(outer)
+    assert workflow_epoch_for(first) is None
+
+
+@pytest.mark.asyncio
+async def test_workflow_epoch_token_must_be_reset_in_its_originating_task() -> None:
+    session = object()
+    token = bind_workflow_epoch(session, 1)
+    try:
+        with pytest.raises(ValueError, match="different Context"):
+            await asyncio.create_task(asyncio.to_thread(reset_workflow_epoch, token))
+    finally:
+        reset_workflow_epoch(token)
+
+
+@pytest.mark.asyncio
+async def test_child_task_keeps_copied_workflow_epoch_after_parent_reset() -> None:
+    session = object()
+    release = asyncio.Event()
+    token = bind_workflow_epoch(session, 1)
+
+    async def read_copied_epoch() -> int | None:
+        await release.wait()
+        return workflow_epoch_for(session)
+
+    child = asyncio.create_task(read_copied_epoch())
+    reset_workflow_epoch(token)
+    release.set()
+
+    assert await child == 1
+    assert workflow_epoch_for(session) is None
+
+
+@pytest.mark.asyncio
+async def test_child_task_cannot_enter_an_inherited_scope_after_its_epoch_retires() -> None:
+    session, _bearer, first_channel, grpc, supervisor = await _open()
+    api = AndroidNotebooksAPI(session, SimpleNamespace())
+    release = asyncio.Event()
+
+    async def create_after_reopen() -> None:
+        await release.wait()
+        await api.create("stale child")
+
+    async with api._operation_scope("test.parent"):
+        child = asyncio.create_task(create_after_reopen())
+
+    await supervisor.begin_closing(1)
+    await session.prepare_close()
+    await session.close_resources()
+    supervisor.mark_closed(1)
+
+    second_channel = _Channel()
+    grpc.channel = second_channel
+    loop = asyncio.get_running_loop()
+    supervisor.set_bound_loop(loop)
+    supervisor.reset_after_open()
+    supervisor.prepare_generation(2)
+    supervisor.start_accepting(2)
+    session.set_bound_loop(loop)
+    session.reset_after_open()
+    await session.open(loop, 2)
+
+    release.set()
+    with pytest.raises(RuntimeError, match="retired resource generation"):
+        await child
+
+    assert first_channel.invocations == []
+    assert second_channel.invocations == []
+
+
+@pytest.mark.asyncio
+async def test_omitted_unary_and_stream_epochs_reject_a_retired_workflow_generation() -> None:
+    session, _bearer, first_channel, grpc, supervisor = await _open()
+    token = bind_workflow_epoch(session, 1)
+    try:
+        await supervisor.begin_closing(1)
+        await session.prepare_close()
+        await session.close_resources()
+        supervisor.mark_closed(1)
+
+        second_channel = _Channel()
+        grpc.channel = second_channel
+        loop = asyncio.get_running_loop()
+        supervisor.set_bound_loop(loop)
+        supervisor.reset_after_open()
+        supervisor.prepare_generation(2)
+        supervisor.start_accepting(2)
+        session.set_bound_loop(loop)
+        session.reset_after_open()
+        await session.open(loop, 2)
+
+        with pytest.raises(RuntimeError, match="retired resource generation"):
+            await session.unary(
+                METHOD,
+                _Message(b"request"),
+                replay_safe=True,
+                response_type=_Message,
+            )
+        with pytest.raises(RuntimeError, match="retired resource generation"):
+            async for _item in session.stream(
+                METHOD,
+                _Message(b"request"),
+                replay_safe=True,
+                response_type=_Message,
+            ):
+                pass
+    finally:
+        reset_workflow_epoch(token)
+
+    assert first_channel.invocations == []
+    assert second_channel.invocations == []
+
+
 @pytest.mark.asyncio
 async def test_active_epoch_tracks_open_and_close() -> None:
     session, _bearer, _channel, _grpc, _sup = await _open()
@@ -982,7 +1302,7 @@ async def test_a_deadline_reached_while_minting_reports_deadline_exceeded() -> N
     session, _bearer, _channel, _grpc, _sup = await _open(bearer=bearer, timeout=0.01)
 
     with pytest.raises(RPCTimeoutError):
-        await session.unary(METHOD, _Message(b"request"), replay_safe=False, response_type=_Message)
+        await session.unary(METHOD, _Message(b"request"), replay_safe=True, response_type=_Message)
 
 
 @pytest.mark.asyncio
@@ -997,7 +1317,7 @@ async def test_a_deadline_reached_inside_the_augmentor_reports_deadline_exceeded
         await session.unary(
             METHOD,
             _Message(b"request"),
-            replay_safe=False,
+            replay_safe=True,
             response_type=_Message,
             metadata_augmentor=augment,
         )
@@ -1025,13 +1345,13 @@ async def test_waiting_for_a_call_slot_past_the_deadline_is_a_timeout_not_an_err
     )
 
     holder = asyncio.create_task(
-        session.unary(METHOD, _Message(b"a"), replay_safe=False, response_type=_Message)
+        session.unary(METHOD, _Message(b"a"), replay_safe=True, response_type=_Message)
     )
     await asyncio.sleep(0)
 
     with pytest.raises(RPCTimeoutError):
         await session.unary(
-            METHOD, _Message(b"b"), replay_safe=False, response_type=_Message, timeout=0.01
+            METHOD, _Message(b"b"), replay_safe=True, response_type=_Message, timeout=0.01
         )
 
     blocker.set()
@@ -1072,7 +1392,7 @@ async def test_a_stream_deadline_reached_while_minting_reports_deadline_exceeded
     bearer.wait = asyncio.Event()
     session, _bearer, _channel, _grpc, _sup = await _open(bearer=bearer, timeout=0.01)
 
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     with pytest.raises(RPCTimeoutError):
         async for _item in stream:
             pass
@@ -1093,7 +1413,7 @@ async def test_a_stream_deadline_reached_mid_iteration_reports_deadline_exceeded
     )
 
     received = []
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     with pytest.raises(RPCTimeoutError):
         async for item in stream:
             received.append(item)
@@ -1117,7 +1437,7 @@ async def test_an_unmapped_stream_wire_error_logs_only_its_type(caplog) -> None:
     session, _bearer, _channel, _grpc, _sup = await _open(channel=channel)
 
     with caplog.at_level(logging.DEBUG, logger="notebooklm._android.session"):
-        stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+        stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
         with pytest.raises(RPCError):
             async for _item in stream:
                 pass
@@ -1145,7 +1465,7 @@ async def test_a_stream_cancel_that_itself_fails_is_swallowed() -> None:
     channel.unary_stream = unary_stream  # type: ignore[method-assign]
     session, _bearer, _channel, _grpc, _sup = await _open(channel=channel)
 
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     with pytest.raises(ServerError):
         async for _item in stream:
             pass
@@ -1168,11 +1488,11 @@ async def test_a_stream_waiting_for_a_call_slot_past_its_deadline_times_out() ->
     )
 
     holder = asyncio.create_task(
-        session.unary(METHOD, _Message(b"a"), replay_safe=False, response_type=_Message)
+        session.unary(METHOD, _Message(b"a"), replay_safe=True, response_type=_Message)
     )
     await asyncio.sleep(0)
 
-    stream = session.stream(METHOD, _Message(b"b"), response_type=_Message, timeout=0.01)
+    stream = session.stream(STREAM_METHOD, _Message(b"b"), response_type=_Message, timeout=0.01)
     with pytest.raises(RPCTimeoutError):
         async for _item in stream:
             pass
@@ -1239,7 +1559,7 @@ async def test_a_stream_call_without_a_cancel_hook_is_abandoned_cleanly() -> Non
     channel.unary_stream = unary_stream  # type: ignore[method-assign]
     session, _bearer, _channel, _grpc, _sup = await _open(channel=channel)
 
-    stream = session.stream(METHOD, _Message(b"request"), response_type=_Message)
+    stream = session.stream(STREAM_METHOD, _Message(b"request"), response_type=_Message)
     with pytest.raises(ServerError):
         async for _item in stream:
             pass

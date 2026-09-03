@@ -1,6 +1,7 @@
 """Web ``batchexecute`` source operations backend."""
 
 import builtins
+import contextlib
 import logging
 from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
@@ -9,9 +10,9 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ..._runtime.call_supervisor import CallSupervisor
+from ..._runtime.call_supervisor import CallSupervisor, OperationLease
 from ..._runtime.config import DEFAULT_MAX_CONCURRENT_UPLOADS
-from ..._sources import SourcesAPI, validate_search
+from ..._sources import SourcesAPI, _TransferResult, _validate_add_text_idempotency, validate_search
 from ..._types.research import SourceGuide
 from ..._types.sources import _EXPERT_INTELLIGENCE_TYPE_CODE
 from ..._url_utils import is_youtube_url
@@ -33,7 +34,6 @@ from ..settings import build_get_user_settings_params, extract_account_limits
 from . import upload as _source_upload
 from .add import (
     SourceAddService,
-    _validate_add_text_idempotency,
     _validate_drive_file_id,
     honor_requested_title_if_fresh,
 )
@@ -65,6 +65,12 @@ class WebSourcesAPI(SourcesAPI):
             new_src = await client.sources.add_url(notebook_id, "https://example.com")
             await client.sources.rename(notebook_id, new_src.id, "Better Title")
     """
+
+    def _operation_scope(
+        self, label: str
+    ) -> contextlib.AbstractAsyncContextManager[OperationLease]:
+        """Keep hoisted multi-call workflows under the web supervisor."""
+        return self._supervisor.operation_scope(label)
 
     def __init__(
         self,
@@ -412,52 +418,18 @@ class WebSourcesAPI(SourcesAPI):
                 logger=logger,
             )
 
-    async def add_file(
+    async def _send_upload(
         self,
         notebook_id: str,
         file_path: str | Path,
-        mime_type: str | None = None,
+        mime_type: str | None,
         *,
-        wait: bool = False,
-        wait_timeout: float = 120.0,
-        title: str | None = None,
-        on_progress: Callable[[int, int], object] | None = None,
+        wait: bool,
+        wait_timeout: float,
+        title: str | None,
+        on_progress: Callable[[int, int], object] | None,
     ) -> Source:
-        """Add a file source to a notebook using Google's resumable upload.
-
-        Registers the source, opens an upload session, streams the file body (memory-efficient for
-        large files), and — if a custom ``title`` is given — issues a follow-up ``UPDATE_SOURCE``
-        rename (the file-add RPC has no title slot). Uploads run under the Sources-owned semaphore
-        (``max_concurrent_uploads``, default 4), which also caps open descriptors; the path is
-        resolved before admission but opened after it, so a swap while queued still lands.
-
-        Args:
-            notebook_id: The notebook ID.
-            file_path: Path to the file to upload.
-            mime_type: Content type for the upload handshake; inferred from the
-                filename extension when omitted.
-            title: Optional display title. When set and different from the
-                filename, a rename is issued after upload (whitespace stripped;
-                empty rejected). A non-default title forces a brief registration
-                wait before the rename even when ``wait=False`` — UPDATE_SOURCE
-                no-ops against an unregistered source (#388); a failed rename is
-                logged and the filename title is kept.
-            wait: If True, wait for the source to be fully ready before returning.
-            wait_timeout: Max seconds to wait if ``wait=True`` (also bounds the
-                narrow registration wait above). Default: 120.
-            on_progress: Optional sync/async ``on_progress(bytes_sent, total)``
-                callback during the upload body; its exceptions abort the upload.
-
-        Returns:
-            The created Source object; if wait=False, status may be PROCESSING.
-
-        Raises:
-            ValidationError: If the path is not a regular file, the title is
-                empty, or the file is an HTML-family type the upload endpoint
-                rejects (convert to text/Markdown/PDF first). A failure *after*
-                registration raises its real type unwrapped, carrying
-                ``source_id`` / ``stage`` attributes naming the retained row.
-        """
+        """Run the web resumable-upload pipeline around shared finalization."""
         return await self._uploader.add_file(
             notebook_id,
             file_path,
@@ -466,6 +438,7 @@ class WebSourcesAPI(SourcesAPI):
             wait_timeout=wait_timeout,
             title=title,
             on_progress=on_progress,
+            finalize_uploaded=SourcesAPI._finalize_uploaded_file,
         )
 
     async def add_drive(
@@ -984,83 +957,47 @@ class WebSourcesAPI(SourcesAPI):
     # Transfers (#2283): AddSourcesAsync / AppendSource / CopySourcesAsync
     # =========================================================================
 
-    async def add_urls_async(
+    async def _send_add_urls_async(
         self,
         notebook_id: str,
         urls: builtins.list[str],
-    ) -> builtins.list[Source]:
-        """Queue URL sources with one non-blocking ``AddSourcesAsync`` call.
+    ) -> _TransferResult[Source]:
+        """Send and decode one batchexecute URL-queue operation."""
+        return await self._transfers.add_urls_async(
+            notebook_id,
+            urls,
+            rpc=self._rpc,
+            extract_youtube_video_id=self._extract_youtube_video_id,
+            logger=logger,
+        )
 
-        Same request as the batch ``ADD_SOURCE`` path, but the server answers
-        as soon as the sources are queued (~0.65 s for two URLs versus ~2 s per
-        synchronous add in the #2283 web probe) with stub rows — id, url and type only, status
-        still processing. Poll :meth:`wait_until_ready` / :meth:`list` for the
-        ingested rows.
-
-        Never replayed on a transport failure: an unknown subset may have
-        committed, so the error is marked unconfirmed for the caller to
-        reconcile against :meth:`list`.
-
-        .. versionadded:: 0.9.0
-        """
-        async with self._supervisor.operation_scope("source.add_urls_async"):
-            return await self._transfers.add_urls_async(
-                notebook_id,
-                urls,
-                rpc=self._rpc,
-                extract_youtube_video_id=self._extract_youtube_video_id,
-                logger=logger,
-            )
-
-    async def append_text(
+    async def _send_append_text(
         self,
         notebook_id: str,
         source_id: str,
         text: str,
         *,
-        header: str = "",
+        header: str,
     ) -> None:
-        """Append a plain-text block to an existing source (``AppendSource``).
+        """Send one batchexecute append operation."""
+        await self._transfers.append_text(
+            notebook_id, source_id, text, header=header, rpc=self._rpc
+        )
 
-        ``text`` is appended at the very end of the source's fulltext (verified
-        live: a 61-character pasted-text source grew to 86 characters ending in
-        the appended block). ``header`` is accepted by the backend but does not
-        appear in the fulltext. Success is an empty reply; a rejected call raises
-        ``RPCError`` with the server status.
-
-        .. versionadded:: 0.9.0
-        """
-        async with self._supervisor.operation_scope("source.append_text"):
-            await self._transfers.append_text(
-                notebook_id, source_id, text, header=header, rpc=self._rpc
-            )
-
-    async def copy(
+    async def _send_copy(
         self,
         notebook_id: str,
         source_ids: builtins.list[str],
         target_notebook_id: str,
-    ) -> builtins.list[CopiedSource]:
-        """Copy sources into another notebook (``CopySourcesAsync``).
-
-        Returns one :class:`~notebooklm.types.CopiedSource` per copied source,
-        pairing the original id with the new row in ``target_notebook_id``
-        (verified live by re-listing the target). An unknown source id or target
-        notebook draws ``NOT_FOUND`` (``RPCError``); an empty mapping on success
-        raises ``SourceNotFoundError`` so a no-op never reads as a copy. A partial
-        result is returned with a warning because those copies have already
-        committed.
-
-        .. versionadded:: 0.9.0
-        """
-        async with self._supervisor.operation_scope("source.copy"):
-            return await self._transfers.copy(
-                notebook_id,
-                source_ids,
-                target_notebook_id,
-                rpc=self._rpc,
-                logger=logger,
-            )
+    ) -> _TransferResult[CopiedSource]:
+        """Send and decode one batchexecute source-copy operation."""
+        return await self._transfers.copy(
+            notebook_id,
+            source_ids,
+            target_notebook_id,
+            rpc=self._rpc,
+            logger=logger,
+        )
 
 
 __all__ = ["WebSourcesAPI"]

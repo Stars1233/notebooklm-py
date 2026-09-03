@@ -35,7 +35,6 @@ from notebooklm._client_metrics import ClientMetrics
 from notebooklm._collections import CollectionsAPI
 from notebooklm._labels import LabelsAPI
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm.exceptions import (
     AuthError,
     CollectionError,
@@ -186,11 +185,10 @@ class FakeOrganizationServer:
             MUTATE_LABEL_METHOD: organization_pb2.MutateLabelResponse,
             DELETE_LABELS_METHOD: organization_pb2.DeleteLabelsResponse,
         }
-        assert kwargs == {
-            "replay_safe": False,
-            "response_type": response_types[method],
-            "expected_epoch": self.epoch,
-        }
+        assert kwargs["response_type"] is response_types[method]
+        assert kwargs["expected_epoch"] == self.epoch
+        assert kwargs["replay_safe"] is False
+        assert "operation_variant" not in kwargs
         assert request.HasField("request_context")
         if method == CREATE_LABEL_METHOD:
             if request.HasField("auto_create"):
@@ -326,14 +324,9 @@ def test_adapters_are_concrete_and_module_imports_keep_protobuf_lazy() -> None:
     assert server.operation_scopes == []
     assert CollectionsAPI.__abstractmethods__ == {
         "list",
-        "get_or_none",
-        "get",
-        "notebooks",
         "create",
-        "rename",
-        "add_notebooks",
-        "remove_notebooks",
-        "delete",
+        "_send_update",
+        "_send_mutate_member",
     }
     assert all(
         inspect.iscoroutinefunction(getattr(AndroidCollectionsAPI, name))
@@ -924,7 +917,6 @@ async def test_status_five_maps_to_public_miss_and_retired_epoch_stops_later_io(
 async def test_real_supervisor_outer_lease_keeps_create_alive_during_graceful_drain() -> None:
     supervisor = CallSupervisor(
         metrics=ClientMetrics(),
-        drain_tracker=TransportDrainTracker(),
         max_concurrent_rpcs=None,
     )
     loop = asyncio.get_running_loop()
@@ -1138,11 +1130,13 @@ async def test_property_write_read_back_absence_maps_to_the_typed_miss(kind: str
     labels, collections = _apis(_VanishingResourceServer())
 
     expected = LabelNotFoundError if kind == "label" else CollectionNotFoundError
-    with pytest.raises(expected):
+    with pytest.raises(expected) as caught:
         if kind == "label":
             await labels.update(NB, LABEL_A, name="New")
         else:
             await collections.rename(COLLECTION_A, "New")
+
+    assert caught.value.method_id == MUTATE_LABEL_METHOD
 
 
 @pytest.mark.parametrize("kind", ["label", "collection"])

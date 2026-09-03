@@ -9,6 +9,9 @@
     "PINNED": 174,
     "UNMAPPED": 340
   },
+  "tests/_guardrails/test_android_retry_manifest.py": {
+    "_WEB_CLASS_BY_ANDROID_NAME": 97
+  },
   "tests/_guardrails/test_asyncio_loop_affinity_guard.py": {
     "ALLOWLIST": 21
   },
@@ -61,14 +64,16 @@
   },
   "tests/_guardrails/test_auth_stored_auth_boundary.py": {
     "_FORBIDDEN_TOKEN_CAPABILITIES": 35,
-    "_VALUE_FIELDS": 22
+    "_VALUE_FIELDS": 23
   },
   "tests/_guardrails/test_authtokens_jar_sync.py": {
     "_COOKIE_SHADOW_INVENTORY": 96,
     "_NON_AUTHTOKENS_CANDIDATES": 30
   },
   "tests/_guardrails/test_backend_abstract_contracts.py": {
-    "BASE_ABSTRACT_CONTRACTS": 165
+    "BASE_ABSTRACT_CONTRACTS": 171,
+    "_ANDROID_IMPLEMENTATIONS": 33,
+    "_ANDROID_INHERITED_WORKFLOWS": 102
   },
   "tests/_guardrails/test_backend_boundaries.py": {
     "LAZY_WEB_IMPORT_ALLOWLIST": 34
@@ -103,9 +108,6 @@
   "tests/_guardrails/test_no_facade_reach_in.py": {
     "_FORBIDDEN_PRIVATE_SERVICE_RUNTIME_IMPORT_MODULES": 35
   },
-  "tests/_guardrails/test_no_session_compat_bridges.py": {
-    "CARVE_OUT_MODULES": 21
-  },
   "tests/_guardrails/test_public_surface.py": {
     "AUTH_CROSS_BOUNDARY_NAMES": 30,
     "_AUTH_DEBLESSED_KEEP_IMPORTABLE": 40
@@ -122,5 +124,8 @@
   },
   "tests/_guardrails/test_studio_enum_manifest.py": {
     "_RPC_ENUM_SNAPSHOT": 290
+  },
+  "tests/_guardrails/test_unconfirmed_contract.py": {
+    "UNCONFIRMED_METHOD_MANIFEST": 63
   }
 }

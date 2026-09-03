@@ -106,7 +106,7 @@ def test_kernel_post_terminal_has_no_await_before_post_per_attempt():
     # Locate the ``try`` block guarding the POST. Post-PR-12.9 the leaf
     # has no ``while`` retry loop and no ``async with`` semaphore wrap;
     # the try sits at the top of the function body (the semaphore is
-    # held by ``SemaphoreMiddleware`` higher up the chain).
+    # held by ``CallSupervisor`` outside the chain).
     def _find_first_try(parent: ast.AST) -> ast.Try | None:
         for child in ast.iter_child_nodes(parent):
             if isinstance(child, ast.Try):
@@ -445,7 +445,7 @@ async def test_stale_account_only_profile_install_cannot_overwrite_newer_route()
         account_email="first@example.com",
     )
     client = build_client_shell_for_tests(auth)
-    coordinator = client._collaborators.auth_coord
+    coordinator = client._web_runtime.auth_coord
     target = auth.cookie_jar
     assert target is not None
     expected = CookieJar.from_httpx(target)
@@ -556,10 +556,10 @@ async def test_concurrent_refresh_does_not_corrupt_inflight_rpc_request(rpc_firs
         # transport so we can observe the real ``httpx.Request`` (cookie
         # merge, headers, body, URL). Mirrors the ``make_core`` post-open
         # transport-install dance verbatim.
-        prior_cookies = core._collaborators.kernel.get_http_client().cookies
-        await core._collaborators.kernel.get_http_client().aclose()
+        prior_cookies = core._web_runtime.kernel.get_http_client().cookies
+        await core._web_runtime.kernel.get_http_client().aclose()
         install_http_client_for_test(
-            core._collaborators.kernel,
+            core._web_runtime.kernel,
             httpx.AsyncClient(
                 cookies=prior_cookies,
                 transport=transport,
@@ -575,7 +575,7 @@ async def test_concurrent_refresh_does_not_corrupt_inflight_rpc_request(rpc_firs
         try:
             if rpc_first:
                 rpc_task = asyncio.create_task(
-                    core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+                    core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
                 )
                 await asyncio.wait_for(rpc_send_entered.wait(), EVENT_TIMEOUT_S)
                 refresh_task = asyncio.create_task(client.refresh_auth())
@@ -588,7 +588,7 @@ async def test_concurrent_refresh_does_not_corrupt_inflight_rpc_request(rpc_firs
                 refresh_task = asyncio.create_task(client.refresh_auth())
                 await asyncio.wait_for(get_entered.wait(), EVENT_TIMEOUT_S)
                 rpc_task = asyncio.create_task(
-                    core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
+                    core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, [])
                 )
                 await asyncio.wait_for(rpc_send_entered.wait(), EVENT_TIMEOUT_S)
                 let_get_complete.set()

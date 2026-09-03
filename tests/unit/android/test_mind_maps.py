@@ -18,7 +18,6 @@ from notebooklm._android.mind_maps import AndroidMindMapsAPI
 from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._mind_maps_api import MindMapsAPI
 from notebooklm._notes import NotesAPI
-from notebooklm._runtime.call_supervisor import CallSupervisor
 from notebooklm._types.research import MindMapResult
 from notebooklm.exceptions import ArtifactNotReadyError, MindMapNotFoundError, NoteNotFoundError
 from notebooklm.types import Artifact, GenerationStatus, MindMap, MindMapKind, Note
@@ -104,7 +103,7 @@ def _graph(
 
     return (
         AndroidMindMapsAPI(
-            supervisor=cast(CallSupervisor, supervisor or _Supervisor()),
+            session=cast(Any, supervisor or _Supervisor()),
             artifacts=artifact_api,
             notes=notes,
         ),
@@ -117,7 +116,7 @@ def test_direct_graph_requires_and_retains_exact_base_collaborators() -> None:
     api, artifacts, notes = _graph()
     parameters = inspect.signature(AndroidMindMapsAPI).parameters
 
-    assert parameters["supervisor"].default is inspect.Parameter.empty
+    assert parameters["session"].default is inspect.Parameter.empty
     assert parameters["artifacts"].default is inspect.Parameter.empty
     assert parameters["notes"].default is inspect.Parameter.empty
     assert api._artifacts is artifacts
@@ -151,7 +150,7 @@ def test_direct_graph_requires_private_typed_notes_read_seam() -> None:
 
     with pytest.raises(TypeError, match="private typed note-backed"):
         AndroidMindMapsAPI(
-            supervisor=cast(CallSupervisor, _Supervisor()),
+            session=cast(Any, _Supervisor()),
             artifacts=artifacts,
             notes=notes,
         )
@@ -261,7 +260,7 @@ async def test_interactive_generate_uses_live_create_wait_list_and_tree_seams() 
         instructions="focus",
     )
     artifacts.wait_for_completion.assert_awaited_once_with("notebook-1", "interactive")
-    artifacts.list.assert_awaited_once()
+    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
     artifacts._get_interactive_mind_map_tree.assert_awaited_once_with("notebook-1", "interactive")
     notes._list_note_backed_mind_maps.assert_not_awaited()
 
@@ -456,8 +455,7 @@ async def test_auto_detect_rename_hydrates_interactive_map() -> None:
         _variant=4,
     )
     api, artifacts, notes = _graph(artifacts=[before])
-    artifacts.list.return_value = [before]
-    artifacts._list_all_studio.return_value = [after]
+    artifacts._list_all_studio.side_effect = [[before], [after]]
 
     renamed = await api.rename("notebook-1", "interactive", "Renamed")
 
@@ -468,8 +466,8 @@ async def test_auto_detect_rename_hydrates_interactive_map() -> None:
         MindMapKind.INTERACTIVE,
     )
     assert notes._list_note_backed_mind_maps.await_count == 2
-    artifacts.list.assert_awaited_once_with("notebook-1")
-    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
+    assert artifacts._list_all_studio.await_count == 2
+    artifacts.list.assert_not_awaited()
     artifacts.rename.assert_awaited_once_with(
         "notebook-1",
         "interactive",
@@ -492,7 +490,7 @@ async def test_auto_detect_delete_dispatches_and_missing_is_idempotent() -> None
     assert await api.delete("notebook-1", "interactive") is None
     artifacts.delete.assert_awaited_once_with("notebook-1", "interactive")
 
-    artifacts.list.return_value = []
+    artifacts._list_all_studio.return_value = []
     assert await api.delete("notebook-1", "missing") is None
     assert artifacts.delete.await_count == 1
 
@@ -514,7 +512,7 @@ async def test_get_tree_reads_note_backed_and_auto_detects_missing() -> None:
 
     notes._list_note_backed_mind_maps.return_value = []
     assert await api.get_tree("notebook-1", "missing") is None
-    artifacts.list.assert_awaited_once_with("notebook-1")
+    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
 
 
 @pytest.mark.asyncio
@@ -527,7 +525,7 @@ async def test_get_tree_auto_detected_interactive_reads_exact_app_tree_after_det
     }
 
     notes._list_note_backed_mind_maps.assert_awaited_once_with("notebook-1")
-    artifacts.list.assert_awaited_once_with("notebook-1")
+    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
     artifacts._get_interactive_mind_map_tree.assert_awaited_once_with("notebook-1", "interactive")
 
 
@@ -546,7 +544,7 @@ async def test_explicit_interactive_rename_composes_without_note_reads() -> None
         is None
     )
 
-    artifacts.list.assert_awaited_once_with("notebook-1")
+    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
     artifacts.rename.assert_awaited_once_with(
         "notebook-1",
         "interactive",
@@ -571,7 +569,7 @@ async def test_explicit_interactive_rename_preserves_missing_error() -> None:
             return_object=False,
         )
 
-    artifacts.list.assert_awaited_once_with("notebook-1")
+    artifacts._list_all_studio.assert_awaited_once_with("notebook-1")
     artifacts.rename.assert_not_awaited()
     notes.list_mind_maps.assert_not_awaited()
 
@@ -699,7 +697,7 @@ class _SupervisedArtifacts:
 
 def _supervised_api(transport: SupervisedAndroidTransport) -> AndroidMindMapsAPI:
     return AndroidMindMapsAPI(
-        supervisor=transport.supervisor,
+        session=cast(Any, transport),
         artifacts=cast(Any, _SupervisedArtifacts(transport)),
         notes=cast(Any, _SupervisedNotes(transport)),
     )

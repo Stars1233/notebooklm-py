@@ -3,23 +3,39 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import replace
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 from . import research as _research_pub
 from ._idempotency import mark_unconfirmed
 from ._notebook_metadata import NotebookSourceLister
+from ._research_import import (
+    _WEB_RESEARCH_IMPORT_POLICY,
+    _already_present_source_entry,
+    _classify_research_import,
+    _coerce_research_sources,
+    _imported_result,
+    _imported_source_entry,
+    _is_import_research_failed_precondition,
+    _normalize_import_verification_url,
+    _ResearchImportBatch,
+    _ResearchImportPolicy,
+    _validate_import_task_id,
+    _validate_research_task_provenance,
+)
+from ._runtime.call_supervisor import OperationLease
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_TIMEOUT,
     MIN_IMPORT_RESEARCH_ATTEMPT_TIMEOUT,
 )
-from ._types.enums import DiscoveryMode, GrpcStatusCode, normalize_grpc_status
+from ._types.enums import DiscoveryMode
 from ._types.research import (
     ResearchSource,
     ResearchSourceInput,
@@ -32,7 +48,6 @@ from .exceptions import (
     AuthError,
     NetworkError,
     RateLimitError,
-    ResearchTaskMismatchError,
     ResearchTimeoutError,
     RPCError,
     ServerError,
@@ -42,32 +57,7 @@ from .types import CitedSourceSelection, Source
 
 _INITIAL_INTERVAL_UNSET: Any = object()
 _DEFAULT_RESEARCH_POLL_INTERVAL = 5.0
-
-
-def _coerce_sources(sources: Sequence[ResearchSourceInput]) -> list[ResearchSource]:
-    return [
-        source if isinstance(source, ResearchSource) else ResearchSource.from_public_dict(source)
-        for source in sources
-    ]
-
-
-def _normalized_import_url(url: str) -> str:
-    parsed = urlsplit(url)
-    return urlunsplit(
-        (parsed.scheme.lower(), parsed.netloc.lower(), parsed.path.rstrip("/"), parsed.query, "")
-    )
-
-
-# Historical private seam retained for callers/tests that used the old facade.
-_normalize_import_verification_url = _normalized_import_url
-
-
-def _source_entry(source: Source) -> dict[str, str]:
-    return {"id": source.id or "", "title": source.title or source.url or ""}
-
-
-def _already_present_entry(source: Source) -> dict[str, str]:
-    return {**_source_entry(source), "url": source.url or ""}
+logger = logging.getLogger("notebooklm._research")
 
 
 def _only_source(candidates: Sequence[Source]) -> Source | None:
@@ -77,29 +67,6 @@ def _only_source(candidates: Sequence[Source]) -> Source | None:
     for candidate in candidates:
         return candidate
     return None
-
-
-def _is_failed_precondition(error: RPCError) -> bool:
-    return normalize_grpc_status(error.rpc_code) is GrpcStatusCode.FAILED_PRECONDITION
-
-
-class _ImportedResearchSources(list[dict[str, str]]):
-    """Compatibility list carrying URL rows skipped by idempotency preflight."""
-
-    def __init__(
-        self,
-        imported: Sequence[dict[str, str]],
-        already_present: Sequence[dict[str, str]],
-    ) -> None:
-        super().__init__(imported)
-        self.already_present = list(already_present)
-
-
-def _imported_result(
-    imported: list[dict[str, str]], already_present: list[dict[str, str]]
-) -> list[dict[str, str]]:
-    """Build the historical list-compatible import result."""
-    return _ImportedResearchSources(imported, already_present)
 
 
 #: ``research.discover()`` mode labels → the backend ``DiscoveryMode`` each one
@@ -146,6 +113,15 @@ def validate_discover(query: str, mode: str) -> tuple[str, str, DiscoveryMode]:
 
 class BaseResearchAPI(ABC):
     """Backend-neutral nine-callable Research namespace."""
+
+    _import_policy: _ResearchImportPolicy = _WEB_RESEARCH_IMPORT_POLICY
+
+    def _operation_scope(
+        self, label: str
+    ) -> contextlib.AbstractAsyncContextManager[OperationLease | None]:
+        """Return the backend's scope for one multi-call workflow."""
+
+        return contextlib.nullcontext(None)
 
     def __init__(
         self,
@@ -221,6 +197,22 @@ class BaseResearchAPI(ABC):
         initial_interval: float = _INITIAL_INTERVAL_UNSET,
     ) -> ResearchTask:
         """Poll one pinned run until it reaches a terminal state."""
+        async with self._operation_scope("research.wait_for_completion"):
+            return await self._wait_for_completion_in_scope(
+                notebook_id,
+                task_id,
+                timeout=timeout,
+                initial_interval=initial_interval,
+            )
+
+    async def _wait_for_completion_in_scope(
+        self,
+        notebook_id: str,
+        task_id: str | None = None,
+        *,
+        timeout: float = 1800,
+        initial_interval: float = _INITIAL_INTERVAL_UNSET,
+    ) -> ResearchTask:
         if initial_interval is _INITIAL_INTERVAL_UNSET:
             interval = _DEFAULT_RESEARCH_POLL_INTERVAL
         elif isinstance(initial_interval, bool) or not isinstance(initial_interval, (int, float)):
@@ -262,7 +254,6 @@ class BaseResearchAPI(ABC):
     async def cancel(self, notebook_id: str, run_id: str) -> None:
         """Cancel one exact run without replaying the mutation."""
 
-    @abstractmethod
     async def import_sources(
         self,
         notebook_id: str,
@@ -271,7 +262,76 @@ class BaseResearchAPI(ABC):
         *,
         _remaining_budget: float | None = None,
     ) -> list[dict[str, str]]:
-        """Issue one non-replayed raw import request."""
+        """Import selected research sources into the notebook.
+
+        Args:
+            notebook_id: The notebook ID.
+            task_id: The research task ID.
+            sources: List of sources to import, each with 'url' and 'title'.
+                Deep research results from poll() may also include a report
+                entry with 'report_markdown' and 'research_task_id'.
+            _remaining_budget: Internal. What is left of
+                :meth:`import_sources_with_verification`'s ``max_elapsed``
+                when this attempt starts; clamps the per-attempt read timeout
+                so one attempt cannot outlive that loop's deadline (#2205).
+                Not part of the public contract — direct callers leave it
+                unset and get the full batch-scaled window.
+
+        Returns:
+            List of imported sources with 'id' and 'title'.
+
+        Note:
+            The API response can be incomplete - it may return fewer items than
+            were actually imported. All requested sources typically get imported
+            successfully, but the return value may not reflect all of them.
+            To reliably verify imports, check the notebook's source list using
+            `client.sources.list(notebook_id)` after calling this method.
+        """
+        if not sources:
+            return []
+
+        policy = self._import_policy
+        validated_task_id = _validate_import_task_id(task_id, policy)
+        source_inputs = list(sources)
+        source_models = _coerce_research_sources(source_inputs)
+        if policy.log_classification:
+            logger.debug(
+                "Importing %d research sources into notebook %s",
+                len(source_models),
+                notebook_id,
+            )
+        effective_task_id = _validate_research_task_provenance(
+            source_models,
+            validated_task_id,
+        )
+        batch = _classify_research_import(
+            source_inputs,
+            source_models,
+            task_id=effective_task_id,
+            policy=policy,
+        )
+        if policy.log_classification and batch.skipped_count:
+            logger.warning(
+                "Skipping %d source(s) that cannot be imported (missing URLs or report entries)",
+                batch.skipped_count,
+            )
+        if not batch.items:
+            return []
+        return await self._send_import(
+            notebook_id,
+            batch,
+            _remaining_budget=_remaining_budget,
+        )
+
+    @abstractmethod
+    async def _send_import(
+        self,
+        notebook_id: str,
+        batch: _ResearchImportBatch,
+        *,
+        _remaining_budget: float | None,
+    ) -> list[dict[str, str]]:
+        """Encode, send, and decode one backend import mutation."""
 
     async def import_sources_with_verification(
         self,
@@ -315,20 +375,35 @@ class BaseResearchAPI(ABC):
         post-failure reads prove the exact missing subset and no concurrent row
         makes attribution ambiguous.
         """
+        async with self._operation_scope("research.import_sources_with_verification"):
+            return await self._import_sources_with_verification_in_scope(
+                notebook_id,
+                task_id,
+                sources,
+                max_elapsed=max_elapsed,
+                initial_delay=initial_delay,
+                backoff_factor=backoff_factor,
+                max_delay=max_delay,
+                allow_duplicate=allow_duplicate,
+            )
+
+    async def _import_sources_with_verification_in_scope(
+        self,
+        notebook_id: str,
+        task_id: str,
+        sources: Sequence[ResearchSourceInput],
+        *,
+        max_elapsed: float = 1800,
+        initial_delay: float = 5,
+        backoff_factor: float = 2,
+        max_delay: float = 60,
+        allow_duplicate: bool = False,
+    ) -> list[dict[str, str]]:
         if not sources:
             return _imported_result([], [])
         inputs = list(sources)
-        models = _coerce_sources(inputs)
-        for source in models:
-            if source.research_task_id and source.research_task_id != task_id:
-                raise ResearchTaskMismatchError(
-                    task_id=task_id, source_research_task_id=source.research_task_id
-                )
-        provenance = {source.research_task_id for source in models if source.research_task_id}
-        if len(provenance) > 1:
-            raise ValidationError(
-                "Cannot import sources from multiple research tasks in one batch."
-            )
+        models = _coerce_research_sources(inputs)
+        _validate_research_task_provenance(models, task_id)
 
         try:
             baseline = await self._source_lister.list(notebook_id, strict=False)
@@ -343,20 +418,22 @@ class BaseResearchAPI(ABC):
             for existing_source in baseline:
                 if existing_source.url:
                     existing_by_url.setdefault(
-                        _normalized_import_url(existing_source.url), existing_source
+                        _normalize_import_verification_url(existing_source.url), existing_source
                     )
             kept_inputs: list[ResearchSourceInput] = []
             kept_models: list[ResearchSource] = []
             already_present_ids: set[str] = set()
             for source_input, source in zip(inputs, models, strict=True):
                 existing = (
-                    existing_by_url.get(_normalized_import_url(source.url)) if source.url else None
+                    existing_by_url.get(_normalize_import_verification_url(source.url))
+                    if source.url
+                    else None
                 )
                 if existing is not None:
                     existing_id = existing.id or ""
                     if existing_id not in already_present_ids:
                         already_present_ids.add(existing_id)
-                        already_present.append(_already_present_entry(existing))
+                        already_present.append(_already_present_source_entry(existing))
                 else:
                     kept_inputs.append(source_input)
                     kept_models.append(source)
@@ -393,15 +470,15 @@ class BaseResearchAPI(ABC):
             except ServerError as exc:
                 import_error = exc
             except RPCError as exc:
-                if not _is_failed_precondition(exc):
+                if not _is_import_research_failed_precondition(exc):
                     raise
                 import_error = exc
 
             if import_error is not None:
                 failure = import_error
-                failed_precondition = isinstance(failure, RPCError) and _is_failed_precondition(
-                    failure
-                )
+                failed_precondition = isinstance(
+                    failure, RPCError
+                ) and _is_import_research_failed_precondition(failure)
                 if has_report or baseline_ids is None:
                     if failed_precondition:
                         raise failure
@@ -450,7 +527,9 @@ class BaseResearchAPI(ABC):
                 delay = min(delay * backoff_factor, max_delay)
                 continue
 
-            requested = {_normalized_import_url(source.url) for source in models if source.url}
+            requested = {
+                _normalize_import_verification_url(source.url) for source in models if source.url
+            }
             returned_ids = {entry.get("id", "") for entry in imported}
             if requested and len(returned_ids) < len(requested) and baseline_ids is not None:
                 try:
@@ -467,12 +546,14 @@ class BaseResearchAPI(ABC):
                         and current_source.id not in verified_ids
                         and current_source.url
                     ):
-                        by_url[_normalized_import_url(current_source.url)].append(current_source)
+                        by_url[_normalize_import_verification_url(current_source.url)].append(
+                            current_source
+                        )
                 for url in requested:
                     matches = by_url.get(url, [])
                     landed_source = _only_source(matches)
                     if landed_source is not None and landed_source.id not in returned_ids:
-                        imported.append(_source_entry(landed_source))
+                        imported.append(_imported_source_entry(landed_source))
                         returned_ids.add(landed_source.id)
             return _imported_result([*verified, *imported], already_present)
 
@@ -490,9 +571,11 @@ class BaseResearchAPI(ABC):
             for source in current
             if source.id not in baseline_ids and source.id not in already_verified_ids
         ]
-        requested = {_normalized_import_url(source.url) for source in models if source.url}
+        requested = {
+            _normalize_import_verification_url(source.url) for source in models if source.url
+        }
         if any(
-            not source.url or _normalized_import_url(source.url) not in requested
+            not source.url or _normalize_import_verification_url(source.url) not in requested
             for source in new_rows
         ):
             raise mark_unconfirmed(
@@ -501,7 +584,7 @@ class BaseResearchAPI(ABC):
         by_url: dict[str, list[Source]] = defaultdict(list)
         for source in new_rows:
             if source.url:
-                by_url[_normalized_import_url(source.url)].append(source)
+                by_url[_normalize_import_verification_url(source.url)].append(source)
         if any(len(matches) != 1 for matches in by_url.values()):
             raise mark_unconfirmed(
                 RPCError("UNRESOLVED — import read-back is not uniquely attributable.")
@@ -511,14 +594,16 @@ class BaseResearchAPI(ABC):
         landed: list[dict[str, str]] = []
         landed_ids: set[str] = set()
         for source_input, model in zip(inputs, models, strict=True):
-            matches = by_url.get(_normalized_import_url(model.url), []) if model.url else []
+            matches = (
+                by_url.get(_normalize_import_verification_url(model.url), []) if model.url else []
+            )
             if matches:
                 landed_source = _only_source(matches)
                 assert landed_source is not None
                 landed_id = landed_source.id or ""
                 if landed_id not in landed_ids:
                     landed_ids.add(landed_id)
-                    landed.append(_source_entry(landed_source))
+                    landed.append(_imported_source_entry(landed_source))
             else:
                 kept_inputs.append(source_input)
                 kept_models.append(model)
@@ -550,16 +635,8 @@ class BaseResearchAPI(ABC):
 __all__ = [
     "BaseResearchAPI",
     "CitedSourceSelection",
-    "ResearchAPI",
     "ResearchSource",
     "ResearchStart",
     "ResearchStatus",
     "ResearchTask",
 ]
-
-# ``ResearchAPI`` historically named the directly constructible Web adapter in
-# this private module.  The Web module replaces this provisional spelling with
-# ``WebResearchAPI`` once its class body has finished loading; keeping the
-# assignment here makes the circular import safe while giving backend-neutral
-# implementations an explicit base to inherit from.
-ResearchAPI = BaseResearchAPI

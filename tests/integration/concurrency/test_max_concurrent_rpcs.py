@@ -101,11 +101,11 @@ async def _open_core_with_transport(
     """
     core = build_client_shell_for_tests(auth=_make_auth(), max_concurrent_rpcs=max_concurrent_rpcs)
     await core.__aenter__()
-    assert core._collaborators.kernel.http_client is not None
-    prior_cookies = core._collaborators.kernel.get_http_client().cookies
-    await core._collaborators.kernel.get_http_client().aclose()
+    assert core._web_runtime.kernel.http_client is not None
+    prior_cookies = core._web_runtime.kernel.get_http_client().cookies
+    await core._web_runtime.kernel.get_http_client().aclose()
     install_http_client_for_test(
-        core._collaborators.kernel,
+        core._web_runtime.kernel,
         httpx.AsyncClient(
             cookies=prior_cookies,
             transport=transport,
@@ -132,7 +132,7 @@ async def test_default_16_caps_peak_inflight_at_16_under_100_way_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=16)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
+            *[core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(100)]
         )
     finally:
         await core.close()
@@ -182,7 +182,7 @@ async def test_cap_of_one_fully_serializes_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=1)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(10)]
+            *[core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(10)]
         )
     finally:
         await core.close()
@@ -214,7 +214,7 @@ async def test_none_disables_cap_and_allows_full_fanout(
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=None)
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(50)]
+            *[core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(50)]
         )
     finally:
         await core.close()
@@ -246,10 +246,9 @@ async def test_slot_held_across_retry_middleware_retries(
     leaf released the slot, the retrying call queued behind whatever was
     already in flight, and (under sustained 429s) every slot could end
     up held by a retrying call waiting for a slot to retry into.
-    Codex caught this in the PR-12.9 audit. The fix is
-    :class:`SemaphoreMiddleware` at chain position 2 (between Metrics
-    and Retry) so the entire retry cohort stays in ONE slot per logical
-    RPC.
+    Codex caught this in the PR-12.9 audit. ``CallSupervisor`` now owns
+    the slot around the whole middleware chain, so the entire retry cohort
+    stays in ONE slot per logical RPC.
 
     Test shape:
     - ``max_concurrent_rpcs=1`` (one slot total).
@@ -282,11 +281,11 @@ async def test_slot_held_across_retry_middleware_retries(
 
     core = await _open_core_with_transport(transport, max_concurrent_rpcs=1)
     # Force fast retry so the test finishes promptly even on a slow box.
-    core._composed.chain_host._rate_limit_max_retries = 3
+    core._web_runtime.composed.chain_host._rate_limit_max_retries = 3
 
     try:
         results = await asyncio.gather(
-            *[core._rpc_executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(2)]
+            *[core._web_runtime.executor.rpc_call(RPCMethod.LIST_NOTEBOOKS, []) for _ in range(2)]
         )
     finally:
         await core.close()
@@ -301,8 +300,7 @@ async def test_slot_held_across_retry_middleware_retries(
     assert peak == 1, (
         f"peak in-flight was {peak} under max_concurrent_rpcs=1 with retries; "
         f"expected exactly 1. A peak > 1 means RetryMiddleware retries "
-        f"re-acquired the slot, which would put SemaphoreMiddleware INSIDE "
-        f"RetryMiddleware — a chain-ordering regression."
+        f"re-acquired a supervisor-owned slot — an admission regression."
     )
 
 

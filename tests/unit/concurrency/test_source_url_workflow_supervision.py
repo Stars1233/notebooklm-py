@@ -10,7 +10,6 @@ import pytest
 
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._transport_drain import TransportDrainTracker
 from notebooklm._web.sources import WebSourcesAPI
 from notebooklm.auth import AuthTokens
 from notebooklm.exceptions import NonIdempotentRetryError, ValidationError
@@ -21,7 +20,6 @@ from tests._helpers.client_factory import build_client_shell_for_tests
 def _supervisor() -> CallSupervisor:
     supervisor = CallSupervisor(
         metrics=ClientMetrics(),
-        drain_tracker=TransportDrainTracker(),
         max_concurrent_rpcs=None,
     )
     supervisor.set_bound_loop(asyncio.get_running_loop())
@@ -301,10 +299,10 @@ async def test_old_url_workflow_is_rejected_before_epoch_two_kernel_or_auth_acce
 
     await client.close(drain=False)
     await client.__aenter__()
-    kernel_access = MagicMock(wraps=client._collaborators.kernel.assert_epoch)
-    auth_access = AsyncMock(wraps=client._collaborators.auth_coord.snapshot)
-    client._collaborators.kernel.assert_epoch = kernel_access  # type: ignore[method-assign]
-    client._collaborators.auth_coord.snapshot = auth_access  # type: ignore[method-assign]
+    kernel_access = MagicMock(wraps=client._web_runtime.kernel.assert_epoch)
+    auth_access = AsyncMock(wraps=client._web_runtime.auth_coord.snapshot)
+    client._web_runtime.kernel.assert_epoch = kernel_access  # type: ignore[method-assign]
+    client._web_runtime.auth_coord.snapshot = auth_access  # type: ignore[method-assign]
     continue_baseline.set()
 
     try:

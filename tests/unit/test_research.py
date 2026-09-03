@@ -20,7 +20,7 @@ from notebooklm import (
     ResearchTask,
     RPCError,
 )
-from notebooklm._web.research import ResearchAPI
+from notebooklm._web.research import WebResearchAPI
 from notebooklm.research import extract_report_urls, normalize_citation_url, select_cited_sources
 from notebooklm.rpc import RPCMethod
 
@@ -48,14 +48,14 @@ class TestBuildImportEntries:
     """Tests for import entry builder static methods."""
 
     def test_build_report_import_entry(self):
-        entry = ResearchAPI._build_report_import_entry("Title", "# Markdown")
+        entry = WebResearchAPI._build_report_import_entry("Title", "# Markdown")
         assert entry[1] == ["Title", "# Markdown"]
         assert entry[3] == 3
         assert entry[10] == 3
         assert entry[0] is None
 
     def test_build_web_import_entry(self):
-        entry = ResearchAPI._build_web_import_entry("https://example.com", "Example")
+        entry = WebResearchAPI._build_web_import_entry("https://example.com", "Example")
         assert entry[2] == ["https://example.com", "Example"]
         assert entry[10] == 2
         assert entry[0] is None
@@ -136,7 +136,7 @@ class TestCitedSourceSelection:
 
     @pytest.mark.parametrize(
         "selector",
-        [select_cited_sources, ResearchAPI.select_cited_sources],
+        [select_cited_sources, WebResearchAPI.select_cited_sources],
         ids=["public_function", "research_api_wrapper"],
     )
     def test_select_cited_sources_accepts_typed_task_sources(self, selector):
@@ -195,7 +195,7 @@ class TestCitedSourceSelection:
     def test_select_cited_sources_source_annotations_accept_research_source(self):
         selector_sources_hints = [
             get_type_hints(select_cited_sources)["sources"],
-            get_type_hints(ResearchAPI.select_cited_sources)["sources"],
+            get_type_hints(WebResearchAPI.select_cited_sources)["sources"],
         ]
 
         for sources_hint in selector_sources_hints:
@@ -1047,20 +1047,23 @@ class TestResearch:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_import_sources_missing_url(self, auth_tokens):
+    async def test_import_sources_missing_url(self, auth_tokens, caplog):
         """Test import_sources filters out sources without URL.
 
         Sources without URLs cause the entire batch to fail, so they are
         filtered out before making the RPC call.
         """
-        async with NotebookLMClient(auth_tokens) as client:
-            sources = [{"title": "Title Only"}]  # No URL
-            result = await client.research.import_sources(
-                notebook_id="nb_123", task_id="task_123", sources=sources
-            )
+        with caplog.at_level(logging.DEBUG, logger="notebooklm._research"):
+            async with NotebookLMClient(auth_tokens) as client:
+                sources = [{"title": "Title Only"}]  # No URL
+                result = await client.research.import_sources(
+                    notebook_id="nb_123", task_id="task_123", sources=sources
+                )
 
         # Sources without URLs are filtered out, no RPC call made
         assert result == []
+        assert "Importing 1 research sources" in caplog.text
+        assert "Skipping 1 source(s)" in caplog.text
 
     @pytest.mark.asyncio
     async def test_import_sources_includes_deep_research_report_entry(
@@ -1076,15 +1079,15 @@ class TestResearch:
         async with NotebookLMClient(auth_tokens) as client:
             sources = [
                 {
-                    "title": "Deep Research Report",
-                    "result_type": 5,
-                    "report_markdown": "# Deep report body",
-                    "research_task_id": "report_123",
-                },
-                {
                     "url": "http://example.com",
                     "title": "Web Source",
                     "result_type": 1,
+                    "research_task_id": "report_123",
+                },
+                {
+                    "title": "Deep Research Report",
+                    "result_type": 5,
+                    "report_markdown": "# Deep report body",
                     "research_task_id": "report_123",
                 },
             ]
@@ -1621,7 +1624,7 @@ class TestResearch:
 
 
 class TestResearchCancel:
-    """Tests for ``ResearchAPI.cancel`` (CancelDiscoverSourcesJob / Zbrupe)."""
+    """Tests for ``WebResearchAPI.cancel`` (CancelDiscoverSourcesJob / Zbrupe)."""
 
     @pytest.mark.asyncio
     async def test_cancel_sends_run_id_in_field_three(
