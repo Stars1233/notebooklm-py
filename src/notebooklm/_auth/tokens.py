@@ -151,7 +151,9 @@ class AuthTokens:
         cookie_snapshot: Internal save baseline used when a pre-client token
             fetch mutates cookies but persistence fails or CAS-rejects. This
             lets the eventual client retry the unpersisted delta instead
-            of snapshotting the already-mutated jar as clean state.
+            of snapshotting the already-mutated jar as clean state. Docs-only
+            deprecated since v0.9.0 for removal in v1; field access cannot warn
+            without making generated dataclass operations noisy.
     """
 
     # Secret fields are excluded from the dataclass-generated ``__repr__`` via
@@ -191,21 +193,33 @@ class AuthTokens:
                 storage_path=self.storage_path,
             )
 
-    def replace_cookie_jar(self, cookie_jar: httpx.Cookies) -> None:
-        """Rebind both public compatibility shadows together.
+    def _sync_cookie_jar(self, cookie_jar: httpx.Cookies) -> None:
+        """Synchronize both public compatibility shadows without warning.
 
         ``cookies`` and ``cookie_jar`` hold the same information in two shapes,
         initialized together at bootstrap. The kernel owns the live jar after
-        composition; this method is the ADR-0032 Phase-A sync-back for public
-        callers that still inspect the old fields. Rebinding only one shadow
-        would expose two different sessions through the public object even
-        though no first-party runtime decision consults either field.
+        composition; this internal operation is the ADR-0032 Phase-A sync-back
+        for public callers that still inspect the old fields. Rebinding only
+        one shadow would expose two different sessions through the public
+        object even though no first-party runtime decision consults either
+        field.
 
         Every rebind goes through here so the two cannot diverge. Enforced by
         ``tests/_guardrails/test_authtokens_jar_sync.py``.
         """
         self.cookie_jar = cookie_jar
         self.cookies = _auth_cookies._cookie_map_from_jar(cookie_jar)
+
+    def replace_cookie_jar(self, cookie_jar: httpx.Cookies) -> None:
+        """Rebind both public compatibility shadows together.
+
+        .. deprecated:: 0.9.0
+           Use managed :class:`~notebooklm.NotebookLMClient` request APIs.
+           Managed cookie-jar replacement is internal and this public sync-back
+           method will be removed in v1.
+        """
+        warn_registered_deprecation("auth_tokens_replace_cookie_jar")
+        self._sync_cookie_jar(cookie_jar)
 
     def _replace_profile_session(
         self,
@@ -239,7 +253,7 @@ class AuthTokens:
             return None
         route_before = (self.authuser, self.account_email)
         _auth_cookies._replace_cookie_jar(target_cookie_jar, source_cookie_jar)
-        self.replace_cookie_jar(target_cookie_jar)
+        self._sync_cookie_jar(target_cookie_jar)
         self.authuser = authuser
         self.account_email = account_email
         self._profile_session_generation += 1

@@ -78,6 +78,7 @@ _REGISTERED_SPEC_KEYS = frozenset(
     {
         "auth_tokens_flat_cookies",
         "auth_tokens_from_storage",
+        "auth_tokens_replace_cookie_jar",
         "auth_tokens_sync_storage_construction",
         "artifact_from_api_response",
         "artifact_from_mind_map",

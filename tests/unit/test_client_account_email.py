@@ -132,7 +132,7 @@ async def test_pre_open_persisted_email_uses_kernel_seed_not_public_shadow(
     divergent_shadow = httpx.Cookies()
     divergent_shadow.set("SID", "shadow", domain=".google.com", path="/")
     divergent_shadow.set("__Secure-1PSIDTS", "shadow-ts", domain=".google.com", path="/")
-    client.auth.replace_cookie_jar(divergent_shadow)
+    client.auth._sync_cookie_jar(divergent_shadow)
 
     assert await client.get_account_email(live_fallback=False) == "kernel@example.com"
     assert httpx_mock.get_requests() == []
@@ -154,7 +154,7 @@ async def test_post_close_persisted_email_uses_retained_kernel_jar(
     divergent_shadow = httpx.Cookies()
     divergent_shadow.set("SID", "shadow", domain=".google.com", path="/")
     divergent_shadow.set("__Secure-1PSIDTS", "shadow-ts", domain=".google.com", path="/")
-    client.auth.replace_cookie_jar(divergent_shadow)
+    client.auth._sync_cookie_jar(divergent_shadow)
 
     assert await client.get_account_email(live_fallback=False) == "closed@example.com"
     assert httpx_mock.get_requests() == []

@@ -158,6 +158,10 @@ def _install_registered_tree(
     entries = entries or [
         _spec_entry("auth_tokens_flat_cookies"),
         _spec_entry("auth_tokens_from_storage"),
+        _spec_entry(
+            "auth_tokens_replace_cookie_jar",
+            replacement='"notebooklm.NotebookLMClient.auth"',
+        ),
         _spec_entry("auth_tokens_sync_storage_construction"),
         _spec_entry(
             "artifact_from_api_response",
@@ -207,6 +211,7 @@ def _install_registered_tree(
     calls = calls or [
         'warn_registered_deprecation("auth_tokens_flat_cookies")',
         'warn_registered_deprecation("auth_tokens_from_storage")',
+        'warn_registered_deprecation("auth_tokens_replace_cookie_jar")',
         'warn_registered_deprecation("auth_tokens_sync_storage_construction")',
         'warn_registered_deprecation("artifact_from_api_response")',
         'warn_registered_deprecation("artifact_from_mind_map")',
@@ -225,6 +230,7 @@ def _install_registered_tree(
         dedent(
             """
             class NotebookLMClient:
+                auth: object
                 artifacts: object
                 collections: object
                 labels: object

@@ -4,6 +4,7 @@ import inspect
 import warnings
 from dataclasses import FrozenInstanceError, fields, replace
 
+import httpx
 import pytest
 
 from notebooklm import AuthTokens
@@ -31,6 +32,11 @@ _FLAT_COOKIES_MESSAGE = (
     "siblings; use AuthTokens.jar for bootstrap cookie questions and managed NotebookLMClient "
     "request APIs for HTTP. It will be removed in v1.0."
 )
+_REPLACE_COOKIE_JAR_MESSAGE = (
+    "AuthTokens.replace_cookie_jar(...) is deprecated; use managed NotebookLMClient request APIs "
+    "instead. Cookie-jar replacement is an internal compatibility sync-back operation. It will "
+    "be removed in v1.0."
+)
 _RPC_CALL_WEB_MESSAGE = (
     "NotebookLMClient.rpc_call(...) is deprecated; use client.raw.call(...) on a Web-selected "
     "client instead. It will be removed in v1.0."
@@ -56,6 +62,7 @@ def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None
         "auth_tokens_from_storage",
         "auth_tokens_sync_storage_construction",
         "auth_tokens_flat_cookies",
+        "auth_tokens_replace_cookie_jar",
         "artifact_from_api_response",
         "artifact_from_mind_map",
         "collection_from_api_response",
@@ -94,6 +101,12 @@ def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None
             _FLAT_COOKIES_MESSAGE,
             "notebooklm.AuthTokens.jar",
             "0.8.1",
+            3,
+        ),
+        "auth_tokens_replace_cookie_jar": (
+            _REPLACE_COOKIE_JAR_MESSAGE,
+            "notebooklm.NotebookLMClient.auth",
+            "0.9.0",
             3,
         ),
         "artifact_from_api_response": (
@@ -220,12 +233,33 @@ def test_flat_cookies_quiet_gate_is_live(monkeypatch: pytest.MonkeyPatch) -> Non
         assert auth.flat_cookies["SID"] == "secret"
 
 
+def test_replace_cookie_jar_warns_once_at_public_caller_and_still_syncs() -> None:
+    auth = _auth_tokens()
+    replacement = httpx.Cookies()
+    replacement.set("SID", "fresh", domain=".google.com", path="/")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        frame = inspect.currentframe()
+        assert frame is not None
+        caller_line = frame.f_lineno + 1
+        auth.replace_cookie_jar(replacement)
+
+    assert len(caught) == 1
+    assert str(caught[0].message) == _REPLACE_COOKIE_JAR_MESSAGE
+    assert caught[0].filename == __file__
+    assert caught[0].lineno == caller_line
+    assert auth.cookie_jar is replacement
+    assert auth.cookies[("SID", ".google.com", "/")] == "fresh"
+
+
 def test_other_cookie_compatibility_and_dataclass_operations_stay_quiet() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         auth = _auth_tokens()
         assert auth.cookies
         assert auth.cookie_jar is not None
+        assert auth.cookie_snapshot is None
         assert auth.jar
         assert auth.cookie_header
         assert auth.cookie_header_for("https://notebook.google.com/")

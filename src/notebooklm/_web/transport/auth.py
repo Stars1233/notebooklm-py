@@ -439,7 +439,7 @@ class AuthRefreshCoordinator(LoopBoundPrimitive):
         # bootstrap hand-off to Kernel.
         if expected_epoch is not None:
             self.assert_epoch(expected_epoch)
-        auth.replace_cookie_jar(kernel.cookies)
+        auth._sync_cookie_jar(kernel.cookies)
 
     # ------------------------------------------------------------------
     # Single-flight refresh task.

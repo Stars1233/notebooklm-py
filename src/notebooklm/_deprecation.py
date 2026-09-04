@@ -100,6 +100,19 @@ DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
             removal="1.0",
             stacklevel=3,
         ),
+        "auth_tokens_replace_cookie_jar": DeprecationSpec(
+            key="auth_tokens_replace_cookie_jar",
+            message=(
+                "AuthTokens.replace_cookie_jar(...) is deprecated; use managed "
+                "NotebookLMClient request APIs instead. Cookie-jar replacement is an internal "
+                "compatibility sync-back operation. It will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.auth",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
         "artifact_from_api_response": DeprecationSpec(
             key="artifact_from_api_response",
             message=(

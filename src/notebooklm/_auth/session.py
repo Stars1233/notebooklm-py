@@ -252,7 +252,7 @@ async def _try_storage_cookie_reload(
         # cancellation lands while adoption is waiting on disk or save_lock.
         if expected_epoch is not None:
             auth_coord.assert_epoch(expected_epoch)
-        auth.replace_cookie_jar(cookie_jar)
+        auth._sync_cookie_jar(cookie_jar)
 
 
 async def _try_refresh_cmd_reauth(
