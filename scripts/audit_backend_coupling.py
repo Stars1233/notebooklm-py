@@ -385,7 +385,7 @@ async def _runtime_backend_worker(source_root: Path, backend: str) -> dict[str, 
             async def mint_oauth(_record: object, _spec: object) -> MintedOAuthToken:
                 return MintedOAuthToken(token="probe-bearer", expires_at=int(time.time()) + 3600)
 
-            android.bearer_provider._mint_service.mint_oauth = mint_oauth
+            android.bearer_provider._oauth_minter.mint_oauth = mint_oauth
 
         await client.__aenter__()
         await client.close()
