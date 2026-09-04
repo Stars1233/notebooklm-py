@@ -69,7 +69,8 @@ DEFAULT_PREPARED_CONTRACT = (
 )
 _COPIED_TEMPLATE_REQUIRED_FAMILIES = frozenset({"audio", "video", "infographic", "slide_deck"})
 _COPY_SETTLE_TIMEOUT_SECONDS = 600.0
-_COPY_SETTLE_POLL_SECONDS = 10.0
+_COPY_SETTLE_POLL_SECONDS = 30.0
+_COPY_SETTLE_QUOTA_BACKOFF_SECONDS = 60.0
 
 T = TypeVar("T")
 
@@ -489,6 +490,19 @@ class NotebookLifecycleManager:
                 raise ContractError("template title violates the immutable title contract")
             if re.fullmatch(str(self.template_contract["title_regex"]), title) is None:
                 raise ContractError("template title version does not match the contract")
+        return await self._validate_template_content(
+            tolerate_incomplete=tolerate_incomplete,
+            require_artifacts=require_artifacts,
+        )
+
+    async def _validate_template_content(
+        self,
+        *,
+        tolerate_incomplete: bool,
+        require_artifacts: bool,
+    ) -> dict[str, int] | None:
+        """Validate sources and artifacts without repeating notebook identity reads."""
+
         sources = await self._read(lambda: self.client.sources.list(self.template_id, strict=True))
         source_contract = self.template_contract["sources"]
         ready_sources = [source for source in sources if getattr(source, "is_ready", False)]
@@ -546,12 +560,21 @@ class NotebookLifecycleManager:
         self.template_id = notebook_id
         try:
             deadline = self.clock() + _COPY_SETTLE_TIMEOUT_SECONDS
+            notebook = await self._read(lambda: self.client.notebooks.get(notebook_id))
+            if getattr(notebook, "id", None) != notebook_id:
+                raise ContractError("template lookup returned the wrong notebook")
             while True:
-                counts = await self.validate_template(
-                    include_title=False,
-                    tolerate_incomplete=True,
-                    require_artifacts=require_artifacts,
-                )
+                try:
+                    counts = await self._validate_template_content(
+                        tolerate_incomplete=True,
+                        require_artifacts=require_artifacts,
+                    )
+                except RateLimitError:
+                    now = self.clock()
+                    if now >= deadline:
+                        raise
+                    await self.sleep(min(_COPY_SETTLE_QUOTA_BACKOFF_SECONDS, deadline - now))
+                    continue
                 if counts is not None:
                     return counts
                 now = self.clock()

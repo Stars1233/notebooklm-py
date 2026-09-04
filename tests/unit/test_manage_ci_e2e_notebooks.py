@@ -1511,7 +1511,26 @@ async def test_copy_shape_waits_for_processing_artifacts_to_settle(
     counts = await manager._validate_copy_shape(copied.id)
 
     assert counts["completed_artifacts"] == 9
-    assert clock.value == 10.0
+    assert client.notebooks.get_calls == [copied.id]
+    assert clock.value == 30.0
+
+
+@pytest.mark.asyncio
+async def test_copy_shape_backs_off_after_content_read_quota(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.list_script.append(RateLimitError("quota", method_id="artifact-list"))
+
+    counts = await manager._validate_copy_shape(copied.id)
+
+    assert counts["completed_artifacts"] == 9
+    assert client.notebooks.get_calls == [copied.id]
+    assert clock.value == 60.0
 
 
 @pytest.mark.asyncio
