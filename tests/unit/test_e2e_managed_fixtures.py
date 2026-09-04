@@ -10,6 +10,7 @@ from tests.e2e._artifact_helpers import (
     completed_interactive_mind_maps,
     studio_item_may_have_download_payload,
 )
+from tests.e2e._mcp_live_helpers import pick_downloadable_artifact
 
 MANAGED = {
     "NOTEBOOKLM_E2E_MANAGED_COPIES": "1",
@@ -133,14 +134,33 @@ def test_android_slide_deck_download_selectors_allow_backend_hydration() -> None
     inventory_only = SimpleNamespace(
         kind="slide_deck", is_completed=True, url=None, id="inventory-only"
     )
+    downloadable = SimpleNamespace(
+        kind="slide_deck", is_completed=True, url="https://asset.test", id="downloadable"
+    )
 
     assert completed_download_candidates([inventory_only], "slide_deck", backend="web") == []
-    assert completed_download_candidates([inventory_only], "slide_deck", backend="android") == [
-        inventory_only
+    assert completed_download_candidates(
+        [inventory_only, downloadable], "slide_deck", backend="android"
+    ) == [
+        downloadable,
+        inventory_only,
     ]
     item = {"type": "slide-deck", "status_label": "completed", "url": None}
     assert studio_item_may_have_download_payload(item, backend="web") is False
     assert studio_item_may_have_download_payload(item, backend="android") is True
+
+
+def test_android_mcp_selector_prefers_confirmed_payload_before_slide_hydration() -> None:
+    fallback = {"id": "fallback", "type": "slide-deck", "status_label": "completed"}
+    confirmed = {
+        "id": "confirmed",
+        "type": "audio",
+        "status_label": "completed",
+        "url": "https://asset.test",
+    }
+
+    assert pick_downloadable_artifact([fallback, confirmed], backend="android") is confirmed
+    assert pick_downloadable_artifact([fallback], backend="android") is fallback
 
 
 def test_unmanaged_configuration_preserves_legacy_path(monkeypatch) -> None:

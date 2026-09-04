@@ -51,16 +51,24 @@ def pick_downloadable_artifact(
     as the terminal ``ready``/``completed`` states). Lets a test reuse whatever
     artifact a notebook already has and skip cleanly when none qualifies.
     """
-    return next(
+    candidates = [
+        item
+        for item in items
+        if item.get("type") in DOWNLOADABLE_ARTIFACT_TYPES
+        and item.get("status_label") in (None, "ready", "completed")
+        and studio_item_may_have_download_payload(item, backend=backend)
+    ]
+    confirmed = next(
         (
-            it
-            for it in items
-            if it.get("type") in DOWNLOADABLE_ARTIFACT_TYPES
-            and it.get("status_label") in (None, "ready", "completed")
-            and studio_item_may_have_download_payload(it, backend=backend)
+            item
+            for item in candidates
+            if not (
+                backend == "android" and item.get("type") == "slide-deck" and not item.get("url")
+            )
         ),
         None,
     )
+    return confirmed or (candidates[0] if candidates else None)
 
 
 @contextlib.asynccontextmanager

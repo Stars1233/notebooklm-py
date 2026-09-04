@@ -18,13 +18,14 @@ def completed_download_candidates(
     if family not in URL_BACKED_ARTIFACT_FAMILIES:
         raise ValueError(f"artifact family is not URL-backed: {family}")
     hydrate_android_slide = backend == "android" and family == "slide_deck"
-    return [
+    candidates = [
         artifact
         for artifact in artifacts
         if artifact.kind == family
         and artifact.is_completed
         and (hydrate_android_slide or bool(artifact.url))
     ]
+    return sorted(candidates, key=lambda artifact: bool(artifact.url), reverse=True)
 
 
 def studio_item_may_have_download_payload(item: dict[str, object], *, backend: str) -> bool:
