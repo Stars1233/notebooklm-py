@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Provision, validate, reconcile, and delete disposable CI E2E notebooks.
 
-Notebook IDs are sensitive resource handles.  This command writes them only to
-the local manifest and ``GITHUB_ENV``; human-facing diagnostics contain roles,
-counts, and categorized errors but never IDs, titles, or response bodies.
+Disposable notebook IDs are sensitive resource handles.  This command writes
+them only to the local manifest and ``GITHUB_ENV``; human-facing diagnostics
+contain roles, counts, and categorized errors but never IDs, titles, or
+response bodies.  The default template ID is an approved public resource.
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ from notebooklm import (
 from notebooklm._logging import scrub_secrets
 
 TEMPLATE_ID_ENV = "NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID"
+DEFAULT_TEMPLATE_ID = "a109ad5c-834d-4f3d-82a0-fe41aa72318e"
 DEFAULT_TEMPLATE_CONTRACT = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "e2e_template_contract.json"
 )
@@ -1228,9 +1230,9 @@ class NotebookLifecycleManager:
 def _template_id_from_env(name: str) -> str:
     if name != TEMPLATE_ID_ENV:
         raise ManifestError("template ID environment name is not allowlisted")
-    value = os.environ.get(name, "")
+    value = os.environ.get(name) or DEFAULT_TEMPLATE_ID
     if not is_valid_notebook_id(value):
-        raise ManifestError("template notebook ID environment value is missing or malformed")
+        raise ManifestError("template notebook ID environment value is malformed")
     return value
 
 
@@ -1264,7 +1266,7 @@ def build_parser() -> argparse.ArgumentParser:
     def common(name: str, *, manifest: bool = True) -> argparse.ArgumentParser:
         child = subparsers.add_parser(name)
         child.add_argument("--backend", choices=BACKENDS, required=True)
-        child.add_argument("--template-id-env", required=True)
+        child.add_argument("--template-id-env", default=TEMPLATE_ID_ENV)
         if manifest:
             child.add_argument("--manifest", type=Path, required=True)
         return child

@@ -814,27 +814,27 @@ Studio artifacts. Its checked-in shape is `tests/fixtures/e2e_template_contract.
 chat history are deliberately absent from that contract. Provisioning creates and validates those
 on the disposable `reference` copy using
 `tests/fixtures/e2e_prepared_role_contract.json`.
-The configured template's immutable title is `Make Your Writing Clear and Persuasive`; replacing
-the template requires updating the title contract and template-ID secret together.
+The configured template is the public notebook titled
+`Make Your Writing More Powerful and Persuasive`. Its title cannot be changed; replacing the
+template requires updating the title contract and template-ID secret together.
 
-To qualify a template locally, use a dedicated profile and keep the template ID in the documented
-environment variable so it never appears on the command line:
+The lifecycle manager defaults to the public template
+`a109ad5c-834d-4f3d-82a0-fe41aa72318e` when the environment variable is unset. Set
+`NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID` only to qualify a replacement template. To qualify the
+default locally, use a dedicated profile:
 
 ```bash
 export NOTEBOOKLM_PROFILE=agent-e2e-slot-A-web
-export NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID='<template-id>'
 export GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1
 export GITHUB_REPOSITORY=teng-lin/notebooklm-py
 export RUNNER_TEMP="$(mktemp -d)"
 
 uv run python scripts/manage_ci_e2e_notebooks.py validate \
   --backend web \
-  --template-id-env NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID \
   --contract tests/fixtures/e2e_template_contract.json
 
 uv run python scripts/manage_ci_e2e_notebooks.py provision \
   --backend web \
-  --template-id-env NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID \
   --contract tests/fixtures/e2e_template_contract.json \
   --mode full --lane nightly-web-ubuntu --account-slot A \
   --manifest "$RUNNER_TEMP/notebooklm-e2e.json" \
@@ -843,7 +843,6 @@ uv run python scripts/manage_ci_e2e_notebooks.py provision \
 # Run pytest only after exporting the generated github-env entries.
 uv run python scripts/manage_ci_e2e_notebooks.py cleanup \
   --backend web \
-  --template-id-env NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID \
   --manifest "$RUNNER_TEMP/notebooklm-e2e.json"
 ```
 
@@ -1545,18 +1544,17 @@ directory. Never use the template ID as a pytest fixture binding:
 ```bash
 export NOTEBOOKLM_PROFILE=agent-e2e-local
 export RUNNER_TEMP="$(mktemp -d)"
-export NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID=<template-id>
 export GITHUB_RUN_ID=1 GITHUB_RUN_ATTEMPT=1
 export GITHUB_REPOSITORY=teng-lin/notebooklm-py
 uv run python scripts/manage_ci_e2e_notebooks.py provision \
-  --backend web --template-id-env NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID \
+  --backend web \
   --contract tests/fixtures/e2e_template_contract.json --mode full \
   --lane verify-package --account-slot A \
   --manifest "$RUNNER_TEMP/notebooklm-e2e.json" --github-env "$RUNNER_TEMP/e2e.env"
 set -a; source "$RUNNER_TEMP/e2e.env"; set +a
 NOTEBOOKLM_E2E_GENERATION_JOURNAL_MODE=off uv run pytest tests/e2e -m "not variants"
 uv run python scripts/manage_ci_e2e_notebooks.py cleanup \
-  --backend web --template-id-env NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID \
+  --backend web \
   --manifest "$RUNNER_TEMP/notebooklm-e2e.json"
 ```
 
@@ -1566,7 +1564,7 @@ environment/profile-cache/auto-create behavior described above.
 #### Account pool setup
 
 The `protected-readonly` Environment contains one independent opaque token per
-enabled slot and one template handle:
+enabled slot. It may also contain a template handle to override the checked-in public default:
 
 ```text
 NOTEBOOKLM_MASTER_TOKEN_JSON_A
@@ -1576,7 +1574,8 @@ NOTEBOOKLM_E2E_TEMPLATE_NOTEBOOK_ID
 ```
 
 Bootstrap each authorized account in a separate local profile and upload its
-token without printing it. Upload the template ID through stdin as well:
+token without printing it. To override the public template, upload the replacement ID through
+stdin as well:
 
 ```bash
 NOTEBOOKLM_PROFILE=ci-bootstrap-a notebooklm login --master-token --account <account-a>
