@@ -669,7 +669,8 @@ def test_malformed_lazy_export_dict_fails_closed(script) -> None:
 
 def test_lazy_export_scan_supports_pre_312_function_ast(script) -> None:
     function = ast.parse("def helper():\n    pass\n").body[0]
-    delattr(function, "type_params")
+    if hasattr(function, "type_params"):
+        delattr(function, "type_params")
 
     assert not script._eager_statement_references_name(function, "_LAZY_EXPORTS")
 

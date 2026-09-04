@@ -749,6 +749,24 @@ def _scan_static_source(
     return visitor.imports, visitor.dynamic
 
 
+def build_static_import_adjacency(source_root: Path = SOURCE_ROOT) -> dict[str, set[str]]:
+    """Build the complete authored-module import adjacency for cycle checks."""
+    paths = _authored_paths(source_root)
+    identities = {path: _module_identity(path, source_root) for path in paths}
+    modules = {module for module, _package in identities.values()}
+    adjacency = {module: set() for module in modules}
+    for path in paths:
+        module, package = identities[path]
+        imports, _dynamic = _scan_static_source(
+            path.read_text(encoding="utf-8"),
+            module=module,
+            package=package,
+            modules=modules,
+        )
+        adjacency[module].update(item.target for item in imports if item.target in modules)
+    return adjacency
+
+
 def build_static_projection(source_root: Path = SOURCE_ROOT) -> dict[str, object]:
     """Build the deterministic authored cross-subsystem import report."""
     paths = _authored_paths(source_root)

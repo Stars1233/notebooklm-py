@@ -114,3 +114,30 @@ def test_source_api_decoder_preserves_subclass_from_row_override() -> None:
     assert seen == [SourceRow.from_unknown_shape(["src-custom", "Source title"])]
     assert len(caught) == 1
     assert caught[0].filename == __file__
+
+
+def test_source_api_decoder_super_from_row_override_warns_once() -> None:
+    """Delegating subclass overrides do not repeat the public warning."""
+
+    class DelegatingSource(Source):
+        @classmethod
+        def from_row(cls, row: SourceRow) -> Source:
+            return super().from_row(row)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = DelegatingSource.from_api_response(["src-delegating", "Source title"])
+
+    assert isinstance(result, DelegatingSource)
+    assert (result.id, result.title) == ("src-delegating", "Source title")
+    assert len(caught) == 1
+    assert str(caught[0].message).startswith("Source.from_api_response(...) is deprecated")
+
+    with warnings.catch_warnings(record=True) as direct_caught:
+        warnings.simplefilter("always")
+        direct_result = DelegatingSource.from_row(_SOURCE_ROW)
+
+    assert isinstance(direct_result, DelegatingSource)
+    assert (direct_result.id, direct_result.title) == ("src-1", "Source title")
+    assert len(direct_caught) == 1
+    assert str(direct_caught[0].message).startswith("Source.from_row(...) is deprecated")

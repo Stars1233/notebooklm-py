@@ -173,6 +173,8 @@ def _static_url(node: ast.AST, bindings: dict[str, str]) -> str | None:
     if node.args and (value := _static_string(node.args[0])) is not None:
         return value
     keywords = {item.arg: _static_string(item.value) for item in node.keywords if item.arg}
+    if (value := keywords.get("url")) is not None:
+        return value
     scheme = keywords.get("scheme")
     host = keywords.get("host")
     path = keywords.get("path") or ""
@@ -325,6 +327,8 @@ def test_rotate_literals_and_definitions_have_one_dependency_bottom_owner() -> N
         'from httpx import URL as U\nU(scheme="ht" + "tps", '
         'host="accounts." + "google.com", path="/Rotate" + "Cookies")',
         'import httpx\nhttpx.URL("https://accounts.google.com" + "/RotateCookies")',
+        'import httpx\nhttpx.URL(url="https://accounts.google.com/RotateCookies")',
+        'from httpx import URL as U\nU(url="https://accounts.google.com" + "/RotateCookies")',
     ],
 )
 def test_rotate_url_owner_guard_bites_structural_reconstruction(source: str) -> None:

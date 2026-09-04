@@ -8,6 +8,7 @@ import pytest
 from scripts.audit_backend_coupling import (
     BACKEND_STAGES,
     _scan_static_source,
+    build_static_import_adjacency,
     build_static_projection,
     runtime_projection_growth,
     static_projection_growth,
@@ -34,6 +35,20 @@ def _stage(backend: str, stage: str) -> dict[str, object]:
     value = stages[stage]
     assert isinstance(value, dict)
     return value
+
+
+def _reachable(adjacency: dict[str, set[str]], source: str, target: str) -> bool:
+    pending = [source]
+    seen: set[str] = set()
+    while pending:
+        current = pending.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        if current == target:
+            return True
+        pending.extend(adjacency.get(current, ()))
+    return False
 
 
 def test_public_entries_are_distinct_probes_with_current_clean_deltas() -> None:
@@ -182,6 +197,32 @@ def test_static_projection_excludes_generated_android_protobuf(tmp_path: Path) -
     assert projection["subsystems"] == {"web": {"lines": 1, "modules": 1}}
 
 
+def test_static_import_adjacency_keeps_same_subsystem_cycle_bridges(tmp_path: Path) -> None:
+    source_root = tmp_path / "notebooklm"
+    sources = {
+        "rpc/types.py": "from notebooklm._web.wire import overrides\n",
+        "_web/wire/overrides.py": "from . import bridge\n",
+        "_web/wire/bridge.py": "from notebooklm.rpc import types\n",
+    }
+    for relative, source in sources.items():
+        path = source_root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(source, encoding="utf-8")
+
+    adjacency = build_static_import_adjacency(source_root)
+
+    assert adjacency == {
+        "notebooklm._web.wire.bridge": {"notebooklm.rpc.types"},
+        "notebooklm._web.wire.overrides": {"notebooklm._web.wire.bridge"},
+        "notebooklm.rpc.types": {"notebooklm._web.wire.overrides"},
+    }
+    assert _reachable(
+        adjacency,
+        "notebooklm._web.wire.overrides",
+        "notebooklm.rpc.types",
+    )
+
+
 def test_rpc_identifier_boundary_is_one_way_in_the_all_scope_graph() -> None:
     """The compatibility lazy edge must never close a types/overrides SCC."""
     projection = build_static_projection()
@@ -224,29 +265,9 @@ def test_rpc_identifier_boundary_is_one_way_in_the_all_scope_graph() -> None:
         ),
     ]
 
-    adjacency: dict[str, set[str]] = {}
-    for edge in edges:
-        source = edge["source"]
-        target = edge["target"]
-        assert isinstance(source, str)
-        assert isinstance(target, str)
-        adjacency.setdefault(source, set()).add(target)
-
-    def reachable(source: str, target: str) -> bool:
-        pending = [source]
-        seen: set[str] = set()
-        while pending:
-            current = pending.pop()
-            if current in seen:
-                continue
-            seen.add(current)
-            if current == target:
-                return True
-            pending.extend(adjacency.get(current, ()))
-        return False
-
-    assert reachable("notebooklm.rpc.types", "notebooklm._web.wire.overrides")
-    assert not reachable("notebooklm._web.wire.overrides", "notebooklm.rpc.types")
+    adjacency = build_static_import_adjacency()
+    assert _reachable(adjacency, "notebooklm.rpc.types", "notebooklm._web.wire.overrides")
+    assert not _reachable(adjacency, "notebooklm._web.wire.overrides", "notebooklm.rpc.types")
 
 
 def test_coupling_growth_policies_reject_replacement_and_count_growth() -> None:

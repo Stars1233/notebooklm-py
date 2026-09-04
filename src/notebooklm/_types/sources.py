@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import warnings
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
@@ -18,6 +19,12 @@ from .enums import DriveSourceStatus, SourceStatus
 
 if TYPE_CHECKING:
     from .._web.rows.sources import SourceRow
+
+
+_suppress_source_from_row_warning: ContextVar[bool] = ContextVar(
+    "suppress_source_from_row_warning",
+    default=False,
+)
 
 
 class SourceType(str, Enum):
@@ -627,7 +634,8 @@ class Source:
         compatibility field mapping below therefore covers all three wire
         shapes identically.
         """
-        warn_registered_deprecation("source_from_row")
+        if not _suppress_source_from_row_warning.get():
+            warn_registered_deprecation("source_from_row")
         # Keep the v0.x compatibility body local: unlike first-party Web
         # operations, this public wrapper must retain only its existing
         # TYPE_CHECKING edge to SourceRow until the v1 removal boundary.
@@ -711,7 +719,11 @@ class Source:
             # Preserve the historical extension point for subclasses that
             # override the public row constructor.  The common path stays on
             # the warning-free Web-owned constructor used by first-party code.
-            return cls.from_row(row)
+            token = _suppress_source_from_row_warning.set(True)
+            try:
+                return cls.from_row(row)
+            finally:
+                _suppress_source_from_row_warning.reset(token)
         return source_from_row(cls, row)
 
 
