@@ -627,7 +627,7 @@ class NotebookLifecycleManager:
             )
 
     async def prepare_clean_role(self, notebook_id: str, role: str) -> dict[str, int]:
-        """Remove inherited children and prove a 90-second stable empty inventory."""
+        """Remove settled inherited children and prove a stable empty inventory."""
 
         clean = self.prepared_contract["clean_roles"]
         if role not in clean["roles"]:
@@ -1063,7 +1063,7 @@ class NotebookLifecycleManager:
                 mask(notebook_id)
             await self._validate_copy_shape(
                 notebook_id,
-                require_artifacts=role == "reference",
+                require_artifacts=True,
             )
             if role == "reference":
                 await self.prepare_reference(notebook_id)

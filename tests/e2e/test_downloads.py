@@ -5,9 +5,9 @@ import tempfile
 
 import pytest
 
-from notebooklm.exceptions import ArtifactNotReadyError
+from notebooklm.exceptions import ArtifactDownloadError, ArtifactNotReadyError
 
-from ._artifact_helpers import completed_interactive_mind_maps, completed_url_artifacts
+from ._artifact_helpers import completed_download_candidates, completed_interactive_mind_maps
 from .conftest import _managed_bindings, requires_auth
 
 # Large artifact transfers can be hundreds of MiB and need several minutes on
@@ -22,10 +22,14 @@ MP4_FTYP = b"ftyp"  # At offset 4
 
 
 async def downloadable_url_artifact_id(client, notebook_id: str, family: str) -> str:
-    """Select a completed URL-backed artifact, or skip an inventory-only copy."""
+    """Select a completed downloadable artifact, or skip an inventory-only copy."""
 
     artifacts = await client.artifacts.list(notebook_id)
-    candidates = completed_url_artifacts(artifacts, family)
+    candidates = completed_download_candidates(
+        artifacts,
+        family,
+        backend=client.backends["artifacts"],
+    )
     if not candidates:
         pytest.skip(f"No completed downloadable {family} artifact available")
     return candidates[0].id
@@ -74,6 +78,8 @@ class TestDownloadAudio:
                 assert os.path.getsize(output_path) > 0
                 assert is_mp4(output_path), "Downloaded audio is not a valid MP4 file"
             except ArtifactNotReadyError:
+                if _managed_bindings() is not None:
+                    raise
                 pytest.skip("No completed audio artifact available")
 
 
@@ -95,6 +101,8 @@ class TestDownloadVideo:
                 assert os.path.getsize(output_path) > 0
                 assert is_mp4(output_path), "Downloaded video is not a valid MP4 file"
             except ArtifactNotReadyError:
+                if _managed_bindings() is not None:
+                    raise
                 pytest.skip("No completed video artifact available")
 
 
@@ -118,6 +126,8 @@ class TestDownloadInfographic:
                 assert os.path.getsize(output_path) > 0
                 assert is_png(output_path), "Downloaded infographic is not a valid PNG file"
             except ArtifactNotReadyError:
+                if _managed_bindings() is not None:
+                    raise
                 pytest.skip("No completed infographic artifact available")
 
 
@@ -141,7 +151,16 @@ class TestDownloadSlideDeck:
                 assert os.path.getsize(output_path) > 0
                 assert is_pdf(output_path), "Downloaded slide deck is not a valid PDF file"
             except ArtifactNotReadyError:
+                if _managed_bindings() is not None:
+                    raise
                 pytest.skip("No completed slide deck artifact available")
+            except ArtifactDownloadError as error:
+                if (
+                    client.backends["artifacts"] == "android"
+                    and error.details == "PDF URL not available in artifact data"
+                ):
+                    pytest.skip("Android hydration confirmed an inventory-only slide deck")
+                raise
 
 
 @requires_auth
@@ -239,6 +258,8 @@ class TestDownloadMindMap:
                     data = json.load(f)
                 assert "name" in data, "Mind map JSON should have 'name' field"
             except ArtifactNotReadyError:
+                if _managed_bindings() is not None:
+                    raise
                 pytest.skip("No mind map artifact available")
 
 

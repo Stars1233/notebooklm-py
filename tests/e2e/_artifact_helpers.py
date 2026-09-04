@@ -10,22 +10,31 @@ URL_BACKED_STUDIO_TYPES = frozenset(
 )
 
 
-def completed_url_artifacts(artifacts: list[Artifact], family: str) -> list[Artifact]:
-    """Return completed artifacts whose listing exposes the required asset URL."""
+def completed_download_candidates(
+    artifacts: list[Artifact], family: str, *, backend: str
+) -> list[Artifact]:
+    """Return completed artifacts whose backend can attempt payload resolution."""
 
     if family not in URL_BACKED_ARTIFACT_FAMILIES:
         raise ValueError(f"artifact family is not URL-backed: {family}")
+    hydrate_android_slide = backend == "android" and family == "slide_deck"
     return [
         artifact
         for artifact in artifacts
-        if artifact.kind == family and artifact.is_completed and bool(artifact.url)
+        if artifact.kind == family
+        and artifact.is_completed
+        and (hydrate_android_slide or bool(artifact.url))
     ]
 
 
-def studio_item_has_download_payload(item: dict[str, object]) -> bool:
-    """Check the URL field for Studio types whose download requires one."""
+def studio_item_may_have_download_payload(item: dict[str, object], *, backend: str) -> bool:
+    """Check whether the selected backend can attempt Studio payload resolution."""
 
-    return item.get("type") not in URL_BACKED_STUDIO_TYPES or bool(item.get("url"))
+    item_type = item.get("type")
+    hydrate_android_slide = backend == "android" and item_type == "slide-deck"
+    return (
+        item_type not in URL_BACKED_STUDIO_TYPES or hydrate_android_slide or bool(item.get("url"))
+    )
 
 
 def completed_interactive_mind_maps(artifacts: list[Artifact]) -> list[Artifact]:

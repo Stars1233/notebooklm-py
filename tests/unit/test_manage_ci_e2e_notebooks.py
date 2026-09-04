@@ -1551,6 +1551,28 @@ async def test_clean_copy_shape_requires_sources_but_not_inherited_artifact_comp
 
 
 @pytest.mark.asyncio
+async def test_provision_waits_for_artifacts_before_preparing_every_clean_role(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, _client, _store, _clock = _manager(tmp_path, contracts)
+    observed_require_artifacts: list[bool] = []
+    validate_copy_shape = manager._validate_copy_shape
+
+    async def recording_validate_copy_shape(
+        notebook_id: str, *, require_artifacts: bool = True
+    ) -> dict[str, int]:
+        observed_require_artifacts.append(require_artifacts)
+        return await validate_copy_shape(notebook_id, require_artifacts=require_artifacts)
+
+    manager._validate_copy_shape = recording_validate_copy_shape  # type: ignore[method-assign]
+
+    await _provision(manager, tmp_path, mode="full")
+
+    assert observed_require_artifacts == [True, True, True]
+
+
+@pytest.mark.asyncio
 async def test_template_validation_rejects_wrong_notebook_lookup(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],

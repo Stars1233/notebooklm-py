@@ -6,9 +6,9 @@ import pytest
 
 from tests.e2e import conftest as e2e
 from tests.e2e._artifact_helpers import (
+    completed_download_candidates,
     completed_interactive_mind_maps,
-    completed_url_artifacts,
-    studio_item_has_download_payload,
+    studio_item_may_have_download_payload,
 )
 
 MANAGED = {
@@ -102,27 +102,45 @@ def test_url_backed_download_selectors_reject_inventory_only_artifacts() -> None
         kind="audio", is_completed=True, url="https://asset.test", id="downloadable"
     )
 
-    assert completed_url_artifacts([inventory_only, processing, downloadable], "audio") == [
-        downloadable
-    ]
+    assert completed_download_candidates(
+        [inventory_only, processing, downloadable], "audio", backend="web"
+    ) == [downloadable]
+    assert completed_download_candidates(
+        [inventory_only, processing, downloadable], "audio", backend="android"
+    ) == [downloadable]
     assert (
-        studio_item_has_download_payload(
-            {"type": "audio", "status_label": "completed", "url": None}
+        studio_item_may_have_download_payload(
+            {"type": "audio", "status_label": "completed", "url": None}, backend="web"
         )
         is False
     )
     assert (
-        studio_item_has_download_payload(
-            {"type": "audio", "status_label": "completed", "url": "https://asset.test"}
+        studio_item_may_have_download_payload(
+            {"type": "audio", "status_label": "completed", "url": "https://asset.test"},
+            backend="android",
         )
         is True
     )
     assert (
-        studio_item_has_download_payload(
-            {"type": "report", "status_label": "completed", "url": None}
+        studio_item_may_have_download_payload(
+            {"type": "report", "status_label": "completed", "url": None}, backend="web"
         )
         is True
     )
+
+
+def test_android_slide_deck_download_selectors_allow_backend_hydration() -> None:
+    inventory_only = SimpleNamespace(
+        kind="slide_deck", is_completed=True, url=None, id="inventory-only"
+    )
+
+    assert completed_download_candidates([inventory_only], "slide_deck", backend="web") == []
+    assert completed_download_candidates([inventory_only], "slide_deck", backend="android") == [
+        inventory_only
+    ]
+    item = {"type": "slide-deck", "status_label": "completed", "url": None}
+    assert studio_item_may_have_download_payload(item, backend="web") is False
+    assert studio_item_may_have_download_payload(item, backend="android") is True
 
 
 def test_unmanaged_configuration_preserves_legacy_path(monkeypatch) -> None:
