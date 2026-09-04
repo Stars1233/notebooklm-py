@@ -26,7 +26,7 @@ import os
 import secrets
 import sys
 
-from .._serving import check_bind_allowed, is_loopback
+from .._adapter_support import check_bind_allowed, is_loopback
 from ._auth import MCP_TOKEN_ENV, build_auth, get_configured_token
 from ._filelink import FileLinkSigner, FileTransferConfig
 from ._oauth import (

@@ -35,6 +35,7 @@ from typing import Any
 
 from fastmcp.exceptions import ToolError
 
+from .._adapter_support import redact
 from .._app.errors import (
     CATEGORY_HINTS,
     UNCONFIRMED_HINT,
@@ -42,7 +43,6 @@ from .._app.errors import (
     classify,
     did_you_mean_hint,
 )
-from .._redact import redact
 from ..exceptions import NotebookLMError
 
 __all__ = [

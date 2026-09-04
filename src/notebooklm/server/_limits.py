@@ -16,8 +16,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Literal
 
+from .._adapter_support import LoopBoundPrimitive
 from .._loop_affinity import assert_bound_loop
-from .._loop_bound import LoopBoundPrimitive
 
 __all__ = [
     "DEFAULT_CHAT_CONCURRENCY",

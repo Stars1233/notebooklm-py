@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from .._serving import check_bind_allowed, is_loopback
+from .._adapter_support import check_bind_allowed, is_loopback
 from ._auth import ALLOW_EXTERNAL_BIND_ENV, SERVER_TOKEN_ENV, get_configured_token
 from .app import create_app
 

@@ -29,7 +29,7 @@ from typing import Literal, cast
 from fastmcp import FastMCP
 from fastmcp.server.auth import AuthProvider
 
-from .._runtime.config import DEFAULT_SERVER_KEEPALIVE_INTERVAL
+from .._adapter_support import DEFAULT_SERVER_KEEPALIVE_INTERVAL
 from ..client import NotebookLMClient
 from ..paths import get_active_profile, resolve_profile, set_active_profile
 from ._clientprovider import ClientProvider

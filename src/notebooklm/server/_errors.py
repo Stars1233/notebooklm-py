@@ -36,6 +36,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .._adapter_support import redact as _shared_redact
 from .._app.errors import (
     CATEGORY_HINTS,
     UNCONFIRMED_HINT,
@@ -45,7 +46,6 @@ from .._app.errors import (
     did_you_mean_hint,
     is_retriable,
 )
-from .._redact import redact as _shared_redact
 from ..exceptions import NotebookLMError
 
 __all__ = [
