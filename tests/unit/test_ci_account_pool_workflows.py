@@ -305,11 +305,24 @@ def test_pr_qualification_keeps_account_selection_and_raw_token_consumer_trusted
         auth = next(
             step for step in _steps(job) if step.get("name") == "Materialize selected account"
         )
+        trusted_install = next(
+            step for step in _steps(job) if step.get("name") == "Install trusted auth environment"
+        )
+        trusted_install_run = str(trusted_install["run"])
+        assert 'cd "$trusted_root"' in trusted_install_run
+        assert "uv sync --frozen --extra headless --no-dev" in trusted_install_run
         auth_run = str(auth["run"])
         assert 'PYTHONPATH="$trusted_root/src"' in auth_run
-        assert "uv run --no-sync python" in auth_run
-        assert '"$trusted_root/scripts/materialize_ci_auth.py"' in auth_run
+        assert 'cd "$trusted_root"' in auth_run
+        assert "uv run --frozen --no-sync python" in auth_run
+        assert "scripts/materialize_ci_auth.py" in auth_run
         assert "uv run python scripts/materialize_ci_auth.py" not in auth_run
+        steps = _steps(job)
+        assert steps.index(trusted_install) < steps.index(auth)
+        candidate_install = next(
+            step for step in steps if step.get("name") == "Install dependencies"
+        )
+        assert steps.index(auth) < steps.index(candidate_install)
 
 
 def test_secret_bearing_jobs_have_both_literal_gates_and_exact_sha_checkout() -> None:
