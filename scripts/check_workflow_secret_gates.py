@@ -171,8 +171,8 @@ _FLOW_STYLE_ENV_RE = re.compile(r"^\s*(?:-\s+)?(?:\{.*)?(?:env|['\"]env['\"])\s*
 # literal value so an inverted guard is rejected (C-CODEX-3 fix).
 #
 # Tokens:
-#   * ``needs.<job>.outputs.is_standard == 'true'`` — branch-class pin
-#     (live workflows' ``resolve-target`` job sets this only for exact main).
+#   * ``needs.<job>.outputs.is_standard == 'true'`` — trusted-target pin
+#     (live resolvers publish an immutable main or owner-authorized PR SHA).
 #   * ``github.event.sender.login == '<actor>'`` /
 #     ``github.actor == '<actor>'`` — actor pin (claude.yml's
 #     load-bearing security check).
