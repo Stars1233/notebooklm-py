@@ -58,7 +58,7 @@ from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 im
 )
 
 TEMPLATE_ID = "template-id"
-TEMPLATE_TITLE = "Make Your Writing Clear and Persuasive"
+TEMPLATE_TITLE = "Make Your Writing More Powerful and Persuasive"
 FINGERPRINT = "a" * 64
 
 
@@ -1463,7 +1463,7 @@ async def test_template_validation_rejects_noncanonical_title(
     contracts: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
     manager, client, _store, _clock = _manager(tmp_path, contracts)
-    client.notebooks.items[TEMPLATE_ID].title = "notebooklm-py E2E template v1"
+    client.notebooks.items[TEMPLATE_ID].title = "Make Your Writing Clear and Persuasive"
 
     with pytest.raises(ContractError, match="title version does not match"):
         await manager.validate_template()
