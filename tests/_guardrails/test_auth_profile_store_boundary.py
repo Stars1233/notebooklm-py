@@ -34,6 +34,7 @@ _STORE_METHODS = {
     "_update_account_if_document_unchanged",
     "read_document",
     "read_session",
+    "read_cookie_pair",
     "read_account",
     "update_account",
     "clear_account",
@@ -354,6 +355,7 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 0, "dataclasses", "field", None),
     ("module", 0, "enum", "Enum", None),
     ("module", 0, "pathlib", "Path", None),
+    ("module", 0, "typing", "TYPE_CHECKING", None),
     ("module", 0, "typing", "Any", None),
     ("module", 0, "typing", "Protocol", None),
     ("module", 0, "typing", "TypeVar", None),
@@ -386,6 +388,9 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 1, "storage_lock", "LockRequest", None),
     ("module", 1, "storage_lock", "LockState", None),
     ("module", 1, "storage_lock", "StorageLockManager", None),
+    ("module", 1, "cookies", "_LoadedCookiePair", None),
+    ("function", 1, "cookies", "StorageStateValidationError", None),
+    ("function", 1, "cookies", "_load_cookie_pair_pure", None),
 ]
 
 
@@ -557,6 +562,7 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "ordering_key",
         "read_document",
         "read_session",
+        "read_cookie_pair",
         "read_account",
         "update_account",
         "clear_account",
@@ -706,6 +712,9 @@ def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> 
     )
     assert str(inspect.signature(profile_store.ProfileStore.write_master_token)) == (
         "(self, token: 'MasterToken') -> 'None'"
+    )
+    assert str(inspect.signature(profile_store.ProfileStore.read_cookie_pair)) == (
+        "(self, *, require_routable: 'bool' = False) -> '_LoadedCookiePair'"
     )
     assert profile_store.ProfileStore.write_master_token.__annotations__["token"] == "MasterToken"
     assert MasterToken.__module__ == "notebooklm._auth.master_token_types"
@@ -1554,6 +1563,26 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         ("_web/transport/cookie_persistence.py", "CookiePersistence.__init__", "ProfileStore"),
         (
             "_web/transport/cookie_persistence.py",
+            "CookiePersistence._prepare_open_baseline",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._adopt_reloaded_baseline",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._save_canonical",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._save_v0_callback",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
             "CookiePersistence._resolve_store",
             "ProfileStore",
         ),
@@ -2270,7 +2299,29 @@ def _auth_edges() -> dict[str, set[str]]:
     for path in AUTH_ROOT.glob("*.py"):
         source = path.stem
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parents = {
+            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+        }
+
+        def is_runtime_module_import(
+            node: ast.AST,
+            parent_map: dict[ast.AST, ast.AST] = parents,
+        ) -> bool:
+            current = node
+            while current in parent_map:
+                current = parent_map[current]
+                if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                    return False
+                if isinstance(current, ast.If) and ast.unparse(current.test) in {
+                    "TYPE_CHECKING",
+                    "typing.TYPE_CHECKING",
+                }:
+                    return False
+            return True
+
         for node in ast.walk(tree):
+            if not is_runtime_module_import(node):
+                continue
             targets: list[str] = []
             if isinstance(node, ast.Import):
                 targets = [item.name for item in node.names]

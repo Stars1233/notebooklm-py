@@ -28,10 +28,10 @@ import httpx
 import pytest
 
 import notebooklm._auth.refresh as refresh_mod
-import notebooklm._auth.session as session_mod
+import notebooklm._web.transport.session_auth as session_mod
 from notebooklm._auth import single_flight as single_flight_mod
-from notebooklm._auth.session import refresh_auth_session
 from notebooklm._browser.headless_reauth import HeadlessReauthResult, HeadlessReauthStatus
+from notebooklm._web.transport.session_auth import refresh_auth_session
 from notebooklm.auth import AuthTokens
 from tests._fixtures import platform_command
 

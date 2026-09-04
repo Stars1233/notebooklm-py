@@ -155,7 +155,7 @@ def _raw_cookie_shadow_candidates() -> set[tuple[str, str, str, str, str, int]]:
 _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = frozenset(
     {
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_headless_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -163,7 +163,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_master_token_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -171,7 +171,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_refresh_cmd_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -179,7 +179,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_storage_cookie_reload",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -212,7 +212,7 @@ def _cookie_shadow_inventory() -> set[tuple[str, str, str, str, str, int]]:
 _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = frozenset(
     {
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_storage_cookie_reload",
             "auth",
             "_sync_cookie_jar",

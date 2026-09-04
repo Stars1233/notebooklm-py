@@ -1013,7 +1013,6 @@ def test_persistence_and_legacy_adapter_own_exact_state() -> None:
         "logger",
         "T",
         "BaselineState",
-        "_BASELINE_ERRORS",
     }
 
 
@@ -1071,10 +1070,28 @@ def test_typed_merge_and_pair_parser_ownership_is_exact() -> None:
     )
     assert calls == {("_web/transport/cookie_persistence.py", "CookiePersistence._save_canonical")}
     assert escapes == set()
-    methods = _methods(_class(_tree(PERSISTENCE_PATH), "CookiePersistence"))
+    persistence_methods = _methods(_class(_tree(PERSISTENCE_PATH), "CookiePersistence"))
+    parser_callers = {
+        name
+        for name, method in persistence_methods.items()
+        if any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "read_cookie_pair"
+            for node in ast.walk(method)
+        )
+    }
+    assert parser_callers == {
+        "_adopt_reloaded_baseline",
+        "_prepare_open_baseline",
+        "_save_canonical",
+        "_save_v0_callback",
+    }
+    profile_path = SRC_ROOT / "_auth/profile_store.py"
+    profile_methods = _methods(_class(_tree(profile_path), "ProfileStore"))
     parser_owners = {
         name
-        for name, method in methods.items()
+        for name, method in profile_methods.items()
         if any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -1082,12 +1099,7 @@ def test_typed_merge_and_pair_parser_ownership_is_exact() -> None:
             for node in ast.walk(method)
         )
     }
-    assert parser_owners == {
-        "_adopt_reloaded_baseline",
-        "_prepare_open_baseline",
-        "_save_canonical",
-        "_save_v0_callback",
-    }
+    assert parser_owners == {"read_cookie_pair"}
 
 
 def test_canonical_and_explicit_v0_routes_keep_capabilities_separate() -> None:

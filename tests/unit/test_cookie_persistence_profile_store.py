@@ -127,6 +127,19 @@ def test_frozen_baseline_values_copy_and_redact() -> None:
     )
 
 
+def test_profile_store_read_cookie_pair_preserves_one_sample_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "profile.json"
+    _write(path, sid="first", same_site="FuturePolicy")
+
+    pair = ProfileStore(path).read_cookie_pair()
+
+    live_sid = next(cookie for cookie in CookieJar.from_httpx(pair.live) if cookie.name == "SID")
+    sid = next(cookie for cookie in pair.baseline if cookie.name == "SID")
+    assert live_sid.value == "first"
+    assert sid.value == "first"
+    assert sid.same_site == "FuturePolicy"
+
+
 def test_compatibility_constructor_mirrors_but_store_factory_retains_no_auth(
     tmp_path: Path,
 ) -> None:
@@ -170,15 +183,15 @@ async def test_prepare_samples_once_off_loop_and_keeps_exact_samesite(
     _write(path, same_site="FuturePolicy")
     persistence = CookiePersistence._from_store(ProfileStore(path))
     calls = 0
-    real_load = persistence_module._load_cookie_pair_pure
+    real_load = ProfileStore.read_cookie_pair
 
-    def load_once(*args: Any, **kwargs: Any):
+    def load_once(self: ProfileStore, *args: Any, **kwargs: Any):
         nonlocal calls
         calls += 1
         assert kwargs == {"require_routable": False}
-        return real_load(*args, **kwargs)
+        return real_load(self, *args, **kwargs)
 
-    monkeypatch.setattr(persistence_module, "_load_cookie_pair_pure", load_once)
+    monkeypatch.setattr(ProfileStore, "read_cookie_pair", load_once)
     await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
     await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
 
@@ -204,7 +217,7 @@ async def test_failed_prepare_is_sticky_until_exact_registration(
         calls += 1
         raise FileNotFoundError(path)
 
-    monkeypatch.setattr(persistence_module, "_load_cookie_pair_pure", missing)
+    monkeypatch.setattr(ProfileStore, "read_cookie_pair", missing)
     with caplog.at_level("WARNING", logger="notebooklm.auth"):
         await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
         await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
@@ -336,17 +349,17 @@ async def test_lazy_canonical_override_failure_is_retryable(
         ],
     )
     persistence = CookiePersistence._from_store(None)
-    real_load = persistence_module._load_cookie_pair_pure
+    real_load = ProfileStore.read_cookie_pair
     calls = 0
 
-    def first_fails(*args: Any, **kwargs: Any):
+    def first_fails(self: ProfileStore, *args: Any, **kwargs: Any):
         nonlocal calls
         calls += 1
         if calls == 1:
             raise FileNotFoundError(path)
-        return real_load(*args, **kwargs)
+        return real_load(self, *args, **kwargs)
 
-    monkeypatch.setattr(persistence_module, "_load_cookie_pair_pure", first_fails)
+    monkeypatch.setattr(ProfileStore, "read_cookie_pair", first_fails)
     await persistence._save_canonical(_live("new"), path, to_thread=_inline_to_thread)
     assert store.calls == []
     assert isinstance(

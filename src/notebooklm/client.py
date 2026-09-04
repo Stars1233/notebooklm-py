@@ -43,7 +43,6 @@ from ._auth.account import _probe_authuser
 from ._auth.account import authuser_query as authuser_query
 from ._auth.account_email import AccountEmailCacheKey, resolve_account_email
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
-from ._auth.session import refresh_auth_session
 from ._chat import ChatAPI
 from ._client_assembly import (
     BackendName,
@@ -732,15 +731,10 @@ class NotebookLMClient:
         its cookies are refreshed best-effort through that sidecar's own Web
         ladder as well.
 
-        The Web path uses explicit collaborators sourced from ``self._auth``
-        and the applicable :class:`WebRuntime`. The five kwargs mirror the
-        :func:`refresh_auth_session` signature: ``auth`` is the client-owned
-        :class:`AuthTokens` instance (the Auth Instance Invariant guarantees
-        every auth consumer observes it), and the remaining four come from
-        the bundle the composition root produced. The canonical test helper
-        wires ``_auth`` and both runtime variants through the same
-        :func:`notebooklm._client_assembly._assemble_client` seam, so test
-        shells observe the production resolution path.
+        The selected Web runtime owns the concrete homepage, token, cookie,
+        persistence, and lifecycle collaborators. The root client invokes one
+        narrow bound refresh operation and does not reconstruct that Web-only
+        collaborator graph.
 
         Args:
             allow_headless: Opt in to **layer-3 headless re-auth** when the
@@ -871,38 +865,13 @@ class NotebookLMClient:
     ) -> AuthTokens:
         """Run the Web recovery ladder for an explicit Web bundle."""
 
-        coord = web.auth_coord
-        if not allow_headless or not coord.has_refresh_callback:
-            # Base policy — also the coordinator's single-flight callback body,
-            # so this branch must NOT re-enter await_refresh (that would recurse
-            # through the callback). No coordinator wired ⇒ same direct path.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=web.kernel,
-                auth_coord=coord,
-                web_transport=web.web_transport,
-                cookie_persistence=web.cookie_persistence,
+        return cast(
+            AuthTokens,
+            await web.refresh_auth(
                 allow_headless=allow_headless,
                 expected_epoch=expected_epoch,
-            )
-        # Wider policy: join the in-flight base refresh (join-then-rerun).
-        try:
-            await coord.await_refresh(expected_epoch)
-        except ValueError:
-            # Narrow by design: the L3-remediable base-flight failure surfaces as
-            # ValueError (dead-cookie 302 / token extraction). refresh-cmd swallows
-            # its RuntimeError internally (returns bool), so a RuntimeError here is
-            # incidental and must propagate rather than trigger a second refresh.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=web.kernel,
-                auth_coord=coord,
-                web_transport=web.web_transport,
-                cookie_persistence=web.cookie_persistence,
-                allow_headless=True,
-                expected_epoch=expected_epoch,
-            )
-        return self._auth
+            ),
+        )
 
     def get_account_authuser(self) -> int:
         """Return the ``authuser`` index of the signed-in account (0 = default).

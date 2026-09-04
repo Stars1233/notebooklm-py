@@ -13,7 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 
 import notebooklm.paths as _notebooklm_paths
 
@@ -48,7 +48,29 @@ from .storage_lock import (
 
 logger = logging.getLogger("notebooklm.auth")
 
+if TYPE_CHECKING:
+    from .cookies import _LoadedCookiePair
+
 T = TypeVar("T")
+
+
+def _is_cookie_pair_read_error(error: BaseException) -> bool:
+    """Classify the unchanged error taxonomy of ``read_cookie_pair``."""
+    from .cookies import StorageStateValidationError
+
+    return isinstance(
+        error,
+        (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            StorageStateValidationError,
+            _cookie_policy.RequiredCookieValidationError,
+            TypeError,
+            ValueError,
+            OverflowError,
+        ),
+    )
 
 
 class CookieMergeDisposition(Enum):
@@ -318,6 +340,15 @@ class ProfileStore:
                 include_domains=document.include_domains(),
                 include_optional=document.include_optional(),
             ),
+        )
+
+    def read_cookie_pair(self, *, require_routable: bool = False) -> _LoadedCookiePair:
+        """Read one raw sample into paired live and persistence projections."""
+        from .cookies import _load_cookie_pair_pure
+
+        return _load_cookie_pair_pure(
+            self._path,
+            require_routable=require_routable,
         )
 
     def replace_from_remint(self, request: RemintWriteRequest) -> ReplaceResult:

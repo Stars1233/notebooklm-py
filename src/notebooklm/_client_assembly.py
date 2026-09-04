@@ -95,6 +95,7 @@ def _install_android_lifecycle(
     shared_config: SharedRuntimeConfig,
     seam_overrides: WebSeamOverrides,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    use_default_refresh_callback: bool,
     timeout: float,
     refresh_retry_delay: float,
     rate_limit_max_retries: int,
@@ -110,6 +111,7 @@ def _install_android_lifecycle(
         runtime, resolved_seams = build_compatibility_runtime(
             auth=auth,
             refresh_callback=refresh_callback,
+            use_default_refresh_callback=use_default_refresh_callback,
             shared=assembly.collaborators,
             shared_config=shared_config,
             seam_overrides=seam_overrides,
@@ -183,12 +185,14 @@ def _assemble_client(
     client._account_email_cache = None
     client._account_email_cache_route = None
 
-    if isinstance(refresh_callback, _UnsetType):
-
-        async def refresh_callback(expected_epoch: int) -> AuthTokens:
-            if client._backend_preference.preferred == "android":
-                return await client._refresh_sidecar_auth_for_epoch(expected_epoch=expected_epoch)
-            return await client._refresh_web_auth_for_epoch(expected_epoch=expected_epoch)
+    use_default_refresh_callback = isinstance(refresh_callback, _UnsetType)
+    if use_default_refresh_callback:
+        effective_refresh_callback = None
+    else:
+        effective_refresh_callback = cast(
+            Callable[[int], Awaitable[AuthTokens]] | None,
+            refresh_callback,
+        )
 
     if isinstance(keepalive_storage_path, _UnsetType):
         derived_keepalive_path: Path | None = auth.storage_path
@@ -274,7 +278,8 @@ def _assemble_client(
             auth=auth,
             shared_config=shared_config,
             seam_overrides=seam_overrides,
-            refresh_callback=refresh_callback,
+            refresh_callback=effective_refresh_callback,
+            use_default_refresh_callback=use_default_refresh_callback,
             timeout=timeout,
             refresh_retry_delay=refresh_retry_delay,
             rate_limit_max_retries=rate_limit_max_retries,
@@ -305,7 +310,8 @@ def _assemble_client(
         chat_timeout=chat_timeout,
         import_research_timeout=import_research_timeout,
         chat_response_max_bytes=chat_response_max_bytes,
-        refresh_callback=refresh_callback,
+        refresh_callback=effective_refresh_callback,
+        use_default_refresh_callback=use_default_refresh_callback,
         refresh_retry_delay=refresh_retry_delay,
         connect_timeout=connect_timeout,
         keepalive_storage_path=keepalive_storage_path,

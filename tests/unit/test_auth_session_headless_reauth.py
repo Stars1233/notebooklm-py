@@ -28,9 +28,9 @@ import httpx
 import pytest
 
 from notebooklm._auth.cookie_types import CookieJar
-from notebooklm._auth.session import refresh_auth_session
 from notebooklm._browser.headless_reauth import HeadlessReauthResult, HeadlessReauthStatus
 from notebooklm._web.transport.auth import AuthRefreshCoordinator
+from notebooklm._web.transport.session_auth import refresh_auth_session
 from notebooklm.auth import AuthTokens
 
 REFRESH_HTML = '"SNlM0e":"new_csrf_token_123" "FdrFJe":"new_session_id_456"'
@@ -251,8 +251,8 @@ async def test_headless_reauth_uses_storage_specific_browser_profile(
     monkeypatch, tmp_path: Path
 ) -> None:
     """Custom storage files do not share an ambient L3 browser profile."""
-    import notebooklm._auth.session as session_mod
     import notebooklm._browser.headless_reauth as hr
+    import notebooklm._web.transport.session_auth as session_mod
 
     browser_profiles: list[Path] = []
 

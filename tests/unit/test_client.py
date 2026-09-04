@@ -12,6 +12,7 @@ from notebooklm._auth import tokens as _auth_tokens
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.profile_store import ProfileStore
 from notebooklm._runtime.helpers import is_auth_error
+from notebooklm._web.transport import session_auth as session_auth_module
 from notebooklm._web.transport.cookie_persistence import ReadyBaseline
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -452,9 +453,7 @@ class TestRefreshAuth:
                 raise ValueError("Authentication expired. Run 'notebooklm login'.")
             return auth
 
-        import notebooklm.client as client_mod
-
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
@@ -475,9 +474,7 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm.client as client_mod
-
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", fake_session)
 
         async with client:
             result = await client.refresh_auth(allow_headless=True)
@@ -508,9 +505,7 @@ class TestRefreshAuth:
                 raise RuntimeError("Client not initialized. Use 'async with' context.")
             return auth
 
-        import notebooklm.client as client_mod
-
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", fake_session)
 
         async with client:
             with pytest.raises(RuntimeError, match="Client not initialized"):
@@ -537,9 +532,7 @@ class TestRefreshAuth:
             calls.append(allow_headless)
             return auth
 
-        import notebooklm.client as client_mod
-
-        monkeypatch.setattr(client_mod, "refresh_auth_session", fake_session)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", fake_session)
         # If the default path routed through the coordinator, await_refresh would
         # invoke the callback (refresh_auth) and we'd see a nested call; assert it
         # runs exactly once with the base policy.
@@ -569,10 +562,8 @@ class TestRefreshAuth:
             calls.append(f"web:{kwargs['expected_epoch']}")
             return kwargs["auth"]
 
-        import notebooklm.client as client_mod
-
         monkeypatch.setattr(provider, "refresh", refresh_bearer)
-        monkeypatch.setattr(client_mod, "refresh_auth_session", refresh_web)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", refresh_web)
 
         result = await client._refresh_auth_for_epoch(expected_epoch=7)
 
@@ -598,10 +589,8 @@ class TestRefreshAuth:
         async def refresh_web(**kwargs):
             raise ValueError("web cookies are intentionally absent")
 
-        import notebooklm.client as client_mod
-
         monkeypatch.setattr(provider, "refresh", refresh_bearer)
-        monkeypatch.setattr(client_mod, "refresh_auth_session", refresh_web)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", refresh_web)
 
         result = await client._refresh_auth_for_epoch(expected_epoch=9)
 
@@ -630,10 +619,8 @@ class TestRefreshAuth:
             web_calls.append(allow_headless)
             return auth
 
-        import notebooklm.client as client_mod
-
         monkeypatch.setattr(provider, "refresh", refresh_bearer)
-        monkeypatch.setattr(client_mod, "refresh_auth_session", refresh_web)
+        monkeypatch.setattr(session_auth_module, "refresh_auth_session", refresh_web)
 
         coordinator = web_client._require_web_runtime().auth_coord
         coordinator.set_bound_loop(asyncio.get_running_loop())
@@ -831,6 +818,38 @@ class TestIsAuthError:
 
 
 class TestSessionRefreshCallback:
+    def test_production_default_callback_is_bound_to_web_owner(self):
+        auth = AuthTokens(
+            cookies={"SID": "test", "__Secure-1PSIDTS": "test_1psidts"},
+            csrf_token="csrf",
+            session_id="sid",
+        )
+
+        client = NotebookLMClient(auth)
+        web = client._require_web_runtime()
+        callback = web.auth_coord._refresh_callback
+
+        assert callback is not None
+        assert callback.__self__ is web.session_auth
+        assert callback.__func__ is type(web.session_auth).refresh_base
+
+    def test_android_sidecar_default_callback_is_bound_to_its_web_owner(self):
+        auth = AuthTokens(
+            cookies={"SID": "test", "__Secure-1PSIDTS": "test_1psidts"},
+            csrf_token="csrf",
+            session_id="sid",
+        )
+
+        client = NotebookLMClient(auth, backend="android")
+        assert client._web_sidecar is not None
+        web = client._web_sidecar._build()
+        assert web is not None
+        callback = web.auth_coord._refresh_callback
+
+        assert callback is not None
+        assert callback.__self__ is web.session_auth
+        assert callback.__func__ is type(web.session_auth).refresh_base
+
     def test_refresh_callback_stored(self):
         """Session should store refresh callback."""
 

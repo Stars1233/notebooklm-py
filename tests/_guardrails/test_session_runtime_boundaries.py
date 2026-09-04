@@ -1,13 +1,9 @@
 """Meta-lint: regression guards closing plan ``host-protocol-removal``.
 
-Wave 2 of plan ``host-protocol-removal`` deleted the ``_LifecycleHost``
-and ``RefreshAuthCore`` Protocols and rewrote ``refresh_auth_session``
-to take five explicit keyword-only collaborators instead of a
-NotebookLMClient-shaped core. Wave 3 deleted the surviving NotebookLMClient-level
-auth/lifecycle forwards (``update_auth_tokens`` / ``update_auth_headers``
-/ ``lifecycle``) that those Protocols had backed. Wave 4 (this file)
-adds the AST regression guards that catch any future reintroduction of
-the NotebookLMClient-as-host pattern at PR time.
+The earlier host-protocol removal deleted ``_LifecycleHost`` and
+``RefreshAuthCore``. Managed refresh now lives in the concrete Web-owned
+``session_auth.py`` service; these AST guards keep that service free of a
+NotebookLMClient-shaped host while retaining the original regression coverage.
 
 The four guards in this module are deliberately AST-based — string-vs-name
 spelling, ``typing.cast`` qualification, and re-imported ``cast`` aliases
@@ -59,8 +55,8 @@ all slip past a regex but not past an :mod:`ast` walk.
    replaced with five explicit kwargs.
 
 4. :func:`test_auth_session_module_has_no_host_protocol_residue` is a
-   focused contract for ``src/notebooklm/_auth/session.py`` — the
-   module Wave 2 rewrote. Four sub-checks, all AST-based:
+   focused contract for ``src/notebooklm/_web/transport/session_auth.py``.
+   Four sub-checks, all AST-based:
 
    - no import of the ``NotebookLMClient`` class (from any module path), so the
      refresh helper cannot regrow a typing dependency on the concrete
@@ -103,7 +99,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
-AUTH_SESSION_PATH = SRC_ROOT / "_auth" / "session.py"
+AUTH_SESSION_PATH = SRC_ROOT / "_web" / "transport" / "session_auth.py"
 
 # The two deleted Protocol identifiers. Centralised so future plan
 # closures (or accidental reintroductions) can extend the set in one
@@ -114,7 +110,7 @@ DELETED_HOST_PROTOCOL_NAMES: frozenset[str] = frozenset({"_LifecycleHost", "Refr
 # Coordinator-shaped receiver names that may legitimately appear on the
 # LHS of ``.update_auth_tokens(...)`` / ``.update_auth_headers(...)`` in
 # the auth-refresh code path. The live caller in
-# ``_auth/session.py::refresh_auth_session`` invokes
+# ``_web/transport/session_auth.py::refresh_auth_session`` invokes
 # ``auth_coord.update_auth_tokens(...)`` / ``auth_coord.update_auth_headers(...)``
 # on the explicit ``auth_coord`` kwarg. Names like ``core``, ``host``,
 # ``session``, or ``self`` are the Wave-2-deleted NotebookLMClient-as-host shape
@@ -479,12 +475,12 @@ def test_refresh_auth_core_symbol_does_not_appear_in_src() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Guard 4: ``_auth/session.py`` must carry no host-Protocol residue.
+# Guard 4: the Web-owned session service must carry no host-Protocol residue.
 # ---------------------------------------------------------------------------
 
 
 def test_auth_session_module_has_no_host_protocol_residue() -> None:
-    """``_auth/session.py`` must remain free of every Wave 2 / Wave 3 residue.
+    """The Web-owned session service must remain free of host-shaped residue.
 
     Four sub-checks (any failure surfaces as a separate violation line):
 
@@ -512,7 +508,7 @@ def test_auth_session_module_has_no_host_protocol_residue() -> None:
     # Sub-check 1: no import of ``NotebookLMClient``.
     for lineno in _imports_session_class(tree):
         violations.append(
-            f"_auth/session.py:{lineno} imports `NotebookLMClient` — Wave 2 removed "
+            f"_web/transport/session_auth.py:{lineno} imports `NotebookLMClient` — "
             "the NotebookLMClient-shaped core argument; refresh_auth_session takes "
             "five explicit collaborators."
         )
@@ -521,7 +517,7 @@ def test_auth_session_module_has_no_host_protocol_residue() -> None:
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and _protocol_class_declares_kernel(node):
             violations.append(
-                f"_auth/session.py:{node.lineno} declares Protocol `{node.name}` "
+                f"_web/transport/session_auth.py:{node.lineno} declares Protocol `{node.name}` "
                 "with `_kernel` annotation — host-shaped Protocols were "
                 "retired in Wave 2."
             )
@@ -561,7 +557,7 @@ def test_auth_session_module_has_no_host_protocol_residue() -> None:
             continue
         receiver_repr = _format_receiver_for_diagnostic(receiver)
         violations.append(
-            f"_auth/session.py:{node.lineno} calls "
+            f"_web/transport/session_auth.py:{node.lineno} calls "
             f"`{receiver_repr}.{node.func.attr}(...)` — "
             f"`{node.func.attr}` now lives on AuthRefreshCoordinator; "
             "route through the `auth_coord` kwarg explicitly."
@@ -575,13 +571,13 @@ def test_auth_session_module_has_no_host_protocol_residue() -> None:
         target = _cast_target_name(node)
         if target in DELETED_HOST_PROTOCOL_NAMES:
             violations.append(
-                f"_auth/session.py:{node.lineno} casts to `{target}` — both "
+                f"_web/transport/session_auth.py:{node.lineno} casts to `{target}` — both "
                 "host Protocols were retired in Wave 2 of plan "
                 "host-protocol-removal (PR #1133)."
             )
 
     assert not violations, (
-        "_auth/session.py must remain free of NotebookLMClient-as-host residue after "
+        "session_auth.py must remain free of NotebookLMClient-as-host residue after "
         "Waves 2-3 of plan host-protocol-removal. Offenders:\n  " + "\n  ".join(violations)
     )
 
