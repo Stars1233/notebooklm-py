@@ -13,6 +13,7 @@ from typing import Any
 import httpx
 
 from ..exceptions import MissingDependencyError
+from . import cookie_contract as _cookie_contract
 from .master_token_types import MasterToken
 
 _MASTER_APP = "com.google.android.apps.chromecast.app"
@@ -20,7 +21,7 @@ _MASTER_SIG = "24bb24c05e47e0aefa68a58a766179d9b613a600"
 _OAUTHLOGIN_SERVICE = "oauth2:https://www.google.com/accounts/OAuthLogin"
 _REQUIRED_MINTED_COOKIES = {"SID", "APISID", "SAPISID"}
 
-KEEPALIVE_ROTATE_URL = "https://accounts.google.com/RotateCookies"
+KEEPALIVE_ROTATE_URL = _cookie_contract.KEEPALIVE_ROTATE_URL
 _KEEPALIVE_ROTATE_HEADERS = {
     "Content-Type": "application/json",
     "Origin": "https://accounts.google.com",

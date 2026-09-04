@@ -17,6 +17,7 @@ import notebooklm._runtime.lifecycle as lifecycle_module
 import notebooklm._web.transport.cookie_persistence as persistence_module
 from notebooklm import client as client_module
 from notebooklm._auth.cookie_merge import RecoveryObservation
+from notebooklm._auth.cookie_policy import RequiredCookieValidationError
 from notebooklm._auth.cookie_types import Cookie, CookieJar
 from notebooklm._auth.profile_store import (
     CookieMergeDisposition,
@@ -138,6 +139,32 @@ def test_profile_store_read_cookie_pair_preserves_one_sample_provenance(tmp_path
     assert live_sid.value == "first"
     assert sid.value == "first"
     assert sid.same_site == "FuturePolicy"
+
+
+def test_profile_store_pair_routing_preflight_remains_opt_in(tmp_path: Path) -> None:
+    path = tmp_path / "profile.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "cookies": [
+                    {"name": "SID", "value": "sid", "domain": ".google.com", "path": "/"},
+                    {
+                        "name": "__Secure-1PSIDTS",
+                        "value": "psidts",
+                        "domain": ".notebooklm.google.com",
+                        "path": "/",
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ProfileStore(path).read_cookie_pair(require_routable=False)
+    with pytest.raises(RequiredCookieValidationError) as raised:
+        ProfileStore(path).read_cookie_pair(require_routable=True)
+    assert raised.value.reason == "psidts_unroutable"
 
 
 def test_compatibility_constructor_mirrors_but_store_factory_retains_no_auth(

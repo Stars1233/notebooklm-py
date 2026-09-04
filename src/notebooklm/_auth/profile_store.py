@@ -49,14 +49,14 @@ from .storage_lock import (
 logger = logging.getLogger("notebooklm.auth")
 
 if TYPE_CHECKING:
-    from .cookies import _LoadedCookiePair
+    from .cookie_pair import _LoadedCookiePair
 
 T = TypeVar("T")
 
 
 def _is_cookie_pair_read_error(error: BaseException) -> bool:
     """Classify the unchanged error taxonomy of ``read_cookie_pair``."""
-    from .cookies import StorageStateValidationError
+    from .cookie_pair import StorageStateValidationError
 
     return isinstance(
         error,
@@ -344,7 +344,7 @@ class ProfileStore:
 
     def read_cookie_pair(self, *, require_routable: bool = False) -> _LoadedCookiePair:
         """Read one raw sample into paired live and persistence projections."""
-        from .cookies import _load_cookie_pair_pure
+        from .cookie_pair import _load_cookie_pair_pure
 
         return _load_cookie_pair_pure(
             self._path,

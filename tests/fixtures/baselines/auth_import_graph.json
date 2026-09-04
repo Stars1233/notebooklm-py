@@ -102,28 +102,53 @@
     },
     {
       "scope": "module",
-      "source": "cookie_types",
+      "source": "cookie_pair",
+      "target": "cookie_contract"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_pair",
       "target": "cookie_policy"
     },
     {
       "scope": "module",
-      "source": "cookie_types",
+      "source": "cookie_pair",
       "target": "cookie_semantics"
     },
     {
       "scope": "module",
-      "source": "cookies",
-      "target": "cookie_policy"
-    },
-    {
-      "scope": "module",
-      "source": "cookies",
-      "target": "cookie_semantics"
-    },
-    {
-      "scope": "module",
-      "source": "cookies",
+      "source": "cookie_pair",
       "target": "cookie_types"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_pair",
+      "target": "paths"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_types",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "cookie_types",
+      "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
+      "target": "cookie_pair"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
+      "target": "cookie_semantics"
     },
     {
       "scope": "module",
@@ -238,6 +263,11 @@
     {
       "scope": "module",
       "source": "mint_service",
+      "target": "cookie_contract"
+    },
+    {
+      "scope": "module",
+      "source": "mint_service",
       "target": "master_token_types"
     },
     {
@@ -286,6 +316,16 @@
       "target": "cookie_merge"
     },
     {
+      "scope": "function",
+      "source": "profile_store",
+      "target": "cookie_pair"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "cookie_pair"
+    },
+    {
       "scope": "module",
       "source": "profile_store",
       "target": "cookie_policy"
@@ -294,16 +334,6 @@
       "scope": "module",
       "source": "profile_store",
       "target": "cookie_types"
-    },
-    {
-      "scope": "function",
-      "source": "profile_store",
-      "target": "cookies"
-    },
-    {
-      "scope": "module",
-      "source": "profile_store",
-      "target": "cookies"
     },
     {
       "scope": "module",
@@ -344,6 +374,11 @@
       "scope": "module",
       "source": "psidts_recovery",
       "target": "cookie_merge"
+    },
+    {
+      "scope": "module",
+      "source": "psidts_recovery",
+      "target": "cookie_pair"
     },
     {
       "scope": "module",
@@ -643,6 +678,11 @@
       "path": "src/notebooklm/_auth/account_types.py"
     },
     {
+      "lines": 5,
+      "name": "cookie_contract",
+      "path": "src/notebooklm/_auth/cookie_contract.py"
+    },
+    {
       "lines": 96,
       "name": "cookie_filter",
       "path": "src/notebooklm/_auth/cookie_filter.py"
@@ -651,6 +691,11 @@
       "lines": 448,
       "name": "cookie_merge",
       "path": "src/notebooklm/_auth/cookie_merge.py"
+    },
+    {
+      "lines": 366,
+      "name": "cookie_pair",
+      "path": "src/notebooklm/_auth/cookie_pair.py"
     },
     {
       "lines": 909,
@@ -668,7 +713,7 @@
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
     {
-      "lines": 961,
+      "lines": 784,
       "name": "cookies",
       "path": "src/notebooklm/_auth/cookies.py"
     },
@@ -708,7 +753,7 @@
       "path": "src/notebooklm/_auth/master_token_types.py"
     },
     {
-      "lines": 297,
+      "lines": 298,
       "name": "mint_service",
       "path": "src/notebooklm/_auth/mint_service.py"
     },
@@ -738,7 +783,7 @@
       "path": "src/notebooklm/_auth/profile_store.py"
     },
     {
-      "lines": 1214,
+      "lines": 998,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
@@ -779,21 +824,15 @@
     }
   ],
   "sccs": {
-    "all_scopes": [
-      [
-        "cookies",
-        "profile_store",
-        "psidts_recovery"
-      ]
-    ],
+    "all_scopes": [],
     "module_level": []
   },
   "summary": {
     "function_local_edges": 13,
-    "module_edges": 110,
-    "modules": 32,
-    "total_lines": 13692,
-    "unique_edges": 123
+    "module_edges": 117,
+    "modules": 34,
+    "total_lines": 13671,
+    "unique_edges": 130
   },
   "version": 1
 }

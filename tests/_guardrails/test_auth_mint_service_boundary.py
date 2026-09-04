@@ -31,6 +31,7 @@ _EXPECTED_IMPORTS = {
     ("module", "dataclasses", "field", 0, None),
     ("module", "typing", "Any", 0, None),
     ("module", "httpx", "", 0, None),
+    ("module", "", "cookie_contract", 1, "_cookie_contract"),
     ("module", "exceptions", "MissingDependencyError", 2, None),
     ("module", "master_token_types", "MasterToken", 1, None),
     ("_require_gpsoauth", "gpsoauth", "", 0, None),

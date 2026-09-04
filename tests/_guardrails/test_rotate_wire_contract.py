@@ -1,8 +1,10 @@
 """Fail-closed ownership guard for the single ``RotateCookies`` wire contract.
 
-Phase 11C moves the raw URL/body/POST pair to dependency-bottom
-``_auth/mint_service.py``. Stateful ``keepalive.py`` retains policy and exact
-compatibility bindings; PSIDTS recovery continues consuming those bindings.
+Phase 11C moves the raw body/POST pair to dependency-bottom
+``_auth/mint_service.py``; the immutable endpoint URL is shared from the
+dependency-bottom ``_auth/cookie_contract.py``. Stateful ``keepalive.py``
+retains policy and exact compatibility bindings; PSIDTS recovery continues
+consuming those bindings.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ pytestmark = pytest.mark.repo_lint
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src" / "notebooklm"
 _AUTH_ROOT = _SRC_ROOT / "_auth"
 _WIRE_OWNER = _AUTH_ROOT / "mint_service.py"
+_URL_OWNER = _AUTH_ROOT / "cookie_contract.py"
 _KEEPALIVE_PATH = _AUTH_ROOT / "keepalive.py"
 _PSIDTS_PATH = _AUTH_ROOT / "psidts_recovery.py"
 _WIRE_MODULE = "notebooklm._auth.mint_service"
@@ -282,7 +285,7 @@ def _keepalive_reexports(tree: ast.Module) -> dict[str, str]:
 
 
 def test_rotate_literals_and_definitions_have_one_dependency_bottom_owner() -> None:
-    assert _files_with_constant(_ROTATE_URL_LITERAL) == [_WIRE_OWNER]
+    assert _files_with_constant(_ROTATE_URL_LITERAL) == [_URL_OWNER]
     assert _files_with_constant(_ROTATE_BODY_LITERAL) == [_WIRE_OWNER]
     assert _wire_definitions() == {
         ("_auth/mint_service.py", "_rotate_post"),

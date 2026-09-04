@@ -388,9 +388,9 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 1, "storage_lock", "LockRequest", None),
     ("module", 1, "storage_lock", "LockState", None),
     ("module", 1, "storage_lock", "StorageLockManager", None),
-    ("module", 1, "cookies", "_LoadedCookiePair", None),
-    ("function", 1, "cookies", "StorageStateValidationError", None),
-    ("function", 1, "cookies", "_load_cookie_pair_pure", None),
+    ("module", 1, "cookie_pair", "_LoadedCookiePair", None),
+    ("function", 1, "cookie_pair", "StorageStateValidationError", None),
+    ("function", 1, "cookie_pair", "_load_cookie_pair_pure", None),
 ]
 
 
