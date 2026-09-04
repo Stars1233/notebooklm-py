@@ -2750,7 +2750,7 @@
     },
     {
       "kind": "from",
-      "lineno": 346,
+      "lineno": 306,
       "scope": "_resolve_recovery_path",
       "scope_kind": "function",
       "source": "notebooklm._auth.psidts_recovery",
@@ -9617,7 +9617,7 @@
       "modules": 39
     },
     "auth": {
-      "lines": 13691,
+      "lines": 13686,
       "modules": 32
     },
     "cli": {
@@ -9654,7 +9654,7 @@
     }
   },
   "summary": {
-    "authored_lines": 141838,
+    "authored_lines": 141833,
     "authored_modules": 447,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1056,

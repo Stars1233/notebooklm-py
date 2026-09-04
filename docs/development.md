@@ -484,8 +484,10 @@ write/clear remain synchronous, only the frozen handled exception set becomes a 
 collaborators are scrubbed on every exit. Patch these services through constructor injection rather
 than adding module monkeypatch sites.
 
-PSIDTS load composition now receives the pure cookie loader as an explicit callable. Keep
-conversion in `CookieJar`, raw-row fidelity in `ProfileDocument`, and persistence in `ProfileStore`;
+PSIDTS load composition now receives the pure cookie loader as an explicit callable. Pure
+RFC 6265 routing and expiry helpers live in `cookie_types`; `psidts_recovery` retains thin
+endpoint-injecting compatibility wrappers over them. Keep conversion in `CookieJar`, raw-row
+fidelity in `ProfileDocument`, and persistence in `ProfileStore`;
 do not restore `psidts_recovery -> cookies` or `psidts_recovery -> storage`. Preserve the sentinel,
 contended-reread, acquired-full-reread, pre-POST observation, typed CAS, and post-save disk-live
 winner order. Its catches are intentionally narrow: cancellation, Unicode failures, and unlisted
@@ -505,12 +507,12 @@ and commit. File auth alone constructs the store; inline env auth logs the exist
 not persist. Patch the private typed helper/store method for these tests, not the retired private
 `refresh.save_cookies_to_storage` alias. The public saver/facade and client/runtime saver-injection
 seams remain exact. The current no-split auth graph measures
-**32 modules / 13,691 lines / 123 unique edges (111 module +
+**32 modules / 13,686 lines / 123 unique edges (111 module +
 12 function-local)**. Module-only and all-scope SCC sets are both empty. Current touched production
-LOC is: account 252, account-repair 132, account-types 50, cookie-types 637, cookies 833, keepalive
-438, master-token 469, master-token-types 70, profile-store 921, PSIDTS recovery 1,091, recovery 712,
+LOC is: account 252, account-repair 132, account-types 50, cookie-types 672, cookies 833, keepalive
+438, master-token 469, master-token-types 70, profile-store 921, PSIDTS recovery 1,051, recovery 712,
 refresh 1,184, single-flight 268, and storage 1,089. These are ratchet evidence, not a budget to
-spend: the global module budget remains 1,500 lines, while PSIDTS recovery's shrink lock is 1,091.
+spend: the global module budget remains 1,500 lines, while PSIDTS recovery's shrink lock is 1,051.
 
 Runtime ownership is complete. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a

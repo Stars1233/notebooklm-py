@@ -35,14 +35,14 @@ _MODULE_HASHES = {
     "account_repair.py": "4d6cd6af598c26d04bbeed07970708f587f23a24358ccd0125e5883470e8d074",
     "account_types.py": "ae645b74c6d3f46ee9532179672c90d5b690877b900120889022d32d8efa372a",
     "profile_account.py": "899baf4cc0c748740247b68c3adfa2a3754bb565b143d4a1150329a05f456ce4",
-    "cookie_types.py": "c7e3704f9e08e0dc2fb8dc04b72e9dc9e3ccbfb55b37985b9193c404e2c543be",
+    "cookie_types.py": "4cb8725cbbcb0dbdbb49f81e8495695bd98b6dc2e475ad8ea6bd137e392df5cb",
     "cookies.py": "d5236519a8a4f693faee522305caacdd1ebc65b675c326c3e0dafe36bb7bdee6",
     "keepalive.py": "505cfcf1d093d7aea2f26c2b7745a27ed8f7b51698e1bebdc3fafe4d6f78f065",
     "master_token.py": "42b3d3c3a4bc96c860d454ef8defd243b5d55617df7d3b4fc95467ae675bab78",
     "master_token_types.py": "856c741582249f7049fca0030e7af84cbda9141c7099a7aad6be6066090e5d57",
     "profile_migration.py": "ea6408a76890563c6f0f948e8031038436687611c0dd832b19c07b0177ede582",
     "profile_store.py": "1ed4945720ba1c25940677cd197210d5c80c62a3b8b6cf7b8f0c1f88783759bd",
-    "psidts_recovery.py": "707fdc06f2ce921b44c04efb6315199e38e1719f617ff6b0c02d51102ea1055d",
+    "psidts_recovery.py": "7a4f6891a1a46bd43eff61f3665f1b818d9ced281cabfc381b366cfefa50e03b",
     "recovery.py": "7a728071e7f763b13f68639b86be263c200c1c88c338599df0a692d00f15b4f7",
     "refresh.py": "edeed1f338dda8f2d5add4f3c1dccfb7e069477c5d019b9dbf687202849da60a",
     "single_flight.py": "8e298fe515dd667a3dfc95449165ab45345d327381951e98474aafa67510f246",
@@ -181,7 +181,7 @@ _NODE_HASHES = {
     (
         "psidts_recovery.py",
         "_psidts_routes_to_rotate",
-    ): "30fcdd3c278df2f69143d12a42929101dc1e0038f63ea9f1c431285b0c1d2dd9",
+    ): "182ad5672ebdcc202e8548b2c03a480dba7710904246554303786b6f4b23a87d",
     (
         "master_token_types.py",
         "MasterTokenError",
@@ -370,6 +370,29 @@ def test_relocated_values_errors_helpers_and_retired_upward_aliases_are_exact() 
     )
     assert storage._cookie_jar_for_merge.__module__ == "notebooklm._auth.storage"
     assert cookies.load_session_jar.__module__ == "notebooklm._auth.cookies"
+    helper_signatures = {
+        "_bounded_row_field": "(entry: 'Any', field: 'str') -> 'str'",
+        "_sanitize_recovery_row": "(entry: 'Any') -> 'dict[str, Any] | None'",
+        "_try_cookie": (
+            "(entry: 'Any', converter: '_CookieConverter') -> 'http.cookiejar.Cookie | None'"
+        ),
+        "_cookie_header_names": "(header: 'str') -> 'set[str]'",
+        "_allowed_cookie_name": "(entry: 'Any') -> 'str | None'",
+        "_is_expired": ("(cookie: 'http.cookiejar.Cookie', now: 'float | None') -> 'bool'"),
+        "_iter_routable_psidts_cookies": (
+            "(entries: 'list[dict[str, Any]]', *, to_cookie: '_CookieConverter', "
+            "now: 'float | None' = None) -> 'Iterator[http.cookiejar.Cookie]'"
+        ),
+        "_psidts_routes_to_rotate": (
+            "(entries: 'list[dict[str, Any]]', *, to_cookie: '_CookieConverter', "
+            "now: 'float | None' = None) -> 'bool'"
+        ),
+        "_cookies_route_psidts": "(cookies: 'Iterable[http.cookiejar.Cookie]') -> 'bool'",
+    }
+    for name, expected in helper_signatures.items():
+        helper = getattr(psidts_recovery, name)
+        assert helper.__module__ == "notebooklm._auth.psidts_recovery"
+        assert str(inspect.signature(helper)) == expected
     for name in {
         "load_session_jar",
         "_load_storage_state",
@@ -378,6 +401,112 @@ def test_relocated_values_errors_helpers_and_retired_upward_aliases_are_exact() 
         "_validate_cookie_shape",
     }:
         assert not hasattr(psidts_recovery, name)
+
+
+def test_psidts_route_compatibility_wrapper_resolves_nested_patch_seams(monkeypatch) -> None:
+    class Probe:
+        expires = 1
+
+    source_probe = Probe()
+    routed: list[object] = []
+
+    def patched_iter(entries, *, to_cookie, now=None):
+        assert entries == [{"patched": True}]
+        assert to_cookie("row") == "converted"
+        assert now == 7.0
+        return iter((source_probe,))
+
+    def patched_route(cookies):
+        routed.extend(cookies)
+        return True
+
+    monkeypatch.setattr(psidts_recovery, "_iter_routable_psidts_cookies", patched_iter)
+    monkeypatch.setattr(psidts_recovery, "_cookies_route_psidts", patched_route)
+
+    assert psidts_recovery._psidts_routes_to_rotate(
+        [{"patched": True}],
+        to_cookie=lambda _entry: "converted",
+        now=7.0,
+    )
+    assert len(routed) == 1
+    assert routed[0] is not source_probe
+    assert routed[0].expires is None
+    assert source_probe.expires == 1
+
+
+def test_psidts_helper_wrappers_resolve_nested_child_patch_seams(monkeypatch) -> None:
+    class CookieProbe:
+        name = "__Secure-1PSIDTS"
+        domain = ".google.com"
+        path = "/"
+
+    cookie = CookieProbe()
+    events: list[str] = []
+
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_sanitize_recovery_row",
+        lambda _entry: (
+            events.append("sanitize")
+            or {"name": cookie.name, "domain": cookie.domain, "path": cookie.path, "value": "v"}
+        ),
+    )
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_is_allowed_auth_domain",
+        lambda _domain: events.append("domain") or True,
+    )
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_try_cookie",
+        lambda _entry, _converter: events.append("convert") or cookie,
+    )
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_is_expired",
+        lambda _cookie, _now: events.append("expiry") or False,
+    )
+
+    assert list(
+        psidts_recovery._iter_routable_psidts_cookies(
+            [{"patched": True}],
+            to_cookie=lambda _entry: cookie,
+            now=9.0,
+        )
+    ) == [cookie]
+    assert events == ["sanitize", "domain", "convert", "expiry"]
+
+
+def test_psidts_leaf_wrappers_resolve_diagnostic_and_header_patch_seams(monkeypatch) -> None:
+    bounded_fields: list[str] = []
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_bounded_row_field",
+        lambda _entry, field: bounded_fields.append(field) or field,
+    )
+    assert psidts_recovery._sanitize_recovery_row({}) is None
+
+    entry = {
+        "name": "__Secure-1PSIDTS",
+        "value": "v",
+        "domain": ".google.com",
+        "path": "/",
+    }
+
+    def reject(_entry):
+        raise ValueError("expected")
+
+    assert psidts_recovery._try_cookie(entry, reject) is None
+    assert bounded_fields == ["name", "domain", "name", "domain"]
+
+    seen_headers: list[str] = []
+    monkeypatch.setattr(
+        psidts_recovery,
+        "_cookie_header_names",
+        lambda header: seen_headers.append(header) or {"__Secure-1PSIDTS"},
+    )
+    assert psidts_recovery._cookies_route_psidts((psidts_recovery._storage_cookie(entry),))
+    assert seen_headers
 
 
 @pytest.mark.parametrize(

@@ -663,7 +663,7 @@
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 637,
+      "lines": 672,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
@@ -738,7 +738,7 @@
       "path": "src/notebooklm/_auth/profile_store.py"
     },
     {
-      "lines": 1091,
+      "lines": 1051,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
@@ -786,7 +786,7 @@
     "function_local_edges": 12,
     "module_edges": 111,
     "modules": 32,
-    "total_lines": 13691,
+    "total_lines": 13686,
     "unique_edges": 123
   },
   "version": 1

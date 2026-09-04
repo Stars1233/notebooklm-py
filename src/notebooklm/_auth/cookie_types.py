@@ -457,29 +457,40 @@ def _cookie_from_entry(entry: Mapping[str, Any]) -> Cookie:
     )
 
 
-def _sanitize_routing_entry(entry: Any) -> dict[str, Any] | None:
+def _sanitize_routing_entry(
+    entry: Any,
+    *,
+    bounded_row_field: Callable[[Any, str], str] | None = None,
+) -> dict[str, Any] | None:
     """Revalidate a row for routing, including rows marked by a source pass."""
     try:
         return _cookie_semantics.sanitize_cookie_entry(entry)
     except _cookie_semantics.CookieRowError as exc:
+        field_value = bounded_row_field or _bounded_row_field
         logger.debug(
             "Skipping malformed cookie row name=%s domain=%s row_type=%s error=%s",
-            _bounded_row_field(entry, "name"),
-            _bounded_row_field(entry, "domain"),
+            field_value(entry, "name"),
+            field_value(entry, "domain"),
             type(entry).__name__,
             type(exc).__name__,
         )
         return None
 
 
-def _try_cookie(entry: Any, converter: _CookieConverter) -> http.cookiejar.Cookie | None:
+def _try_cookie(
+    entry: Any,
+    converter: _CookieConverter,
+    *,
+    bounded_row_field: Callable[[Any, str], str] | None = None,
+) -> http.cookiejar.Cookie | None:
+    field_value = bounded_row_field or _bounded_row_field
     try:
         _cookie_semantics.validate_cookie_shape(entry)
     except _cookie_semantics.CookieRowError as exc:
         logger.debug(
             "Skipping malformed cookie row name=%s domain=%s row_type=%s error=%s",
-            _bounded_row_field(entry, "name"),
-            _bounded_row_field(entry, "domain"),
+            field_value(entry, "name"),
+            field_value(entry, "domain"),
             type(entry).__name__,
             type(exc).__name__,
         )
@@ -489,16 +500,23 @@ def _try_cookie(entry: Any, converter: _CookieConverter) -> http.cookiejar.Cooki
     except (ValueError, TypeError, OverflowError) as exc:
         logger.debug(
             "Skipping unusable cookie row name=%s domain=%s error=%s",
-            _bounded_row_field(entry, "name"),
-            _bounded_row_field(entry, "domain"),
+            field_value(entry, "name"),
+            field_value(entry, "domain"),
             type(exc).__name__,
         )
         return None
 
 
-def _allowed_cookie_name(entry: Any) -> str | None:
-    normalized = _sanitize_routing_entry(entry)
-    if normalized is None or not _cookie_policy._is_allowed_auth_domain(normalized["domain"]):
+def _allowed_cookie_name(
+    entry: Any,
+    *,
+    sanitize: Callable[[Any], dict[str, Any] | None] | None = None,
+    is_allowed_domain: Callable[[str], bool] | None = None,
+) -> str | None:
+    sanitize_row = sanitize or _sanitize_routing_entry
+    domain_allowed = is_allowed_domain or _cookie_policy._is_allowed_auth_domain
+    normalized = sanitize_row(entry)
+    if normalized is None or not domain_allowed(normalized["domain"]):
         return None
     return normalized["name"]
 
@@ -512,17 +530,23 @@ def _iter_routable_psidts_cookies(
     *,
     to_cookie: _CookieConverter,
     now: float | None = None,
+    allowed_cookie_name: Callable[[Any], str | None] | None = None,
+    try_cookie: Callable[[Any, _CookieConverter], http.cookiejar.Cookie | None] | None = None,
+    is_expired: Callable[[http.cookiejar.Cookie, float | None], bool] | None = None,
 ) -> Iterator[http.cookiejar.Cookie]:
+    cookie_name = allowed_cookie_name or _allowed_cookie_name
+    convert_cookie = try_cookie or _try_cookie
+    cookie_expired = is_expired or _is_expired
     live: dict[tuple[str, str, str], http.cookiejar.Cookie] = {}
     dead: set[tuple[str, str, str]] = set()
     for entry in entries:
-        if _allowed_cookie_name(entry) != _PSIDTS_COOKIE:
+        if cookie_name(entry) != _PSIDTS_COOKIE:
             continue
-        cookie = _try_cookie(entry, to_cookie)
+        cookie = convert_cookie(entry, to_cookie)
         if cookie is None:
             continue
         identity = (cookie.name, cookie.domain, cookie.path)
-        if _is_expired(cookie, now):
+        if cookie_expired(cookie, now):
             dead.add(identity)
         else:
             live[identity] = cookie
@@ -535,7 +559,12 @@ def _cookie_header_names(header: str) -> set[str]:
     return {part.split("=", 1)[0].strip() for part in header.split(";") if "=" in part}
 
 
-def _cookies_route_psidts(cookies: Iterable[http.cookiejar.Cookie], *, rotate_url: str) -> bool:
+def _cookies_route_psidts(
+    cookies: Iterable[http.cookiejar.Cookie],
+    *,
+    rotate_url: str,
+    cookie_header_names: Callable[[str], set[str]] | None = None,
+) -> bool:
     jar = httpx.Cookies()
     found = False
     for cookie in cookies:
@@ -547,7 +576,8 @@ def _cookies_route_psidts(cookies: Iterable[http.cookiejar.Cookie], *, rotate_ur
         return False
     request = httpx.Request("POST", rotate_url)
     jar.set_cookie_header(request)
-    return _PSIDTS_COOKIE in _cookie_header_names(request.headers.get("cookie", ""))
+    header_names = cookie_header_names or _cookie_header_names
+    return _PSIDTS_COOKIE in header_names(request.headers.get("cookie", ""))
 
 
 def _psidts_routes_to_rotate(
@@ -556,12 +586,17 @@ def _psidts_routes_to_rotate(
     to_cookie: _CookieConverter,
     rotate_url: str,
     now: float | None = None,
+    iter_routable: Callable[..., Iterator[http.cookiejar.Cookie]] | None = None,
+    cookies_route: Callable[[Iterable[http.cookiejar.Cookie]], bool] | None = None,
 ) -> bool:
     probes = []
-    for cookie in _iter_routable_psidts_cookies(entries, to_cookie=to_cookie, now=now):
+    iter_cookies = iter_routable or _iter_routable_psidts_cookies
+    for cookie in iter_cookies(entries, to_cookie=to_cookie, now=now):
         probe = copy.copy(cookie)
         probe.expires = None
         probes.append(probe)
+    if cookies_route is not None:
+        return cookies_route(probes)
     return _cookies_route_psidts(probes, rotate_url=rotate_url)
 
 
