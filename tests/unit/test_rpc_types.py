@@ -1,6 +1,7 @@
 """Unit tests for RPC types and constants."""
 
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -32,14 +33,14 @@ from notebooklm.rpc.types import (
 
 
 def test_rpc_types_does_not_own_runtime_override_policy() -> None:
-    """Runtime override env parsing belongs in web wire, not rpc.types."""
+    """Runtime override policy belongs in Web wire, not the identifier owner."""
     path = Path(__file__).parents[2] / "src/notebooklm/rpc/types.py"
     tree = ast.parse(path.read_text())
 
     imported_os: list[int] = []
     environ_access: list[int] = []
     direct_override_defs: list[int] = []
-    override_aliases: set[str] = set()
+    web_override_imports: list[int] = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -49,9 +50,8 @@ def test_rpc_types_does_not_own_runtime_override_policy() -> None:
         elif isinstance(node, ast.ImportFrom):
             if node.module == "os":
                 imported_os.append(node.lineno)
-            for alias in node.names:
-                if (node.module, node.level) == ("_web.wire.overrides", 2):
-                    override_aliases.add(alias.asname or alias.name)
+            if (node.module, node.level) == ("_web.wire.overrides", 2):
+                web_override_imports.append(node.lineno)
         elif (
             isinstance(node, ast.Attribute)
             and node.attr == "environ"
@@ -68,12 +68,31 @@ def test_rpc_types_does_not_own_runtime_override_policy() -> None:
     assert imported_os == []
     assert environ_access == []
     assert direct_override_defs == []
-    assert {
-        "_load_rpc_overrides",
-        "_logged_override_hashes",
-        "_parse_rpc_overrides",
-        "resolve_rpc_id",
-    } <= override_aliases
+    assert web_override_imports == []
+
+
+def test_rpc_types_legacy_override_exports_are_lazy_identity_reexports() -> None:
+    """Legacy names remain exact aliases without an eager Web-wire import."""
+    import notebooklm._web.wire.overrides as web_overrides
+    import notebooklm.rpc.types as rpc_types
+
+    assert rpc_types.resolve_rpc_id is web_overrides.resolve_rpc_id
+    assert rpc_types._parse_rpc_overrides is web_overrides._parse_rpc_overrides
+    assert rpc_types._load_rpc_overrides is web_overrides._load_rpc_overrides
+    assert rpc_types._logged_override_hashes is web_overrides._logged_override_hashes
+
+
+def test_rpc_types_does_not_bind_web_override_policy_at_module_scope() -> None:
+    """The identifier module keeps compatibility aliases lazy in its namespace."""
+    script = """
+import notebooklm.rpc.types as rpc_types
+assert 'resolve_rpc_id' not in vars(rpc_types)
+assert '_parse_rpc_overrides' not in vars(rpc_types)
+"""
+    env = os.environ.copy()
+    source_root = str(Path(__file__).parents[2] / "src")
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (source_root, env.get("PYTHONPATH"))))
+    subprocess.run([sys.executable, "-c", script], check=True, env=env)
 
 
 def test_rpc_override_import_order_smoke() -> None:
@@ -87,6 +106,18 @@ def test_rpc_override_import_order_smoke() -> None:
     ]
     for snippet in snippets:
         subprocess.run([sys.executable, "-c", snippet], check=True)
+
+
+def test_rpc_types_wildcard_import_preserves_lazy_override_export() -> None:
+    """Wildcard compatibility keeps ``resolve_rpc_id`` without leaking typing helpers."""
+    script = """
+namespace = {}
+exec('from notebooklm.rpc.types import *', namespace)
+assert 'resolve_rpc_id' in namespace
+assert 'Any' not in namespace
+assert namespace['resolve_rpc_id']('LIST_NOTEBOOKS', 'canonical') == 'canonical'
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 class TestRPCConstants:

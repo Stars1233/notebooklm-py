@@ -1,6 +1,7 @@
 """RPC wire types, constants, and compatibility re-exports."""
 
 from enum import Enum
+from typing import Any as _Any
 from typing import Final
 
 from .._env import DEFAULT_BASE_URL, get_base_url
@@ -49,18 +50,35 @@ from .._types.enums import (  # noqa: F401 - compatibility re-exports
     share_permission_to_str,
     source_status_to_str,
 )
-from .._web.wire.overrides import (
-    _load_rpc_overrides as _load_rpc_overrides,
+
+# These names were historically importable from this module before the wire
+# implementation moved under ``_web``. Keep them as lazy identity exports so
+# importing the stable RPC identifier owner never imports Web wire policy.
+_LEGACY_OVERRIDE_EXPORTS = frozenset(
+    {
+        "_load_rpc_overrides",
+        "_logged_override_hashes",
+        "_parse_rpc_overrides",
+        "resolve_rpc_id",
+    }
 )
-from .._web.wire.overrides import (
-    _logged_override_hashes as _logged_override_hashes,
-)
-from .._web.wire.overrides import (
-    _parse_rpc_overrides as _parse_rpc_overrides,
-)
-from .._web.wire.overrides import (
-    resolve_rpc_id as resolve_rpc_id,
-)
+
+
+def __getattr__(name: str) -> _Any:
+    """Resolve the moved override helpers only when legacy code asks for them."""
+    if name in _LEGACY_OVERRIDE_EXPORTS:
+        from .._web.wire import overrides
+
+        value = getattr(overrides, name)
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """Include the legacy override names in interactive discovery."""
+    return sorted({*globals(), *_LEGACY_OVERRIDE_EXPORTS})
+
 
 # URL path for the streamed-chat endpoint. Not a batchexecute RPC ID — kept
 # as a module-level constant rather than an ``RPCMethod`` member so the enum
@@ -253,3 +271,10 @@ class RPCMethod(str, Enum):
     GET_USER_SETTINGS = "ZwVcOc"
     # -> MutateAccount (generic account mutator; we only set the output language)
     SET_USER_SETTINGS = "hT54vc"
+
+
+# Preserve the historical wildcard-import surface.  ``resolve_rpc_id`` is
+# resolved lazily through ``__getattr__``; all other names mirror the public
+# globals Python exported before this module gained an explicit ``__all__``.
+__all__ = [name for name in globals() if not name.startswith("_")]
+__all__.append("resolve_rpc_id")

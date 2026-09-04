@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import ast
 import json
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock
@@ -105,6 +107,50 @@ def test_rpc_types_keeps_override_env_parsing_out_of_protocol_enums() -> None:
     assert "RPC_OVERRIDES_ENV_VAR" not in source, (
         "RPC_OVERRIDES_ENV_VAR must live in web wire, not rpc/types.py"
     )
+
+
+def test_rpc_overrides_depends_on_stable_rpc_identifiers() -> None:
+    """The Web policy imports RPC identifiers; it must not import back at call time."""
+    path = Path(__file__).parents[2] / "src" / "notebooklm/_web/wire/overrides.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    imports = [
+        alias.name
+        for node in tree.body
+        if isinstance(node, ast.ImportFrom) and node.level == 3 and node.module == "rpc.types"
+        for alias in node.names
+    ]
+    assert imports == ["RPCMethod"]
+
+    deferred_rpc_imports = [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 3
+        and node.module == "rpc.types"
+        and node not in tree.body
+    ]
+    assert deferred_rpc_imports == []
+
+
+def test_rpc_overrides_imports_directly_without_package_cycle() -> None:
+    """A clean leaf import must not re-enter a partially initialized override module."""
+    script = """
+import importlib
+import pathlib
+import sys
+import types
+
+root = pathlib.Path(sys.argv[1])
+package = types.ModuleType("notebooklm")
+package.__package__ = "notebooklm"
+package.__path__ = [str(root)]
+sys.modules["notebooklm"] = package
+
+overrides = importlib.import_module("notebooklm._web.wire.overrides")
+assert overrides.resolve_rpc_id("LIST_NOTEBOOKS", "canonical") == "canonical"
+"""
+    source_root = Path(__file__).parents[2] / "src" / "notebooklm"
+    subprocess.run([sys.executable, "-I", "-c", script, str(source_root)], check=True)
 
 
 # ---------------------------------------------------------------------------
