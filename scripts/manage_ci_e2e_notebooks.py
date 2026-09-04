@@ -65,6 +65,7 @@ DEFAULT_TEMPLATE_CONTRACT = (
 DEFAULT_PREPARED_CONTRACT = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "e2e_prepared_role_contract.json"
 )
+_COPIED_TEMPLATE_REQUIRED_FAMILIES = frozenset({"audio", "video", "infographic", "slide_deck"})
 
 T = TypeVar("T")
 
@@ -233,18 +234,8 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
         re.compile(contract["title_regex"])
         source = contract["sources"]
         artifacts = contract["artifacts"]
+        artifact_families = artifacts["required_completed_families"]
         content_policy = contract["content_policy"]
-        required_families = {
-            "audio",
-            "video",
-            "report",
-            "quiz",
-            "flashcards",
-            "mind_map",
-            "infographic",
-            "slide_deck",
-            "data_table",
-        }
         if (
             set(contract)
             != {
@@ -255,6 +246,7 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
                 "artifacts",
                 "content_policy",
             }
+            or contract["version"] != 1
             or set(source)
             != {"minimum_ready", "minimum_distinct_titles", "require_text_addressable"}
             or set(artifacts) != {"required_completed_families", "require_interactive_mind_map"}
@@ -264,9 +256,11 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
             or not isinstance(source["minimum_distinct_titles"], int)
             or source["minimum_distinct_titles"] < 3
             or source["require_text_addressable"] is not True
-            or artifacts["require_interactive_mind_map"] is not True
-            or not isinstance(artifacts["required_completed_families"], list)
-            or not required_families.issubset(artifacts["required_completed_families"])
+            or not isinstance(artifacts["require_interactive_mind_map"], bool)
+            or not isinstance(artifact_families, list)
+            or any(not isinstance(family, str) for family in artifact_families)
+            or len(set(artifact_families)) != len(artifact_families)
+            or not _COPIED_TEMPLATE_REQUIRED_FAMILIES.issubset(artifact_families)
             or content_policy
             != {
                 "private_personal_licensed_or_unstable_web_content_allowed": False,
@@ -508,7 +502,9 @@ class NotebookLifecycleManager:
         missing = sorted(required - families)
         if missing:
             raise ContractError("template is missing completed families: " + ",".join(missing))
-        if not any(getattr(artifact, "is_interactive_mind_map", False) for artifact in completed):
+        if self.template_contract["artifacts"]["require_interactive_mind_map"] and not any(
+            getattr(artifact, "is_interactive_mind_map", False) for artifact in completed
+        ):
             raise ContractError("template is missing a completed interactive mind map")
         return {
             "ready_sources": len(ready_sources),

@@ -809,8 +809,12 @@ variable at `NOTEBOOKLM_CI_ACCOUNT_SLOTS=A`. Release verification must dispatch 
 and `verify-package.yml` with `--ref main`; release and feature refs cannot reach their protected
 authenticated jobs.
 
-The canonical template describes only state the copy API promises to preserve: ready sources and
-Studio artifacts. Its checked-in shape is `tests/fixtures/e2e_template_contract.json`. Notes and
+The canonical template describes only state the copy API promises to preserve and both backends
+can identify consistently: ready sources plus completed audio, video, infographic, and slide-deck
+artifacts. Legacy quiz and flashcard rows in this public notebook have no Web variant metadata;
+report, data-table, and interactive mind-map artifacts are absent. Those optional read-only checks
+skip when unavailable, while the full E2E lanes generate and exercise every family on disposable
+notebooks. The checked-in template shape is `tests/fixtures/e2e_template_contract.json`. Notes and
 chat history are deliberately absent from that contract. Provisioning creates and validates those
 on the disposable `reference` copy using
 `tests/fixtures/e2e_prepared_role_contract.json`.

@@ -376,6 +376,16 @@ def contracts() -> tuple[dict[str, Any], dict[str, Any]]:
     return template, prepared
 
 
+def test_template_contract_matches_public_cross_backend_inventory(
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    artifact_contract = contracts[0]["artifacts"]
+    assert artifact_contract == {
+        "required_completed_families": ["audio", "video", "infographic", "slide_deck"],
+        "require_interactive_mind_map": False,
+    }
+
+
 def _manager(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
@@ -1445,6 +1455,37 @@ async def test_template_contract_failure_names_family_but_never_ids(
     assert "audio" in message
     assert TEMPLATE_ID not in message
     assert "artifact-" not in message
+
+
+@pytest.mark.asyncio
+async def test_template_validation_allows_optional_interactive_mind_map(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, _clock = _manager(tmp_path, contracts)
+    client.artifacts.by_notebook[TEMPLATE_ID] = [
+        artifact for artifact in _artifacts() if not artifact.is_interactive_mind_map
+    ]
+
+    counts = await manager.validate_template()
+
+    assert counts["completed_artifacts"] == 8
+
+
+@pytest.mark.asyncio
+async def test_template_validation_enforces_interactive_mind_map_when_required(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    strict_contracts = deepcopy(contracts)
+    strict_contracts[0]["artifacts"]["require_interactive_mind_map"] = True
+    manager, client, _store, _clock = _manager(tmp_path, strict_contracts)
+    client.artifacts.by_notebook[TEMPLATE_ID] = [
+        artifact for artifact in _artifacts() if not artifact.is_interactive_mind_map
+    ]
+
+    with pytest.raises(ContractError, match="interactive mind map"):
+        await manager.validate_template()
 
 
 @pytest.mark.asyncio
