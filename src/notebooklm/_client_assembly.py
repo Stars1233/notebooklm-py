@@ -356,6 +356,149 @@ def _assemble_android_backend(
     client._collaborators = dataclasses.replace(shared, _lifecycle=lifecycle)
 
 
+def _assemble_web_backend(
+    client: NotebookLMClient,
+    *,
+    auth: AuthTokens,
+    timeout: float,
+    storage_path: Path | None,
+    keepalive: float | None,
+    keepalive_min_interval: float,
+    rate_limit_max_retries: int,
+    server_error_max_retries: int,
+    limits: ConnectionLimits | None,
+    max_concurrent_uploads: int | None,
+    max_concurrent_rpcs: int | None,
+    upload_timeout: httpx.Timeout | None,
+    on_rpc_event: Callable[[RpcTelemetryEvent], object] | None,
+    cookie_saver: CookieSaver | None,
+    cookie_rotator: CookieRotator | None,
+    chat_timeout: float | None,
+    import_research_timeout: float | None,
+    chat_response_max_bytes: int | None,
+    refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    refresh_retry_delay: float,
+    connect_timeout: float,
+    keepalive_storage_path: Path | None,
+    async_client_factory: Callable[..., httpx.AsyncClient] | None,
+) -> None:
+    """Install the Web graph after root-owned normalization and validation."""
+    internals = compose_client_internals(
+        auth=auth,
+        timeout=timeout,
+        connect_timeout=connect_timeout,
+        refresh_callback=refresh_callback,
+        refresh_retry_delay=refresh_retry_delay,
+        keepalive=keepalive,
+        keepalive_min_interval=keepalive_min_interval,
+        keepalive_storage_path=keepalive_storage_path,
+        rate_limit_max_retries=rate_limit_max_retries,
+        server_error_max_retries=server_error_max_retries,
+        limits=limits,
+        max_concurrent_uploads=max_concurrent_uploads,
+        max_concurrent_rpcs=max_concurrent_rpcs,
+        upload_timeout=upload_timeout,
+        on_rpc_event=on_rpc_event,
+        # Injectable seams — pass-through to the lifecycle. A ``None`` cookie
+        # saver selects the canonical typed store path; a ``None`` rotator
+        # preserves its historical late-bound default.
+        cookie_saver=cookie_saver,
+        cookie_rotator=cookie_rotator,
+        async_client_factory=async_client_factory,
+        seams=client._seams,
+    )
+    client._web_runtime = internals.web_runtime
+    client._web_sidecar = None
+    client._android_runtime = None
+    web = internals.web_runtime
+    shared = internals.collaborators
+    client._raw = WebRawAPI(web.executor)
+    # Per ADR-0014 Rule 3: simple features take their RpcCaller dependency
+    # directly from the composition root's executor.
+    client.sources = WebSourcesAPI(
+        web.executor,
+        supervisor=shared.call_supervisor,
+        uploader=web.source_uploader,
+        upload_timeout=upload_timeout,
+        max_concurrent_uploads=max_concurrent_uploads,
+    )
+    client.notebooks = WebNotebooksAPI(web.executor, sources_api=client.sources)
+    # Note wiring (see docs/refactor-history.md): an explicit
+    # NoteService + NoteBackedMindMapService split. NoteService owns the
+    # raw row primitives; NoteBackedMindMapService is the mind-map-only
+    # adapter the download path uses; the artifact-generation path uses
+    # NoteService.create_note directly to persist a generated mind map.
+    note_service = NoteService(
+        web.executor,
+        supervisor=shared.call_supervisor,
+    )
+    mind_maps = NoteBackedMindMapService(note_service)
+    # The artifacts API takes RPC dispatch plus the single call supervisor.
+    # That supervisor is the one authority for polling operation scopes,
+    # same-generation leader tasks, loop affinity, and drain-hook registration.
+    client.artifacts = WebArtifactsAPI(
+        rpc=web.executor,
+        supervisor=shared.call_supervisor,
+        notebooks=client.notebooks,
+        mind_maps=mind_maps,
+        note_service=note_service,
+        storage_path=storage_path,
+    )
+    # WebChatAPI (per ADR-0014) takes its five direct collaborators by keyword.
+    client.chat = WebChatAPI(
+        rpc=web.executor,
+        transport=web.composed.transport,
+        reqid=web.reqid,
+        loop_guard=shared.call_supervisor,
+        chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
+        chat_response_max_bytes=chat_response_max_bytes,
+        notebooks=client.notebooks,
+        created_chat_sessions=client.notebooks,
+    )
+    client.notes = WebNotesAPI(
+        notes=note_service,
+        mind_maps=mind_maps,
+    )
+    client.mind_maps = WebMindMapsAPI(
+        rpc=web.executor,
+        mind_maps=mind_maps,
+        artifacts=client.artifacts,
+        notebooks=client.notebooks,
+        notes=client.notes,
+    )
+    client.research = WebResearchAPI(
+        web.executor,
+        base_timeout=timeout,
+        import_research_timeout=import_research_timeout,
+    )
+    client.settings = WebSettingsAPI(web.executor)
+    client.sharing = WebSharingAPI(web.executor)
+    client.labels = WebLabelsAPI(web.executor, list_sources=client.sources.list)
+    client.collections = WebCollectionsAPI(
+        web.executor,
+        list_notebooks=client.notebooks.list,
+    )
+
+    client._backends = _derive_installed_backends(client)
+
+    # The protocol-neutral root is constructed last, after every concrete
+    # transport and loop participant exists. Its tuples never mutate after
+    # publication, so open/close waves cannot observe a partially assembled graph.
+    lifecycle = ClientLifecycle(
+        supervisor=shared.call_supervisor,
+        transports=(web.web_transport, web.source_uploader),
+        loop_participants=(
+            shared.call_supervisor,
+            web.reqid,
+            web.auth_coord,
+            client.chat,
+        ),
+    )
+    client._collaborators = dataclasses.replace(shared, _lifecycle=lifecycle)
+    client._rpc_call_deprecation_warned = False
+    web.composed.bind_runtime_collaborators(client._collaborators)
+
+
 def _assemble_client(
     client: NotebookLMClient,
     *,
@@ -590,15 +733,13 @@ def _assemble_client(
         )
         client._rpc_call_deprecation_warned = False
         return
-    internals = compose_client_internals(
+    _assemble_web_backend(
+        client,
         auth=auth,
         timeout=timeout,
-        connect_timeout=connect_timeout,
-        refresh_callback=refresh_callback,
-        refresh_retry_delay=refresh_retry_delay,
+        storage_path=storage_path,
         keepalive=keepalive,
         keepalive_min_interval=keepalive_min_interval,
-        keepalive_storage_path=keepalive_storage_path,
         rate_limit_max_retries=rate_limit_max_retries,
         server_error_max_retries=server_error_max_retries,
         limits=limits,
@@ -606,121 +747,14 @@ def _assemble_client(
         max_concurrent_rpcs=max_concurrent_rpcs,
         upload_timeout=upload_timeout,
         on_rpc_event=on_rpc_event,
-        # Injectable seams — pass-through to the lifecycle. A ``None`` cookie
-        # saver selects the canonical typed store path; a ``None`` rotator
-        # preserves its historical late-bound default.
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
-        async_client_factory=async_client_factory,
-        seams=client._seams,
-    )
-    client._web_runtime = internals.web_runtime
-    client._web_sidecar = None
-    client._android_runtime = None
-    web = internals.web_runtime
-    shared = internals.collaborators
-    client._raw = WebRawAPI(web.executor)
-    # Per ADR-0014 Rule 3: simple features take their RpcCaller dependency
-    # directly from the composition root's executor.
-    client.sources = WebSourcesAPI(
-        web.executor,
-        supervisor=shared.call_supervisor,
-        uploader=web.source_uploader,
-        upload_timeout=upload_timeout,
-        max_concurrent_uploads=max_concurrent_uploads,
-    )
-    client.notebooks = WebNotebooksAPI(web.executor, sources_api=client.sources)
-    # Note wiring (see docs/refactor-history.md): an explicit
-    # NoteService + NoteBackedMindMapService split. NoteService owns the
-    # raw row primitives; NoteBackedMindMapService is the mind-map-only
-    # adapter the download path uses; the artifact-generation path uses
-    # NoteService.create_note directly to persist a generated mind map.
-    note_service = NoteService(
-        web.executor,
-        supervisor=shared.call_supervisor,
-    )
-    mind_maps = NoteBackedMindMapService(note_service)
-    # The artifacts API takes RPC dispatch plus the single call supervisor.
-    # That supervisor is the one authority for polling operation scopes,
-    # same-generation leader tasks, loop affinity, and drain-hook registration.
-    client.artifacts = WebArtifactsAPI(
-        rpc=web.executor,
-        supervisor=shared.call_supervisor,
-        notebooks=client.notebooks,
-        mind_maps=mind_maps,
-        note_service=note_service,
-        storage_path=storage_path,
-    )
-    # WebChatAPI (per ADR-0014) takes its
-    # five direct collaborators (RpcCaller, RuntimeTransport, ReqidCounter,
-    # LoopGuard, NotebookSourceIdProvider) by keyword argument. The transport is
-    # sourced from ``WebRuntime.composed``; other runtime fields come from
-    # the two bundles returned by the composition root.
-    client.chat = WebChatAPI(
-        rpc=web.executor,
-        transport=web.composed.transport,
-        reqid=web.reqid,
-        loop_guard=shared.call_supervisor,
-        chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
-        chat_response_max_bytes=chat_response_max_bytes,
-        notebooks=client.notebooks,
-        created_chat_sessions=client.notebooks,
-    )
-    client.notes = WebNotesAPI(
-        notes=note_service,
-        mind_maps=mind_maps,
-    )
-    # Unified mind-map surface over both backends (note-backed + interactive
-    # studio artifact); dispatches each op to the correct RPC family (#1256).
-    web_mind_maps = WebMindMapsAPI(
-        rpc=web.executor,
-        mind_maps=mind_maps,
-        artifacts=client.artifacts,
-        notebooks=client.notebooks,
-        notes=client.notes,
-    )
-    client.mind_maps = web_mind_maps
-    # Pure-RPC features (typed as ``rpc: RpcCaller``). Pass the
-    # ``RpcExecutor`` collaborator directly, sourced from the composed
-    # executor.
-    client.research = WebResearchAPI(
-        web.executor,
-        base_timeout=timeout,
+        chat_timeout=chat_timeout,
         import_research_timeout=import_research_timeout,
+        chat_response_max_bytes=chat_response_max_bytes,
+        refresh_callback=refresh_callback,
+        refresh_retry_delay=refresh_retry_delay,
+        connect_timeout=connect_timeout,
+        keepalive_storage_path=keepalive_storage_path,
+        async_client_factory=async_client_factory,
     )
-    client.settings = WebSettingsAPI(web.executor)
-    client.sharing = WebSharingAPI(web.executor)
-    # Source labels. Takes a narrow ``list_sources`` callable (not the whole
-    # SourcesAPI) for the membership->Source join in ``labels.sources()``;
-    # wired after ``client.sources`` exists. Same client/bound loop (ADR-0004).
-    client.labels = WebLabelsAPI(web.executor, list_sources=client.sources.list)
-    client.collections = WebCollectionsAPI(
-        web.executor,
-        list_notebooks=client.notebooks.list,
-    )
-
-    client._backends = _derive_installed_backends(client)
-
-    # The protocol-neutral root is constructed last, after every concrete
-    # transport and loop participant exists. Its tuples never mutate after
-    # publication, so open/close waves cannot observe a partially assembled
-    # graph or silently omit a later-added owner.
-    transports = (web.web_transport, web.source_uploader)
-    loop_participants = (
-        shared.call_supervisor,
-        web.reqid,
-        web.auth_coord,
-        client.chat,
-    )
-
-    lifecycle = ClientLifecycle(
-        supervisor=shared.call_supervisor,
-        transports=transports,
-        loop_participants=loop_participants,
-    )
-    client._collaborators = dataclasses.replace(
-        shared,
-        _lifecycle=lifecycle,
-    )
-    client._rpc_call_deprecation_warned = False
-    web.composed.bind_runtime_collaborators(client._collaborators)
