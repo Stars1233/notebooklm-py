@@ -21,6 +21,8 @@ from fastmcp import Client
 from notebooklm import NotebookLMClient
 from notebooklm.mcp.server import create_server
 
+from ._artifact_helpers import studio_item_has_download_payload
+
 #: Merged ``studio_list`` item ``type`` values (hyphenated, the shared Studio
 #: vocabulary) whose download is wired through ``studio_download``. An item's
 #: ``type`` doubles as the ``studio_download`` ``artifact_type`` key, so no
@@ -53,6 +55,7 @@ def pick_downloadable_artifact(items: list[dict[str, Any]]) -> dict[str, Any] | 
             for it in items
             if it.get("type") in DOWNLOADABLE_ARTIFACT_TYPES
             and it.get("status_label") in (None, "ready", "completed")
+            and studio_item_has_download_payload(it)
         ),
         None,
     )

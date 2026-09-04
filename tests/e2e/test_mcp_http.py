@@ -202,7 +202,11 @@ class TestMcpHttpFileRoutes:
                 dl_type = candidate["type"]
                 result = await mcp.call_tool(
                     "studio_download",
-                    {"notebook": read_only_notebook_id, "artifact_type": dl_type},
+                    {
+                        "notebook": read_only_notebook_id,
+                        "artifact_type": dl_type,
+                        "artifact_id": candidate["id"],
+                    },
                 )
             structured = result.structured_content
             assert structured["status"] == "download_ready"

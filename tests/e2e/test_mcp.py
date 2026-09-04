@@ -469,6 +469,7 @@ class TestMcpArtifacts:
             {
                 "notebook": read_only_notebook_id,
                 "artifact_type": dl_type,
+                "artifact_id": candidate["id"],
                 "path": str(out_path),
             },
         )

@@ -5,7 +5,11 @@ from types import SimpleNamespace
 import pytest
 
 from tests.e2e import conftest as e2e
-from tests.e2e._artifact_helpers import completed_interactive_mind_maps
+from tests.e2e._artifact_helpers import (
+    completed_interactive_mind_maps,
+    completed_url_artifacts,
+    studio_item_has_download_payload,
+)
 
 MANAGED = {
     "NOTEBOOKLM_E2E_MANAGED_COPIES": "1",
@@ -89,6 +93,36 @@ def test_managed_mind_map_download_selects_only_completed_interactive_artifacts(
     assert completed_interactive_mind_maps([processing, completed, completed_other_kind]) == [
         completed
     ]
+
+
+def test_url_backed_download_selectors_reject_inventory_only_artifacts() -> None:
+    inventory_only = SimpleNamespace(kind="audio", is_completed=True, url=None, id="inventory-only")
+    processing = SimpleNamespace(kind="audio", is_completed=False, url="https://asset.test")
+    downloadable = SimpleNamespace(
+        kind="audio", is_completed=True, url="https://asset.test", id="downloadable"
+    )
+
+    assert completed_url_artifacts([inventory_only, processing, downloadable], "audio") == [
+        downloadable
+    ]
+    assert (
+        studio_item_has_download_payload(
+            {"type": "audio", "status_label": "completed", "url": None}
+        )
+        is False
+    )
+    assert (
+        studio_item_has_download_payload(
+            {"type": "audio", "status_label": "completed", "url": "https://asset.test"}
+        )
+        is True
+    )
+    assert (
+        studio_item_has_download_payload(
+            {"type": "report", "status_label": "completed", "url": None}
+        )
+        is True
+    )
 
 
 def test_unmanaged_configuration_preserves_legacy_path(monkeypatch) -> None:

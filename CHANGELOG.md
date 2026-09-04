@@ -28,7 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for ready sources before removing inherited artifacts. The lifecycle manager also uses the
   public notebook as its default when no template override is configured. A close-time transport
   failure after a one-shot lifecycle command has completed is now reported as a warning instead of
-  reversing the command's successful result.
+  reversing the command's successful result. Read-only download checks now distinguish completed
+  artifact inventory from an actually downloadable asset, since public copies omit asset URLs.
 - **MCP server: `CONNECT_TIMEOUT` on connect.** The FastMCP lifespan opened the
   `NotebookLMClient` — cookie rotation, the CSRF fetch, and the cold-recovery
   ladder when those fail — *before* answering the MCP `initialize` handshake.
