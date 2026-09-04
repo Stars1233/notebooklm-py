@@ -19,12 +19,14 @@ import secrets
 import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 from _ci_e2e_notebooks import (
     ACCOUNT_SLOTS,
     BACKENDS,
@@ -1279,6 +1281,56 @@ def _runner_temp() -> Path | None:
     return Path(value) if value else None
 
 
+def _is_transient_close_error(exc: Exception) -> bool:
+    """Identify close-only auth and transport failures safe to demote in CI."""
+
+    if isinstance(exc, (AuthError, NetworkError, RateLimitError, ServerError)):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and (
+        exc.response.status_code in {408, 425, 429} or exc.response.status_code >= 500
+    )
+
+
+@asynccontextmanager
+async def _ci_client(*, backend: str) -> Any:
+    """Keep a completed one-shot lifecycle command successful if close is transient."""
+
+    context = NotebookLMClient.from_storage(
+        backend=backend,
+        rate_limit_max_retries=0,
+        server_error_max_retries=0,
+    )
+    client = await context.__aenter__()
+    body_error: BaseException | None = None
+    try:
+        yield client
+    except BaseException as exc:
+        body_error = exc
+        raise
+    finally:
+        try:
+            await context.__aexit__(
+                type(body_error) if body_error is not None else None,
+                body_error,
+                body_error.__traceback__ if body_error is not None else None,
+            )
+        except Exception as exc:
+            if not _is_transient_close_error(exc):
+                raise
+            # These commands run in short-lived CI processes.  Their durable
+            # work is already complete here, so a late transport/auth-refresh
+            # failure during teardown must not reverse that outcome. Unknown
+            # close bugs, process exits, and task cancellation remain fatal.
+            outcome = "completed" if body_error is None else "failed"
+            print(
+                f"::warning::client close failed after lifecycle command {outcome} "
+                f"({_safe_exception_name(exc)})",
+                file=sys.stderr,
+            )
+
+
 def _metadata() -> tuple[str, str, str]:
     """Read trusted lifecycle identity only from the GitHub runner environment."""
 
@@ -1360,11 +1412,7 @@ async def _run(args: argparse.Namespace) -> int:
     manifest_path = getattr(args, "manifest", None)
     store_path = manifest_path or Path(os.devnull)
     store = AtomicJSONStore(store_path, runner_temp=_runner_temp())
-    async with NotebookLMClient.from_storage(
-        backend=args.backend,
-        rate_limit_max_retries=0,
-        server_error_max_retries=0,
-    ) as client:
+    async with _ci_client(backend=args.backend) as client:
         manager = NotebookLifecycleManager(
             client,
             template_id=template_id,

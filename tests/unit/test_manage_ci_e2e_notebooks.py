@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,12 @@ from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 im
 TEMPLATE_ID = "template-id"
 TEMPLATE_TITLE = "Make Your Writing More Powerful and Persuasive"
 FINGERPRINT = "a" * 64
+
+
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://notebooklm.google.com/")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError("sensitive response", request=request, response=response)
 
 
 @dataclass
@@ -1920,6 +1927,99 @@ def test_cli_defaults_to_public_template_environment_name() -> None:
     args = lifecycle.build_parser().parse_args(["validate", "--backend", "web"])
 
     assert args.template_id_env == TEMPLATE_ID_ENV
+
+
+@pytest.mark.asyncio
+async def test_ci_client_demotes_close_failure_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise _http_status_error(502)
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    async with lifecycle._ci_client(backend="web"):
+        pass
+
+    captured = capsys.readouterr()
+    assert "::warning::client close failed" in captured.err
+    assert "HTTPStatusError" in captured.err
+    assert "sensitive response" not in captured.err
+
+
+@pytest.mark.asyncio
+async def test_ci_client_preserves_body_failure_when_close_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise _http_status_error(502)
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    with pytest.raises(ValueError, match="body failed"):
+        async with lifecycle._ci_client(backend="web"):
+            raise ValueError("body failed")
+
+
+@pytest.mark.asyncio
+async def test_ci_client_does_not_suppress_unknown_close_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise RuntimeError("close invariant failed")
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    with pytest.raises(RuntimeError, match="close invariant failed"):
+        async with lifecycle._ci_client(backend="web"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_ci_client_does_not_suppress_close_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CancelledCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: CancelledCloseContext(),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async with lifecycle._ci_client(backend="web"):
+            pass
 
 
 def test_cli_cleanup_absent_manifest_never_opens_auth(
