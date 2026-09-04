@@ -217,7 +217,7 @@ def test_android_web_compatibility_installer_has_one_root_owner() -> None:
     installer_calls: list[str] = []
     runtime_builder_calls: list[str] = []
     for path in sorted((REPO_ROOT / "src" / "notebooklm").rglob("*.py")):
-        relative = path.relative_to(REPO_ROOT)
+        relative = path.relative_to(REPO_ROOT).as_posix()
         for node in ast.walk(_tree(path)):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
                 "_install_android_lifecycle",
