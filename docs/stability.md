@@ -181,6 +181,13 @@ notebooklm.auth.OPTIONAL_COOKIE_DOMAINS_BY_LABEL
 notebooklm.auth.LockUnavailableError  # canonical home: notebooklm.exceptions; also an OSError via TimeoutError (ADR-0029)
 ```
 
+The raw Web-row factories on `Artifact`, `Collection`, `Label`, `Notebook`,
+`ShareStatus`, `SharedUser`, and `Source` are retained only for the v0.x
+compatibility window and are scheduled for removal in v1. Use the corresponding
+typed client namespace (`client.artifacts`, `collections`, `labels`, `notebooks`,
+`sharing`, or `sources`) instead; there is no supported public raw-row decoder.
+See [Deprecations](deprecations.md) for the exact nine methods and warning window.
+
 Backend selection is also public: `backend="web"` (the default) or
 `backend="android"` on the client, and `--backend web|android` on the CLI.
 Android is opt-in; see the installation and Android guides for its dependency,

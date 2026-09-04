@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
-from .._deprecation import warn_deprecated
+from .._deprecation import warn_deprecated, warn_registered_deprecation
 from .chat import ChatSettings
 from .enums import SharePermission, share_permission_to_str
 from .sources import SourceType
@@ -231,11 +231,16 @@ class Notebook:
     ) -> Notebook:
         """Parse a notebook row from an API response.
 
+        .. deprecated:: 0.9.0
+           Use ``client.notebooks`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         ``LIST_NOTEBOOKS`` does not project chat configuration: its slot 7 is
         ``null`` even when the notebook is configured. Only callers mapping a
         ``GET_NOTEBOOK`` row should set ``include_chat_settings=True``; there an
         explicit ``null`` truthfully means the default configuration.
         """
+        warn_registered_deprecation("notebook_from_api_response")
         from .._web.rows.notebooks import decode_notebook
 
         return decode_notebook(cls, data, include_chat_settings=include_chat_settings)

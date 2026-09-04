@@ -29,6 +29,7 @@ from ...types import (
 )
 from ..contracts import RpcCaller
 from ..params.sources import build_rename_source_params
+from ..rows.source_models import decode_source
 from ..rows.sources import interpret_source_freshness
 from ..settings import build_get_user_settings_params, extract_account_limits
 from . import upload as _source_upload
@@ -626,7 +627,7 @@ class WebSourcesAPI(SourcesAPI):
             raise_on_null_status=True,
         )
         if result and return_object:
-            return Source.from_api_response(result, method_id=RPCMethod.UPDATE_SOURCE.value)
+            return decode_source(Source, result, method_id=RPCMethod.UPDATE_SOURCE.value)
         # Null echo: hydrate via the internal lookup (never public ``get()`` —
         # #1247) so a miss raises; v0.8.0 (#1362) runs it to detect a miss.
         if not return_object and result:

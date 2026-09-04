@@ -32,6 +32,12 @@ from notebooklm.types import (
     _is_valid_artifact_url,
 )
 
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:Artifact\\.from_(api_response|mind_map):DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:Notebook\\.from_api_response:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:Source\\.from_(api_response|row):DeprecationWarning"),
+]
+
 
 class TestArtifactUrlValidation:
     """Test the canonical artifact URL validation helper."""

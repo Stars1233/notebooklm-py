@@ -11,6 +11,11 @@ from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import ShareAccess, SharePermission, ShareViewLevel
 from notebooklm.types import SharedUser, ShareStatus
 
+pytestmark = [
+    pytest.mark.filterwarnings("ignore:ShareStatus\\.from_api_response:DeprecationWarning"),
+    pytest.mark.filterwarnings("ignore:SharedUser\\.from_api_response:DeprecationWarning"),
+]
+
 #: The full ``GET_SHARE_STATUS`` payload as CAPTURED, copied verbatim from the
 #: response body recorded in ``tests/cassettes/web/cli_share_status.yaml`` and
 #: re-confirmed byte-identical in shape on 10/10 notebooks in a 2026-08 live

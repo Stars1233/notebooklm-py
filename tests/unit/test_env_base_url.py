@@ -13,6 +13,7 @@ from notebooklm._env import (
     get_base_host,
     get_base_url,
 )
+from notebooklm._web.rows.sharing import decode_share_status
 from notebooklm._web.sources import WebSourcesAPI
 from notebooklm._web.sources.upload import SourceUploadPipeline
 from notebooklm.auth import AuthTokens
@@ -230,6 +231,6 @@ async def test_client_refresh_auth_uses_enterprise_base_url(monkeypatch, httpx_m
 def test_share_status_uses_enterprise_base_url(monkeypatch):
     monkeypatch.setenv("NOTEBOOKLM_BASE_URL", "https://notebooklm.cloud.google.com")
 
-    status = ShareStatus.from_api_response([[["owner@example.com"]], [True], 1000], "nb_123")
+    status = decode_share_status(ShareStatus, [[["owner@example.com"]], [True], 1000], "nb_123")
 
     assert status.share_url == "https://notebooklm.cloud.google.com/notebook/nb_123"

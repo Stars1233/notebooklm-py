@@ -38,6 +38,10 @@ from notebooklm._web.rows.sources import (
 from notebooklm.rpc import RPCMethod
 from notebooklm.rpc.types import DriveSourceStatus, SourceStatus
 
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:Source\\.from_(api_response|row):DeprecationWarning"
+)
+
 # ---------------------------------------------------------------------------
 # Legacy reference implementations (verbatim pre-drain logic) for parity checks
 # ---------------------------------------------------------------------------

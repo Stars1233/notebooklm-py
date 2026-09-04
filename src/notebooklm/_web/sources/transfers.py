@@ -38,6 +38,7 @@ from ..params.sources import (
     build_append_source_params,
     build_copy_sources_params,
 )
+from ..rows.source_models import decode_source
 from ..rows.transfers import (
     AddSourcesAsyncResponseRow,
     CopiedSourceRow,
@@ -105,7 +106,7 @@ class SourceTransferService:
         # documented contract — the returned rows are still processing.
         sources = [
             _as_processing(
-                Source.from_api_response(entry, method_id=RPCMethod.ADD_SOURCES_ASYNC.value)
+                decode_source(Source, entry, method_id=RPCMethod.ADD_SOURCES_ASYNC.value)
             )
             for entry in entries
         ]
@@ -187,7 +188,11 @@ class SourceTransferService:
         for raw in rows:
             row = CopiedSourceRow(raw)
             source = (
-                Source.from_api_response(row.source_entry, method_id=RPCMethod.COPY_SOURCES.value)
+                decode_source(
+                    Source,
+                    row.source_entry,
+                    method_id=RPCMethod.COPY_SOURCES.value,
+                )
                 if row.is_well_formed and row.source_entry is not None
                 else None
             )

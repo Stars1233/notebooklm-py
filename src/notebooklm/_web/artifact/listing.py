@@ -22,7 +22,12 @@ from ...rpc import (
 )
 from ...types import Artifact, ArtifactNotFoundError, ArtifactNotReadyError, ArtifactType
 from ..contracts import RpcCaller
-from ..rows.artifacts import ArtifactRow, unwrap_artifact_rows
+from ..rows.artifacts import (
+    ArtifactRow,
+    decode_artifact,
+    decode_mind_map_artifact,
+    unwrap_artifact_rows,
+)
 from ..rows.notes import NoteRow
 
 logger = logging.getLogger("notebooklm._artifact.listing")
@@ -377,7 +382,7 @@ class ArtifactListingService:
         artifacts: list[Artifact] = []
         for art_data in artifacts_data:
             if isinstance(art_data, list) and len(art_data) > 0:
-                artifact = Artifact.from_api_response(art_data)
+                artifact = decode_artifact(Artifact, art_data)
                 if _matches_artifact_type(artifact, artifact_type):
                     artifacts.append(artifact)
         return artifacts
@@ -390,7 +395,7 @@ class ArtifactListingService:
         artifacts: list[Artifact] = []
         for mm_data in mind_maps:
             if isinstance(mm_data, list):
-                mind_map_artifact = Artifact.from_mind_map(mm_data)
+                mind_map_artifact = decode_mind_map_artifact(Artifact, mm_data)
                 if mind_map_artifact is not None:
                     if _matches_artifact_type(mind_map_artifact, artifact_type):
                         artifacts.append(mind_map_artifact)

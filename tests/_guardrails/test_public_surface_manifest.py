@@ -1317,6 +1317,7 @@ def test_baseline_registry_is_non_trivial() -> None:
         "auth_shared_mutations",
         "backend_runtime_coupling",
         "backend_static_coupling",
+        "backend_boundary",
         "browser_import_graph",
         "browser_patch_sites",
         "guardrail_inline_literals",

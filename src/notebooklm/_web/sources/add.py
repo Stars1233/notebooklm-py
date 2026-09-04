@@ -30,6 +30,7 @@ from ...rpc import RPCError, RPCMethod
 from ...types import Source
 from ..contracts import RpcCaller
 from ..params.sources import build_template_block
+from ..rows.source_models import decode_source
 
 ListSources = Callable[[str], Awaitable[list[Source]]]
 WaitUntilReady = Callable[..., Awaitable[Source]]
@@ -283,7 +284,7 @@ class SourceAddService:
 
             if result is None:
                 raise SourceAddError(url, message=f"API returned no data for URL: {url}")
-            return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+            return decode_source(Source, result, method_id=RPCMethod.ADD_SOURCE.value)
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this URL add landed" from "the same URL was already
@@ -499,7 +500,7 @@ class SourceAddService:
         if result is None:
             raise SourceAddError(title, message=f"API returned no data for text source: {title}")
 
-        source = Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+        source = decode_source(Source, result, method_id=RPCMethod.ADD_SOURCE.value)
 
         if wait:
             return await wait_until_ready(notebook_id, source.id, timeout=wait_timeout)
@@ -648,7 +649,7 @@ class SourceAddService:
                         "download it and add it as a `file` source instead."
                     ),
                 )
-            return Source.from_api_response(result, method_id=RPCMethod.ADD_SOURCE.value)
+            return decode_source(Source, result, method_id=RPCMethod.ADD_SOURCE.value)
 
         # Capture baseline source ids before the first create attempt so the
         # probe can tell "this Drive add landed" from "the same Drive file was

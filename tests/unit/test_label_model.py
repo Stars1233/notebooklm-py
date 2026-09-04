@@ -7,6 +7,8 @@ import pytest
 from notebooklm._types.labels import Label
 from notebooklm.exceptions import UnknownRPCMethodError
 
+pytestmark = pytest.mark.filterwarnings("ignore:Label\\.from_api_response:DeprecationWarning")
+
 
 def test_from_api_response_populated() -> None:
     label = Label.from_api_response(

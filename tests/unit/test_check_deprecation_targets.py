@@ -160,6 +160,14 @@ def _install_registered_tree(
         _spec_entry("auth_tokens_from_storage"),
         _spec_entry("auth_tokens_sync_storage_construction"),
         _spec_entry(
+            "artifact_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.artifacts"',
+        ),
+        _spec_entry(
+            "artifact_from_mind_map",
+            replacement='"notebooklm.NotebookLMClient.artifacts"',
+        ),
+        _spec_entry(
             "client_rpc_call_web",
             replacement='"notebooklm.raw.WebRawAPI.call"',
         ),
@@ -167,19 +175,63 @@ def _install_registered_tree(
             "client_rpc_call_android",
             replacement='"notebooklm.raw.AndroidRawAPI.unary"',
         ),
+        _spec_entry(
+            "collection_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.collections"',
+        ),
+        _spec_entry(
+            "label_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.labels"',
+        ),
+        _spec_entry(
+            "notebook_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.notebooks"',
+        ),
+        _spec_entry(
+            "share_status_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sharing"',
+        ),
+        _spec_entry(
+            "shared_user_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sharing"',
+        ),
+        _spec_entry(
+            "source_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sources"',
+        ),
+        _spec_entry(
+            "source_from_row",
+            replacement='"notebooklm.NotebookLMClient.sources"',
+        ),
     ]
     calls = calls or [
         'warn_registered_deprecation("auth_tokens_flat_cookies")',
         'warn_registered_deprecation("auth_tokens_from_storage")',
         'warn_registered_deprecation("auth_tokens_sync_storage_construction")',
+        'warn_registered_deprecation("artifact_from_api_response")',
+        'warn_registered_deprecation("artifact_from_mind_map")',
         'warn_registered_deprecation("client_rpc_call_web")',
         'warn_registered_deprecation("client_rpc_call_android")',
+        'warn_registered_deprecation("collection_from_api_response")',
+        'warn_registered_deprecation("label_from_api_response")',
+        'warn_registered_deprecation("notebook_from_api_response")',
+        'warn_registered_deprecation("share_status_from_api_response")',
+        'warn_registered_deprecation("shared_user_from_api_response")',
+        'warn_registered_deprecation("source_from_api_response")',
+        'warn_registered_deprecation("source_from_row")',
     ]
     (src / "__init__.py").write_text("from .client import NotebookLMClient\n", encoding="utf-8")
     (src / "client.py").write_text(
         dedent(
             """
             class NotebookLMClient:
+                artifacts: object
+                collections: object
+                labels: object
+                notebooks: object
+                sharing: object
+                sources: object
+
                 @classmethod
                 def from_storage(cls):
                     return cls()

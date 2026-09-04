@@ -293,6 +293,19 @@ def _derive_guardrail_inline_literals() -> dict[str, dict[str, int]]:
     return inventory_large_inline_literals()
 
 
+def _derive_backend_boundary() -> dict[str, list[dict[str, str]]]:
+    """Exact lazy public-type-to-Web compatibility-shim allowlist."""
+    from tests._baselines.backend_boundary import derive_backend_boundary
+
+    return derive_backend_boundary()
+
+
+def _backend_boundary_growth(previous: object, current: object) -> list[str]:
+    from tests._baselines.backend_boundary import backend_boundary_growth
+
+    return backend_boundary_growth(previous, current)
+
+
 def _guardrail_inline_literal_growth(previous: object, current: object) -> list[str]:
     from tests._baselines.guardrail_literals import guardrail_literal_growth
 
@@ -376,6 +389,14 @@ BASELINES: list[Baseline] = [
         sort_keys=True,
         growth_check=_backend_static_coupling_growth,
         description=("Resolved cross-subsystem imports with local, type-only, and dynamic edges."),
+    ),
+    Baseline(
+        name="backend_boundary",
+        path=_BASELINES_DIR / "backend_boundary.json",
+        derive=_derive_backend_boundary,
+        sort_keys=True,
+        growth_check=_backend_boundary_growth,
+        description="Lazy public-type-to-Web compatibility edges; shrink-only through v0.x.",
     ),
     Baseline(
         name="module_size",

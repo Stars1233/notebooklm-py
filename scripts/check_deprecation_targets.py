@@ -79,8 +79,17 @@ _REGISTERED_SPEC_KEYS = frozenset(
         "auth_tokens_flat_cookies",
         "auth_tokens_from_storage",
         "auth_tokens_sync_storage_construction",
+        "artifact_from_api_response",
+        "artifact_from_mind_map",
         "client_rpc_call_android",
         "client_rpc_call_web",
+        "collection_from_api_response",
+        "label_from_api_response",
+        "notebook_from_api_response",
+        "share_status_from_api_response",
+        "shared_user_from_api_response",
+        "source_from_api_response",
+        "source_from_row",
     }
 )
 _SEMVER = re.compile(r"^[0-9]+\.[0-9]+(?:\.[0-9]+)?$")
@@ -318,8 +327,15 @@ def _replacement_resolves(replacement: str) -> bool:
             (
                 statement
                 for statement in target.body
-                if isinstance(statement, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
-                and statement.name == attribute
+                if (
+                    isinstance(statement, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))
+                    and statement.name == attribute
+                )
+                or (
+                    isinstance(statement, ast.AnnAssign)
+                    and isinstance(statement.target, ast.Name)
+                    and statement.target.id == attribute
+                )
             ),
             None,
         )

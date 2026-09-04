@@ -29,7 +29,6 @@ import dataclasses
 import importlib
 import json
 import re
-import warnings
 from pathlib import Path
 from typing import Any, cast
 
@@ -60,8 +59,9 @@ from notebooklm._web.params.sources import (
     build_rename_source_params,
     build_resumable_upload_start_request,
 )
-from notebooklm._web.rows.artifacts import ArtifactRow
+from notebooklm._web.rows.artifacts import ArtifactRow, decode_artifact, decode_mind_map_artifact
 from notebooklm._web.rows.notes import NoteRow
+from notebooklm._web.rows.source_models import source_from_row
 from notebooklm._web.rows.sources import SourceRow, SourceRowShape
 from notebooklm._web.wire.decoder import (
     collect_rpc_ids,
@@ -1719,9 +1719,7 @@ class TestSourceKindAndStatusGroundTruth:
         row = SourceRow.from_entry([["ID"], "TITLE_AT_1", meta])
         assert row.type_code == type_code
         # The kind enum is derived from the same metadata[4] slot.
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            source = Source.from_row(row)
+        source = source_from_row(Source, row)
         assert source.kind is expected_kind
 
     @pytest.mark.parametrize(
@@ -1768,9 +1766,7 @@ class TestArtifactVariantGroundTruth:
     ) -> None:
         row = _make_artifact_row(type_code=ArtifactTypeCode.QUIZ.value, variant=variant)
         assert ArtifactRow(row).variant == variant
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            artifact = Artifact.from_api_response(row)
+        artifact = decode_artifact(Artifact, row)
         assert artifact.kind is expected_kind
 
 
@@ -1844,14 +1840,14 @@ class TestNoteShapeGroundTruth:
 
     def test_mind_map_current_shape_via_from_mind_map(self) -> None:
         inner = ["MM_ID", '{"nodes": []}', [1, "u", [1700000000, 0]], None, "MM_TITLE_AT_1_4"]
-        artifact = Artifact.from_mind_map(["MM_ID", inner])
+        artifact = decode_mind_map_artifact(Artifact, ["MM_ID", inner])
         assert artifact is not None
         assert artifact.id == "MM_ID"
         assert artifact.title == "MM_TITLE_AT_1_4"
         assert artifact.kind is ArtifactType.MIND_MAP
 
     def test_mind_map_deleted_shape_returns_none(self) -> None:
-        assert Artifact.from_mind_map(["MM_ID", None, 2]) is None
+        assert decode_mind_map_artifact(Artifact, ["MM_ID", None, 2]) is None
 
 
 # ===========================================================================
@@ -1929,9 +1925,7 @@ class TestSourceFieldConfusionHasTeeth:
     ) -> None:
         meta = _make_source_metadata(type_code=type_code)
         row = SourceRow.from_entry([["ID"], "T", meta, [None, status_code]])
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            source = Source.from_row(row)
+        source = source_from_row(Source, row)
         assert source.kind is expected_kind
         assert source.status is expected_status
 

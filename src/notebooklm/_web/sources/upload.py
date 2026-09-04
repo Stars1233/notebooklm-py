@@ -47,6 +47,7 @@ from ..params.sources import (
     build_rename_source_params,
     build_resumable_upload_start_request,
 )
+from ..rows.source_models import decode_source
 
 # Decode/validation helpers live in ``_upload_decode``; re-exported here so the
 # historical ``notebooklm._web.sources.upload.<helper>`` import surface (and the
@@ -1090,7 +1091,7 @@ class SourceUploadPipeline(EpochFenced):
             raise_on_null_status=True,
         )
         if result:
-            return Source.from_api_response(result, method_id=RPCMethod.UPDATE_SOURCE.value)
+            return decode_source(Source, result, method_id=RPCMethod.UPDATE_SOURCE.value)
         return None
 
     async def start_resumable_upload(

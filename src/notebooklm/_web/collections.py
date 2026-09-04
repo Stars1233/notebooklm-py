@@ -33,6 +33,7 @@ from .params.collections import (
     build_rename_collection_params,
     build_update_collection_notebooks_params,
 )
+from .rows.collections import decode_collection
 
 # Preserve the historical logger key across the whole-module move.
 logger = logging.getLogger("notebooklm._collections")
@@ -100,7 +101,7 @@ class WebCollectionsAPI(CollectionsAPI):
                 method_id=method_id,
                 source=_SRC,
             )
-        return [Collection.from_api_response(tuple_, method_id=method_id) for tuple_ in raw]
+        return [decode_collection(Collection, tuple_, method_id=method_id) for tuple_ in raw]
 
     # -- read ---------------------------------------------------------------
 

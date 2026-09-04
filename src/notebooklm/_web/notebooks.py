@@ -45,6 +45,7 @@ from .params.notebooks import (
 from .rows.chat import NextStepSuggestionRow
 from .rows.notebooks import (
     PromptSuggestionRow,
+    decode_notebook,
     unwrap_next_step_suggestions,
     unwrap_prompt_suggestions,
 )
@@ -577,7 +578,7 @@ class WebNotebooksAPI(NotebooksAPI):
                 result, 0, method_id=RPCMethod.LIST_NOTEBOOKS.value, source="NotebooksAPI.list"
             )
             if isinstance(raw_notebooks, list):
-                return [Notebook.from_api_response(nb) for nb in raw_notebooks]
+                return [decode_notebook(Notebook, nb) for nb in raw_notebooks]
             if raw_notebooks is None:
                 return []
         raise DecodingError(
@@ -600,7 +601,7 @@ class WebNotebooksAPI(NotebooksAPI):
         except RPCError as exc:
             await self._raise_quota_error_if_detected(exc)
             raise
-        notebook = Notebook.from_api_response(result)
+        notebook = decode_notebook(Notebook, result)
         if notebook.id and notebook.chat_sessions:
             self._created_chat_session_ids[notebook.id] = notebook.chat_sessions[0].id
         logger.debug("Created notebook: %s", notebook.id)
@@ -614,7 +615,7 @@ class WebNotebooksAPI(NotebooksAPI):
             build_copy_notebook_params(notebook_id, title),
             source_path=f"/notebook/{notebook_id}",
         )
-        notebook = Notebook.from_api_response(result)
+        notebook = decode_notebook(Notebook, result)
         if not notebook.id:
             raise DecodingError(
                 "CopyProject response did not contain a notebook id",
@@ -755,7 +756,7 @@ class WebNotebooksAPI(NotebooksAPI):
                 notebook_id,
                 method_id=RPCMethod.GET_NOTEBOOK.value,
             )
-        notebook = Notebook.from_api_response(nb_info, include_chat_settings=True)
+        notebook = decode_notebook(Notebook, nb_info, include_chat_settings=True)
         # Defense-in-depth: even when the outer list isn't empty, the server can
         # return a payload whose id and title both parse to ``""``. A valid
         # notebook always has at least one of the two populated.

@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import logging
-import reprlib
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Final
 
-from ..exceptions import UnknownRPCMethodError
+from .._deprecation import warn_registered_deprecation
 from .artifact_content import (
     ArtifactInfographic,
     ArtifactMedia,
@@ -27,8 +25,6 @@ from .enums import (
     ReportFormat,
     artifact_status_to_str,
 )
-
-logger = logging.getLogger(__name__)
 
 
 class ArtifactType(str, Enum):
@@ -247,6 +243,10 @@ class Artifact:
     def from_api_response(cls, data: list[Any]) -> Artifact:
         """Parse artifact from API response.
 
+        .. deprecated:: 0.9.0
+           Use ``client.artifacts`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         Position knowledge for ``id`` / ``title`` / ``type`` / ``status``
         / ``variant`` / ``timestamp`` lives in
         :class:`notebooklm._web.rows.artifacts.ArtifactRow`. This factory wraps
@@ -257,47 +257,18 @@ class Artifact:
         ``_extract_artifact_url`` helper remains only as a compatibility
         shim for downstream private imports.
         """
-        from .._web.rows.artifacts import ArtifactRow
+        warn_registered_deprecation("artifact_from_api_response")
+        from .._web.rows.artifacts import decode_artifact
 
-        row = ArtifactRow(data)
-        artifact_type = row.type_code
-        # ``row.type_code`` is statically typed ``int`` and normalises
-        # non-ints to ``0``; ``row.artifact_url`` then falls through to
-        # ``None`` for unrecognised codes — no separate ``isinstance``
-        # guard is needed here.
-        url = row.artifact_url(artifact_type, suppress_drift=True)
-
-        # The generation prompt is a nice-to-have listing field, not core to an
-        # artifact's identity — guard its (type-specific) nested read so a prompt-
-        # position drift degrades to ``None`` rather than breaking every listing.
-        try:
-            generation_prompt = row.generation_prompt
-        except UnknownRPCMethodError:
-            generation_prompt = None
-
-        return cls(
-            id=row.id,
-            title=row.title,
-            _artifact_type=artifact_type,
-            status=row.status,
-            created_at=row.created_at,
-            url=url,
-            _variant=row.variant,
-            generation_prompt=generation_prompt,
-            media_urls=row.media_urls,
-            duration_seconds=row.duration_seconds,
-            slides=row.slides,
-            infographics=row.infographics,
-            report_kind=row.report_kind,
-            source_ids=row.source_ids,
-            last_modified_at=row.last_modified_at,
-            etag=row.etag,
-            user_state=row.user_state,
-        )
+        return decode_artifact(cls, data)
 
     @classmethod
     def from_mind_map(cls, data: list[Any]) -> Artifact | None:
         """Parse artifact from mind map data (stored in notes system).
+
+        .. deprecated:: 0.9.0
+           Use ``client.artifacts`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
 
         Mind map structure:
         [
@@ -326,41 +297,10 @@ class Artifact:
             Artifact object, or None for the note-system delete tombstone
             ``[id, None, 2]``.
         """
-        if not isinstance(data, list) or len(data) < 1:
-            return None
+        warn_registered_deprecation("artifact_from_mind_map")
+        from .._web.rows.artifacts import decode_mind_map_artifact
 
-        from .._web.rows.notes import NoteRow
-
-        row = NoteRow(data)
-
-        # Deleted tombstone ([id, None, 2]): excluded from listings.
-        if row.is_deleted:
-            return None
-        if row.has_unrecognized_tombstone:
-            logger.warning(
-                "Mind-map row %s has a null content slot without the "
-                "soft-delete sentinel (tombstone drift? a deleted mind map "
-                "may be leaking as live): %s",
-                row.id,
-                reprlib.repr(data),
-            )
-
-        # Title and the creation timestamp both come through the adapter:
-        # the timestamp slot (``row[1][2][2][0]``) is the SAME one ``NoteRow``
-        # decodes for the note path (issue #1529), so the position knowledge
-        # lives in one place rather than re-open-coding the inner descent here.
-        title = row.title
-        created_at = row.created_at
-
-        return cls(
-            id=row.id,
-            title=title,
-            _artifact_type=ArtifactTypeCode.MIND_MAP.value,
-            # Mind maps are always "completed" once created.
-            status=ArtifactStatus.COMPLETED.value,
-            created_at=created_at,
-            _variant=None,
-        )
+        return decode_mind_map_artifact(cls, data)
 
     @property
     def is_completed(self) -> bool:
