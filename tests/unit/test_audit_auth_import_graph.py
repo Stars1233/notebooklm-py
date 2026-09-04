@@ -120,15 +120,15 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 33,
-        "total_lines": 13964,
-        "unique_edges": 127,
-        "module_edges": 115,
-        "function_local_edges": 12,
+        "modules": 32,
+        "total_lines": 13692,
+        "unique_edges": 123,
+        "module_edges": 110,
+        "function_local_edges": 13,
     }
     assert result["sccs"] == {
         "module_level": [],
-        "all_scopes": [],
+        "all_scopes": [["cookies", "profile_store", "psidts_recovery"]],
     }
     edges = {(edge["source"], edge["target"], edge["scope"]) for edge in result["edges"]}
     assert ("cookie_types", "cookies", "module") not in edges
@@ -243,6 +243,8 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "profile_account", "module"),
         ("profile_store", "profile_document", "module"),
         ("profile_store", "storage_lock", "module"),
+        ("profile_store", "cookies", "function"),
+        ("profile_store", "cookies", "module"),
         ("psidts_recovery", "profile_store", "module"),
         ("storage", "profile_store", "module"),
         ("tokens", "profile_store", "module"),
@@ -269,7 +271,6 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     }
     assert {edge for edge in edges if "tokens" in edge[:2]} == {
         ("account_email", "tokens", "module"),
-        ("session", "tokens", "module"),
         ("tokens", "account", "module"),
         ("tokens", "cookie_types", "module"),
         ("tokens", "cookies", "module"),
@@ -297,7 +298,6 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("recovery", "storage", "function"),
         ("recovery", "storage", "module"),
         ("refresh", "recovery", "module"),
-        ("session", "recovery", "module"),
     }
     assert {edge for edge in edges if "recovery_rungs" in edge[:2]} == {
         ("recovery", "recovery_rungs", "function"),

@@ -36,7 +36,7 @@ def _stage(backend: str, stage: str) -> dict[str, object]:
     return value
 
 
-def test_public_entries_are_distinct_probes_with_the_current_eager_delta() -> None:
+def test_public_entries_are_distinct_probes_with_current_clean_deltas() -> None:
     entries = _runtime_baseline()["public_entries"]
     assert isinstance(entries, dict)
     assert set(entries) == {
@@ -47,15 +47,34 @@ def test_public_entries_are_distinct_probes_with_the_current_eager_delta() -> No
         "raw_module",
         "web_raw_api",
     }
-    deltas = {tuple(value["module_delta"]) for value in entries.values()}
-    assert len(deltas) == 1
-    (delta,) = deltas
+    deltas = {name: set(value["module_delta"]) for name, value in entries.items()}
+    assert deltas["package"] == deltas["client_reexport"] == deltas["raw_module"]
 
-    # This is the relative-import false negative the old ``__import__`` hook
-    # missed: Python passed ``_android.runtime`` with ``level=1``.  The clean
-    # sys.modules delta records the resolved module instead.
-    assert "notebooklm._android.runtime" in delta
-    assert "notebooklm._web.transport.init" in delta
+    # Each explicit raw-class probe adds only its selected backend's raw
+    # implementation.  The legacy lazy attribute intentionally resolves the
+    # compatibility seam, while the Web raw probe resolves the Web/RPC facade.
+    assert deltas["android_raw_api"] - deltas["package"] == {
+        "notebooklm._android",
+        "notebooklm._android.errors",
+        "notebooklm._android.raw",
+    }
+    assert deltas["legacy_client_attribute"] - deltas["android_raw_api"] == {
+        "notebooklm._web",
+        "notebooklm._web.transport",
+        "notebooklm._web.transport.seams",
+    }
+    assert deltas["web_raw_api"] - deltas["package"] == {
+        "notebooklm._web",
+        "notebooklm._web.raw",
+        "notebooklm.rpc",
+        "notebooklm.rpc._identifiers",
+        "notebooklm.rpc.types",
+    }
+
+    # Clean subprocesses resolve relative imports into exact module names;
+    # selected raw probes therefore expose their concrete implementation edges.
+    assert "notebooklm._android.raw" in deltas["android_raw_api"]
+    assert "notebooklm._web.raw" in deltas["web_raw_api"]
 
 
 def test_backend_stage_matrix_is_complete_and_records_every_dimension() -> None:
@@ -89,14 +108,12 @@ def test_current_android_homepage_compatibility_and_sidecar_boundary_are_explici
     constructed = _stage("android", "construct_direct")
     backend_objects = constructed["backend_objects"]
     assert isinstance(backend_objects, dict)
-    assert {name for name in backend_objects if name.startswith("notebooklm._web")} == {
-        "notebooklm._web.transport.seams.ClientSeams",
-        "notebooklm._web.transport.sidecar.LazyWebSidecar",
-    }
+    assert not [name for name in backend_objects if name.startswith("notebooklm._web")]
     lifecycle = constructed["lifecycle"]
     assert isinstance(lifecycle, dict)
-    assert sum("LazyWebSidecar" in name for name in lifecycle["transports"]) == 1
-    assert sum("LazyWebSidecar" in name for name in lifecycle["loop_participants"]) == 1
+    expected_sidecar = "notebooklm._client_compat.LazyWebSidecar:deprecated-web-sidecar"
+    assert lifecycle["transports"].count(expected_sidecar) == 1
+    assert lifecycle["loop_participants"].count(expected_sidecar) == 1
 
     typed = _stage("android", "typed_operation")
     assert typed["network_destinations"] == {
