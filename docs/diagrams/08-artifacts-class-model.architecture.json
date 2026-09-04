@@ -36,7 +36,7 @@
           "status",
           "typecode"
         ],
-        "note": "Decoded payloads become frozen dataclasses carrying two enums."
+        "note": "Both decoders produce the same Artifact dataclass; raw integer status and type fields project through shared enum mappings."
       }
     ]
   },
@@ -161,7 +161,7 @@
       "type": "database",
       "label": "Artifact",
       "sublabel": "_types/artifacts.py",
-      "tag": "frozen",
+      "tag": "dataclass · raw int codes",
       "pos": [
         1063,
         260
@@ -348,7 +348,7 @@
       "items": [
         "ArtifactsAPI is an ABC; ten Studio creators converge on _send_create_artifact",
         "generate_mind_map is the eleventh public generator and uses a separate backend hook",
-        "Both subclasses return the same frozen Artifact dataclass"
+        "Both subclasses return the same Artifact dataclass"
       ]
     },
     {
@@ -364,7 +364,7 @@
       "dot": "amber",
       "title": "Typed results",
       "items": [
-        "ArtifactStatus: UNKNOWN, PENDING, PROCESSING, COMPLETED, FAILED, SUGGESTED, PENDING_REVIEW",
+        "Artifact stores raw integer codes; kind projects to ArtifactType and status maps through ArtifactStatus",
         "ArtifactTypeCode spans AUDIO through FILE, ten codes in total",
         "SUGGESTED rows are filtered out of LIST_ARTIFACTS results"
       ]

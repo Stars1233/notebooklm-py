@@ -36,7 +36,7 @@
           "sidecar",
           "webexec"
         ],
-        "note": "On Android, rpc_call materializes LazyWebSidecar inside operation_scope; the runtime is retained for reuse and root lifecycle closes it."
+        "note": "Android rpc_call materializes the pre-registered sidecar's WebRuntime in operation_scope; root lifecycle closes and reopens it."
       }
     ],
     "column_fit": "spread",
@@ -203,7 +203,7 @@
       "y": 576,
       "label": "return; retain sidecar for reuse",
       "variant": "return",
-      "note": "root lifecycle closes it; never registered as a keepalive participant"
+      "note": "root lifecycle closes and reopens its resources; the proxy never starts keepalive"
     }
   ],
   "cards": [
@@ -225,7 +225,7 @@
       "dot": "rose",
       "title": "Compatibility guardrail",
       "items": [
-        "rpc_call is deprecated; Android creates LazyWebSidecar only inside operation_scope, with no keepalive"
+        "rpc_call is deprecated; Android pre-registers LazyWebSidecar and builds its WebRuntime only inside operation_scope, with no keepalive"
       ]
     }
   ]

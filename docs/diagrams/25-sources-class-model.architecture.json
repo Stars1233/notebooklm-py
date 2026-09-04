@@ -22,9 +22,11 @@
         "focus": [
           "webns",
           "pipeline",
-          "scotty"
+          "scotty",
+          "andns",
+          "andupload"
         ],
-        "note": "The pipeline owns its own client, semaphore and transport-lifecycle participation."
+        "note": "Each backend upload pipeline owns its client, semaphore, and transport-lifecycle participation."
       },
       {
         "id": "values",
@@ -34,7 +36,7 @@
           "source",
           "sourcetype"
         ],
-        "note": "Both backends return the same frozen Source dataclass."
+        "note": "Both backends return the same mutable Source dataclass and SourceStatus enum."
       }
     ]
   },
@@ -126,10 +128,10 @@
       ]
     },
     {
-      "id": "drive",
+      "id": "poller",
       "type": "backend",
-      "label": "DriveImportService",
-      "sublabel": "fetch + confirm",
+      "label": "SourcePoller",
+      "sublabel": "shared readiness loop",
       "pos": [
         1063,
         260
@@ -172,7 +174,7 @@
       "type": "database",
       "label": "Source",
       "sublabel": "_types/sources.py",
-      "tag": "frozen",
+      "tag": "mutable dataclass",
       "pos": [
         806,
         460
@@ -186,8 +188,8 @@
       "id": "sourcetype",
       "type": "database",
       "label": "SourceStatus",
-      "sublabel": "READY · PROCESSING",
-      "tag": "int + Enum",
+      "sublabel": "UNKNOWN · PROCESSING · READY",
+      "tag": "ERROR · PREPARING",
       "pos": [
         1063,
         460
@@ -248,10 +250,10 @@
       "label": "add_url"
     },
     {
-      "id": "addsvc-drive",
+      "id": "addsvc-poller",
       "from": "addsvc",
-      "to": "drive",
-      "label": "drive refs"
+      "to": "poller",
+      "label": "wait hook"
     },
     {
       "id": "android-upload",
@@ -282,7 +284,7 @@
       "dot": "cyan",
       "title": "Hoisted workflows",
       "items": [
-        "Neutral _sources.py owns lookup, polling, upload finalization, and transfer workflows",
+        "Neutral _sources.py owns lookup, readiness polling, and post-upload finalization",
         "WebSourcesAPI and AndroidSourcesAPI implement one backend hook contract"
       ]
     },

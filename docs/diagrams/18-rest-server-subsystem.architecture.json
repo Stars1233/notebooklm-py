@@ -26,7 +26,7 @@
           "bodylimit",
           "limiters"
         ],
-        "note": "Bearer plus loopback Host, a body cap, and per-group concurrency limits."
+        "note": "Bearer plus loopback peer and Host checks, a body cap, and per-group concurrency limits."
       },
       {
         "id": "async",
@@ -45,7 +45,7 @@
       "id": "auth",
       "type": "security",
       "label": "Auth Dependency",
-      "sublabel": "bearer + Host",
+      "sublabel": "bearer + peer + Host",
       "tag": "constant-time",
       "pos": [
         282,
@@ -145,7 +145,7 @@
       "id": "client",
       "type": "backend",
       "label": "NotebookLMClient",
-      "sublabel": "opened at lifespan",
+      "sublabel": "process singleton",
       "tag": "ADR-0004",
       "pos": [
         1063,
@@ -320,7 +320,7 @@
       "dot": "cyan",
       "title": "Single tenant",
       "items": [
-        "One client is opened at ASGI lifespan, inside the server event loop",
+        "One client is attempted at ASGI lifespan and lazy-retried after a stale-auth startup",
         "Workflow routes use _app/ cores; simple operations call public client namespaces",
         "server/ imports no click, rich or cli — pinned by test_server_boundary.py"
       ]
@@ -329,7 +329,7 @@
       "dot": "rose",
       "title": "Guards",
       "items": [
-        "Every /v1 request needs a static bearer plus a loopback Host literal",
+        "Every /v1 request needs a static bearer plus loopback peer and Host checks by default",
         "The /docs and /openapi.json schema surface is disabled"
       ]
     },

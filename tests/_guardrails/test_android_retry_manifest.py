@@ -297,9 +297,7 @@ def _android_raw_dynamic_dispatches(path: Path, tree: ast.Module) -> set[ast.Cal
                         and receiver.value.id == "self"
                     )
                 else:
-                    exact_receiver = (
-                        isinstance(receiver, ast.Name) and receiver.id == receiver_name
-                    )
+                    exact_receiver = isinstance(receiver, ast.Name) and receiver.id == receiver_name
                 if exact_receiver:
                     matches.append(node)
             if len(matches) == 1:

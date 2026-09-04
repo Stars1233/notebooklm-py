@@ -22,7 +22,7 @@
         "id": "compatibility",
         "label": "Deprecated rpc_call",
         "focus": ["client", "deprecated", "webruntime", "sidecar"],
-        "note": "Web delegates directly; Android materialises a no-keepalive Web sidecar inside an operation scope and retains it until root close."
+        "note": "Web delegates directly; Android materialises the sidecar's WebRuntime inside an operation scope and retains it across close and reopen."
       }
     ]
   },
@@ -110,7 +110,7 @@
       "id": "sidecar",
       "type": "backend",
       "label": "LazyWebSidecar",
-      "sublabel": "materialises WebRuntime",
+      "sublabel": "_client_compat.py",
       "tag": "Android compatibility",
       "pos": [544, 460],
       "size": [170, 84]
@@ -182,7 +182,8 @@
       "title": "Compatibility sidecar",
       "items": [
         "rpc_call is deprecated and remains a Web RPCMethod wrapper",
-        "Android materialises LazyWebSidecar inside operation_scope; root lifecycle closes it and it has no keepalive"
+        "Android pre-registers LazyWebSidecar; first rpc_call materialises its WebRuntime inside operation_scope",
+        "Root lifecycle closes and reopens its resources; the proxy retains the runtime and never starts keepalive"
       ]
     }
   ]

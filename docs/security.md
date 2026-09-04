@@ -100,7 +100,7 @@ state identity views, result objects, messages, causes, and traceback projection
 The raw keepalive names are non-owning views into `RotationState`; rebinding them or introducing a
 second registry is unsupported.
 
-The measured auth graph is 40 modules / 15,237 lines / 128 unique edges (117 module + 11
+The measured auth graph is 32 modules / 13,691 lines / 123 unique edges (111 module + 12
 function-local). Module-only and all-scope SCC sets are empty; the former
 `cookies/master_token/psidts_recovery/storage` cycle has been removed. Exact touched production LOC
 is pinned in [development.md](development.md); those values are evidence and not spare capacity.

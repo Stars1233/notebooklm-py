@@ -1095,7 +1095,7 @@ def test_typed_merge_and_pair_parser_ownership_is_exact() -> None:
         if any(
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
-            and node.func.id == "_load_cookie_pair_pure"
+            and node.func.id == "_build_cookie_pair_from_storage_state"
             for node in ast.walk(method)
         )
     }

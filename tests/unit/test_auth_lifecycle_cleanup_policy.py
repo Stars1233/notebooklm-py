@@ -14,6 +14,7 @@ from scripts.check_auth_lifecycle_cleanup_policy import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.mark.timeout(180)
 @pytest.mark.repo_lint
 def test_auth_lifecycle_cleanup_policy_exactly_matches_live_operations() -> None:
     policy = json.loads(

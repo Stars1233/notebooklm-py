@@ -2,7 +2,7 @@
   "schema_version": 1,
   "diagram_type": "sequence",
   "meta": {
-    "title": "Chat Ask Streaming Path",
+    "title": "Web Chat Ask Streaming Path",
     "locale": "en",
     "quality_profile": "showcase",
     "column_fit": "spread",
@@ -49,7 +49,7 @@
       "id": "caller",
       "type": "external",
       "label": "Caller",
-      "sublabel": "client.chat.ask"
+      "sublabel": "client.chat.ask · backend=web"
     },
     {
       "id": "chat",
@@ -162,8 +162,9 @@
       "from": "transport",
       "to": "webchat",
       "y": 404,
-      "label": "answer + citations",
-      "variant": "return"
+      "label": "HTTP response body",
+      "variant": "return",
+      "note": "WebChatAPI parses the streamed body into answer, references and document metadata"
     },
     {
       "id": "posted",
@@ -172,7 +173,7 @@
       "y": 436,
       "label": "_PostedAsk",
       "variant": "return",
-      "note": "recover the authoritative conversation id"
+      "note": "ChatAPI then resolves the authoritative conversation id"
     },
     {
       "id": "result",

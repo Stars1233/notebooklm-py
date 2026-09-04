@@ -31,10 +31,12 @@ for this fix.
 
 from __future__ import annotations
 
+import copy
 import http.cookiejar
 import json
 import logging
-from collections.abc import Callable, Iterable
+import math
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -43,7 +45,6 @@ from typing import Any, TypeVar
 import httpx
 
 from . import cookie_merge as _cookie_merge
-from . import cookie_pair as _cookie_pair
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
 from . import keepalive as _keepalive
@@ -78,7 +79,19 @@ def _bounded_row_field(entry: Any, field: str) -> str:
     return value[:80] if isinstance(value, str) else type(value).__name__
 
 
-_sanitize_recovery_row = _cookie_pair._sanitize_routing_entry
+def _sanitize_recovery_row(entry: Any) -> dict[str, Any] | None:
+    try:
+        return _cookie_semantics.sanitize_cookie_entry(entry)
+    except _cookie_semantics.CookieRowError as exc:
+        logger.debug(
+            "Skipping malformed cookie row name=%s domain=%s row_type=%s error=%s",
+            _bounded_row_field(entry, "name"),
+            _bounded_row_field(entry, "domain"),
+            type(entry).__name__,
+            type(exc).__name__,
+        )
+        return None
+
 
 def _storage_cookie(entry: dict[str, Any]) -> http.cookiejar.Cookie:
     normalized = _cookie_semantics.sanitize_cookie_entry(entry)
@@ -212,16 +225,96 @@ def _psidts_is_live(
     return False
 
 
-# The pure routing gate lives below the recovery owner so ProfileStore can use
-# it without importing this recovery coordinator.  Keep these names as exact
-# compatibility views for existing recovery callers and patch seams.
-_try_cookie = _cookie_pair._try_cookie
-_cookie_header_names = _cookie_pair._cookie_header_names
-_allowed_cookie_name = _cookie_pair._allowed_cookie_name
-_is_expired = _cookie_pair._is_expired
-_iter_routable_psidts_cookies = _cookie_pair._iter_routable_psidts_cookies
-_psidts_routes_to_rotate = _cookie_pair._psidts_routes_to_rotate
-_cookies_route_psidts = _cookie_pair._cookies_route_psidts
+def _try_cookie(entry: Any, converter: _CookieConverter) -> http.cookiejar.Cookie | None:
+    try:
+        _cookie_semantics.validate_cookie_shape(entry)
+    except _cookie_semantics.CookieRowError as exc:
+        logger.debug(
+            "Skipping malformed cookie row name=%s domain=%s row_type=%s error=%s",
+            _bounded_row_field(entry, "name"),
+            _bounded_row_field(entry, "domain"),
+            type(entry).__name__,
+            type(exc).__name__,
+        )
+        return None
+    try:
+        return converter(entry)
+    except (ValueError, TypeError, OverflowError) as exc:
+        logger.debug(
+            "Skipping unusable cookie row name=%s domain=%s error=%s",
+            _bounded_row_field(entry, "name"),
+            _bounded_row_field(entry, "domain"),
+            type(exc).__name__,
+        )
+        return None
+
+
+def _cookie_header_names(header: str) -> set[str]:
+    return {part.split("=", 1)[0].strip() for part in header.split(";") if "=" in part}
+
+
+def _allowed_cookie_name(entry: Any) -> str | None:
+    normalized = _sanitize_recovery_row(entry)
+    if normalized is None or not _is_allowed_auth_domain(normalized["domain"]):
+        return None
+    return normalized["name"]
+
+
+def _is_expired(cookie: http.cookiejar.Cookie, now: float | None) -> bool:
+    return cookie.is_expired(None if now is None else math.floor(now))
+
+
+def _iter_routable_psidts_cookies(
+    entries: list[dict[str, Any]],
+    *,
+    to_cookie: _CookieConverter,
+    now: float | None = None,
+) -> Iterator[http.cookiejar.Cookie]:
+    live: dict[_CookieIdentity, http.cookiejar.Cookie] = {}
+    dead: set[_CookieIdentity] = set()
+    for entry in entries:
+        if _allowed_cookie_name(entry) != _PSIDTS_COOKIE:
+            continue
+        cookie = _try_cookie(entry, to_cookie)
+        if cookie is None:
+            continue
+        identity = (cookie.name, cookie.domain, cookie.path)
+        if _is_expired(cookie, now):
+            dead.add(identity)
+        else:
+            live[identity] = cookie
+    for identity, cookie in live.items():
+        if identity not in dead:
+            yield cookie
+
+
+def _psidts_routes_to_rotate(
+    entries: list[dict[str, Any]],
+    *,
+    to_cookie: _CookieConverter,
+    now: float | None = None,
+) -> bool:
+    probes = []
+    for cookie in _iter_routable_psidts_cookies(entries, to_cookie=to_cookie, now=now):
+        probe = copy.copy(cookie)
+        probe.expires = None
+        probes.append(probe)
+    return _cookies_route_psidts(probes)
+
+
+def _cookies_route_psidts(cookies: Iterable[http.cookiejar.Cookie]) -> bool:
+    jar = httpx.Cookies()
+    found = False
+    for cookie in cookies:
+        if cookie.name != _PSIDTS_COOKIE or not cookie.value:
+            continue
+        jar.jar.set_cookie(cookie)
+        found = True
+    if not found:
+        return False
+    request = httpx.Request("POST", _keepalive.KEEPALIVE_ROTATE_URL)
+    jar.set_cookie_header(request)
+    return _PSIDTS_COOKIE in _cookie_header_names(request.headers.get("cookie", ""))
 
 
 def _resolve_recovery_path(path: Path | str | None) -> Path | None:

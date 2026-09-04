@@ -18,9 +18,9 @@
           "pending",
           "processing",
           "completed",
-          "downloaded"
+          "available"
         ],
-        "note": "After generation completes, the selected backend resolves or decodes the artifact and publishes it through its format-specific file path."
+        "note": "After generation completes, callers can inspect the artifact or use its format-specific download, export and interaction paths."
       },
       {
         "id": "polling",
@@ -96,10 +96,10 @@
       "tag": "status 3"
     },
     {
-      "id": "downloaded",
+      "id": "available",
       "type": "success",
-      "label": "Published",
-      "sublabel": "backend-selected transfer",
+      "label": "Available",
+      "sublabel": "use · export",
       "lane": "main",
       "col": 4,
       "step": "05",
@@ -145,9 +145,9 @@
       "route": "straight"
     },
     {
-      "id": "completed-downloaded",
+      "id": "completed-available",
       "from": "completed",
-      "to": "downloaded",
+      "to": "available",
       "variant": "emphasis",
       "route": "straight"
     },
@@ -207,8 +207,8 @@
       "dot": "emerald",
       "title": "Main path",
       "items": [
-        "Five ordered phases from generate to a published file",
-        "After COMPLETED, the selected backend resolves or decodes the artifact and publishes it through its format-specific path"
+        "Requested work advances through PENDING and PROCESSING to a terminal artifact status",
+        "After COMPLETED, supported formats can be inspected, downloaded, exported or used interactively"
       ]
     },
     {
@@ -224,7 +224,7 @@
       "title": "Other statuses",
       "items": [
         "SUGGESTED rows are filtered out of LIST_ARTIFACTS",
-        "UNKNOWN means the backend status was not recognised"
+        "PENDING_REVIEW is distinct from PENDING; UNKNOWN preserves an unrecognised backend status"
       ]
     }
   ]

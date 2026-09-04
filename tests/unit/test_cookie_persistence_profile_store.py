@@ -108,6 +108,28 @@ def _write(path: Path, sid: str = "sid", *, same_site: Any = "Lax") -> None:
     )
 
 
+class _ReadCountingStore(ProfileStore):
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.read_calls = 0
+
+    def read_cookie_pair(self, *, require_routable: bool = False) -> Any:
+        self.read_calls += 1
+        assert require_routable is False
+        return super().read_cookie_pair(require_routable=require_routable)
+
+
+class _MissingReadStore(ProfileStore):
+    def __init__(self, path: Path) -> None:
+        super().__init__(path)
+        self.read_calls = 0
+
+    def read_cookie_pair(self, *, require_routable: bool = False) -> Any:
+        self.read_calls += 1
+        assert require_routable is False
+        raise FileNotFoundError(self.path)
+
+
 def test_frozen_baseline_values_copy_and_redact() -> None:
     source = _typed("secret-value")
     ready = persistence_module.ReadyBaseline(source)
@@ -203,27 +225,16 @@ def test_register_open_baseline_uses_exact_store_and_typed_projection(tmp_path: 
 
 
 @pytest.mark.asyncio
-async def test_prepare_samples_once_off_loop_and_keeps_exact_samesite(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_prepare_samples_once_off_loop_and_keeps_exact_samesite(tmp_path: Path) -> None:
     path = tmp_path / "profile.json"
     _write(path, same_site="FuturePolicy")
-    persistence = CookiePersistence._from_store(ProfileStore(path))
-    calls = 0
-    real_load = ProfileStore.read_cookie_pair
-
-    def load_once(self: ProfileStore, *args: Any, **kwargs: Any):
-        nonlocal calls
-        calls += 1
-        assert kwargs == {"require_routable": False}
-        return real_load(self, *args, **kwargs)
-
-    monkeypatch.setattr(ProfileStore, "read_cookie_pair", load_once)
+    store = _ReadCountingStore(path)
+    persistence = CookiePersistence._from_store(store)
     await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
     await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
 
-    state = persistence._states[ProfileStore(path).ordering_key]
-    assert calls == 1
+    state = persistence._states[store.ordering_key]
+    assert store.read_calls == 1
     assert isinstance(state.baseline, persistence_module.ReadyBaseline)
     assert tuple(state.baseline.value)[0].same_site == "FuturePolicy"
 
@@ -231,27 +242,19 @@ async def test_prepare_samples_once_off_loop_and_keeps_exact_samesite(
 @pytest.mark.asyncio
 async def test_failed_prepare_is_sticky_until_exact_registration(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     path = tmp_path / "missing.json"
-    store = ProfileStore(path)
+    store = _MissingReadStore(path)
     persistence = CookiePersistence._from_store(store)
-    calls = 0
 
-    def missing(*args: Any, **kwargs: Any):
-        nonlocal calls
-        calls += 1
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr(ProfileStore, "read_cookie_pair", missing)
     with caplog.at_level("WARNING", logger="notebooklm.auth"):
         await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
         await persistence._prepare_open_baseline(path, to_thread=_inline_to_thread)
         await persistence._save_canonical(_live("ignored"), path, to_thread=_inline_to_thread)
 
     state = persistence._states[store.ordering_key]
-    assert calls == 1
+    assert store.read_calls == 1
     assert isinstance(state.baseline, persistence_module.FailedBaseline)
     assert [(record.levelname, record.getMessage()) for record in caplog.records] == [
         (
@@ -339,6 +342,19 @@ class _RecordingStore(ProfileStore):
         return self.results.pop(0)
 
 
+class _RetryableReadStore(_RecordingStore):
+    def __init__(self, path: Path, results: list[CookieMergeResult]) -> None:
+        super().__init__(path, results)
+        self.read_calls = 0
+
+    def read_cookie_pair(self, *, require_routable: bool = False) -> Any:
+        self.read_calls += 1
+        assert require_routable is False
+        if self.read_calls == 1:
+            raise FileNotFoundError(self.path)
+        return super().read_cookie_pair(require_routable=require_routable)
+
+
 @pytest.mark.asyncio
 async def test_canonical_hard_failure_does_not_advance_or_mutate_baseline(tmp_path: Path) -> None:
     hard = CookieMergeResult(
@@ -364,7 +380,7 @@ async def test_lazy_canonical_override_failure_is_retryable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "profile.json"
-    store = _RecordingStore(
+    store = _RetryableReadStore(
         path,
         [
             CookieMergeResult(
@@ -376,17 +392,7 @@ async def test_lazy_canonical_override_failure_is_retryable(
         ],
     )
     persistence = CookiePersistence._from_store(None)
-    real_load = ProfileStore.read_cookie_pair
-    calls = 0
-
-    def first_fails(self: ProfileStore, *args: Any, **kwargs: Any):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise FileNotFoundError(path)
-        return real_load(self, *args, **kwargs)
-
-    monkeypatch.setattr(ProfileStore, "read_cookie_pair", first_fails)
+    monkeypatch.setattr(persistence_module, "ProfileStore", lambda unused: store)
     await persistence._save_canonical(_live("new"), path, to_thread=_inline_to_thread)
     assert store.calls == []
     assert isinstance(
@@ -395,9 +401,8 @@ async def test_lazy_canonical_override_failure_is_retryable(
     )
 
     _write(path, "old")
-    monkeypatch.setattr(persistence_module, "ProfileStore", lambda unused: store)
     await persistence._save_canonical(_live("new"), path, to_thread=_inline_to_thread)
-    assert calls == 2
+    assert store.read_calls == 2
     assert len(store.calls) == 1
 
 

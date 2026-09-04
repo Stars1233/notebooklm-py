@@ -27,7 +27,7 @@
     ]
   },
   "components": [
-    {"id": "sidecar", "type": "backend", "label": "LazyWebSidecar", "sublabel": "Android compatibility", "tag": "no keepalive", "pos": [25, 60], "size": [170, 84]},
+    {"id": "sidecar", "type": "backend", "label": "LazyWebSidecar", "sublabel": "_client_compat.py", "tag": "no keepalive", "pos": [25, 60], "size": [170, 84]},
     {"id": "webruntime", "type": "backend", "label": "WebRuntime", "sublabel": "auth_coord · persistence", "tag": "primary or sidecar", "pos": [282, 60], "size": [170, 84]},
     {"id": "webrefresh", "type": "backend", "label": "Web Refresh", "sublabel": "AuthRefreshCoordinator", "tag": "single flight", "pos": [544, 60], "size": [170, 84]},
     {"id": "recovery", "type": "backend", "label": "Recovery Ladder", "sublabel": "PSIDTS · headless · remint", "tag": "Web cookies", "pos": [806, 60], "size": [165, 84]},
@@ -65,7 +65,7 @@
       "title": "Backend dispatch",
       "items": [
         "refresh_auth uses WebRuntime.auth_coord on Web and AndroidRuntime.bearer_provider on Android",
-        "Android re-mints by generation; the Web ladder exists there only during a lazy sidecar window"
+        "Android re-mints by generation; its Web ladder exists only after the compatibility runtime is materialised"
       ]
     },
     {
@@ -73,7 +73,7 @@
       "title": "Raw access guardrail",
       "items": [
         "WebRawAPI accepts Web RPCMethod values; AndroidRawAPI accepts explicit gRPC descriptors",
-        "Android calls do not build Web transport; only deprecated rpc_call materialises the scoped sidecar"
+        "Android calls do not build Web transport; only deprecated rpc_call materialises the sidecar's WebRuntime"
       ]
     },
     {

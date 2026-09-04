@@ -20,7 +20,7 @@
           "closing",
           "reclosed"
         ],
-        "note": "Each open wave installs SharedRuntime plus exactly one backend runtime bundle."
+        "note": "Each open wave binds the already-assembled runtime graph to a new loop and resource epoch."
       },
       {
         "id": "waves",
@@ -68,7 +68,7 @@
       "id": "opening",
       "type": "active",
       "label": "OPENING",
-      "sublabel": "runtime bundle wave",
+      "sublabel": "bind and open resources",
       "lane": "main",
       "col": 1,
       "step": "02",
@@ -200,7 +200,7 @@
       "dot": "emerald",
       "title": "Generations",
       "items": [
-        "Each open wave fences SharedRuntime and the selected WebRuntime or AndroidRuntime",
+        "The selected runtime graph is assembled at construction; open binds and activates its resources",
         "A stale Web generation or Android epoch cannot write into a newer generation"
       ]
     },

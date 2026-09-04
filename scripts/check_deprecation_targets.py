@@ -233,7 +233,7 @@ def _statement_binds_name(statement: ast.stmt, name: str) -> bool:
     return any(
         isinstance(node, ast.Name)
         and node.id == name
-        and isinstance(node.ctx, (ast.Store, ast.Del))
+        and isinstance(getattr(node, "ctx", None), (ast.Store, ast.Del))
         for node in ast.walk(statement)
     )
 

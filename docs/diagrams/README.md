@@ -28,7 +28,7 @@ system overview at the [Pages site root](https://teng-lin.github.io/notebooklm-p
 | 23 | Runtime class model | How do SharedRuntime, WebRuntime, AndroidRuntime, and the lazy sidecar relate? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/23-runtime-class-model.html) · [Source](./23-runtime-class-model.architecture.json) |
 | 27 | Capability contracts | Which implementations satisfy the RPC, loop, and single-consumer contracts? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/27-capability-contracts.html) · [Source](./27-capability-contracts.architecture.json) |
 | 28 | Profile, auth, and backend selection | Which auth, runtime, raw adapter, and compatibility resources does each backend construct? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/28-profile-auth-backend-selection.workflow.html) · [Source](./28-profile-auth-backend-selection.workflow.json) |
-| 29 | Organization and sharing | How do notebooks, sharing, settings, labels, and collections divide their scopes? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/29-organization-and-sharing.architecture.html) · [Source](./29-organization-and-sharing.architecture.json) |
+| 29 | Organization and sharing | Which APIs span account and notebook scope, and where do sharing and membership live? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/29-organization-and-sharing.architecture.html) · [Source](./29-organization-and-sharing.architecture.json) |
 | 30 | Transfer security boundaries | How do the Web and Android transfer planes fence URLs, credentials, cleanup, and publication? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/30-transfer-security-boundaries.dataflow.html) · [Source](./30-transfer-security-boundaries.dataflow.json) |
 
 ## Authentication
@@ -37,7 +37,8 @@ system overview at the [Pages site root](https://teng-lin.github.io/notebooklm-p
 | --- | --- | --- | --- |
 | 04 | Authentication | How does refresh dispatch to Web cookie recovery or Android bearer re-minting? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/04-authentication.html) · [Source](./04-authentication.architecture.json) |
 | 10 | Login workflow | How do interactive login, browser-cookie import, and master-token bootstrap differ? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/10-login-workflow.html) · [Source](./10-login-workflow.workflow.json) |
-| 24 | Authentication class model | Which immutable values, stores, and coordinators own credential state? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/24-auth-class-model.html) · [Source](./24-auth-class-model.architecture.json) |
+| 24 | Authentication class model | Which typed values, stores, and coordinators own credential state and recovery? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/24-auth-class-model.html) · [Source](./24-auth-class-model.architecture.json) |
+| 31 | Cold authentication recovery | How does a cold Web profile recover through a refresh command, headless bootstrap, and path-serialized L4 re-minting? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/31-cold-auth-recovery.html) · [Source](./31-cold-auth-recovery.sequence.json) |
 
 ## Calls, data flows, and lifecycles
 
@@ -50,7 +51,9 @@ system overview at the [Pages site root](https://teng-lin.github.io/notebooklm-p
 | 15 | Android call path | What happens between an Android namespace call and protobuf projection? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/15-android-call-path.html) · [Source](./15-android-call-path.sequence.json) |
 | 19 | Client resource lifecycle | How do open, bind, drain, close, and reopen affect owned resources? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/19-client-resource-lifecycle.html) · [Source](./19-client-resource-lifecycle.lifecycle.json) |
 | 20 | Retry policy | How do both backends preserve retry parity and surface ambiguous writes honestly? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/20-retry-policy-workflow.html) · [Source](./20-retry-policy-workflow.workflow.json) |
-| 21 | Deep research lifecycle | How do research tasks progress from start through import or cancellation? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/21-deep-research-lifecycle.html) · [Source](./21-deep-research-lifecycle.lifecycle.json) |
+| 21 | Deep research lifecycle | How do research tasks progress through polling, completion, import, failure, or cancellation? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/21-deep-research-lifecycle.html) · [Source](./21-deep-research-lifecycle.lifecycle.json) |
+| 32 | MCP client provider | How does the MCP adapter open, reuse, invalidate, and recover its shared client? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/32-mcp-client-provider.html) · [Source](./32-mcp-client-provider.sequence.json) |
+| 33 | MCP detached chat task | How does a detached chat task move from creation through polling, terminal observation, and TTL expiry? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/33-mcp-detached-chat-task.html) · [Source](./33-mcp-detached-chat-task.lifecycle.json) |
 
 ## Domain models and adapters
 
@@ -71,8 +74,11 @@ The catalog covers the runtime layers, both backend graphs, all eleven public na
 three frontend adapters, authentication, the main byte-transfer boundaries, and the workflows
 whose ordering or state is difficult to understand from prose alone. The September 2026 audit
 added diagrams 28–30 because backend/profile precedence, the five organization namespaces, and
-per-hop transfer security were the material gaps in the original set. The backend-shared runtime
-refactor refreshes the affected diagrams without adding external systems, RPC ids, or wire shapes.
+per-hop transfer security were the material gaps in the original set. The branch-local assembler,
+root compatibility-sidecar, shared source workflow, and guarded-transfer refactors refresh the
+affected diagrams without adding external systems, RPC ids, or wire shapes.
+Diagrams 31–33 add the previously missing cold-authentication recovery sequence, MCP provider
+open/recovery sequence, and detached-task lifecycle, where concurrency and cleanup ordering matter.
 
 Some views are deliberately not generated:
 

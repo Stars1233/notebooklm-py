@@ -23,7 +23,7 @@
         "id": "domain",
         "label": "Domain failures",
         "focus": ["root", "rpc", "notfound", "domainmissing", "wait", "artifact", "artifacttimeout"],
-        "note": "Domain not-found and timeout classes retain their multiple-inheritance catch surfaces."
+        "note": "Seven resource not-found families and artifact timeouts retain their multiple-inheritance catch surfaces."
       }
     ]
   },
@@ -37,7 +37,7 @@
     {"id": "rpctimeout", "type": "backend", "label": "RPCTimeoutError", "sublabel": "request timed out", "pos": [1022, 40], "size": [206, 86]},
     {"id": "autherror", "type": "security", "label": "AuthError", "sublabel": "credential rejected", "tag": "RPCError", "pos": [750, 180], "size": [190, 86]},
     {"id": "downloadhop", "type": "external", "label": "Download Hop 401/403", "sublabel": "guarded asset GET", "tag": "raises AuthError", "pos": [1022, 180], "size": [206, 86]},
-    {"id": "domainmissing", "type": "backend", "label": "Domain *NotFoundError", "sublabel": "Notebook · Source · Artifact", "tag": "also RPCError", "pos": [1002, 340], "size": [226, 100]},
+    {"id": "domainmissing", "type": "backend", "label": "Domain *NotFoundError", "sublabel": "7 resource families", "tag": "also RPCError", "pos": [1002, 340], "size": [226, 100]},
     {"id": "artifactdownload", "type": "backend", "label": "ArtifactDownloadError", "sublabel": "media · policy · publication", "pos": [1002, 640], "size": [226, 86]},
     {"id": "artifacttimeout", "type": "backend", "label": "ArtifactTimeoutError", "sublabel": "generation wait expired", "tag": "also ArtifactError", "pos": [1002, 500], "size": [226, 86]}
   ],
@@ -67,7 +67,7 @@
       "dot": "cyan",
       "title": "Batch result metadata",
       "items": [
-        "DownloadResult adds error_code/message/hint; --all keeps rows plus AUTH_ERROR"
+        "--all preserves DownloadResult AUTH_ERROR metadata; seven missing-resource families inherit NotFoundError + RPCError"
       ]
     }
   ]

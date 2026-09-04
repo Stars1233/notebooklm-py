@@ -102,53 +102,33 @@
     },
     {
       "scope": "module",
-      "source": "cookie_pair",
-      "target": "cookie_contract"
-    },
-    {
-      "scope": "module",
-      "source": "cookie_pair",
+      "source": "cookie_types",
       "target": "cookie_policy"
     },
     {
       "scope": "module",
-      "source": "cookie_pair",
+      "source": "cookie_types",
       "target": "cookie_semantics"
     },
     {
       "scope": "module",
-      "source": "cookie_pair",
+      "source": "cookies",
+      "target": "cookie_policy"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
+      "target": "cookie_semantics"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
       "target": "cookie_types"
     },
     {
       "scope": "module",
-      "source": "cookie_pair",
-      "target": "paths"
-    },
-    {
-      "scope": "module",
-      "source": "cookie_types",
-      "target": "cookie_policy"
-    },
-    {
-      "scope": "module",
-      "source": "cookie_types",
-      "target": "cookie_semantics"
-    },
-    {
-      "scope": "module",
       "source": "cookies",
-      "target": "cookie_pair"
-    },
-    {
-      "scope": "module",
-      "source": "cookies",
-      "target": "cookie_policy"
-    },
-    {
-      "scope": "module",
-      "source": "cookies",
-      "target": "cookie_semantics"
+      "target": "mint_service"
     },
     {
       "scope": "module",
@@ -263,11 +243,6 @@
     {
       "scope": "module",
       "source": "mint_service",
-      "target": "cookie_contract"
-    },
-    {
-      "scope": "module",
-      "source": "mint_service",
       "target": "master_token_types"
     },
     {
@@ -316,16 +291,6 @@
       "target": "cookie_merge"
     },
     {
-      "scope": "function",
-      "source": "profile_store",
-      "target": "cookie_pair"
-    },
-    {
-      "scope": "module",
-      "source": "profile_store",
-      "target": "cookie_pair"
-    },
-    {
       "scope": "module",
       "source": "profile_store",
       "target": "cookie_policy"
@@ -353,6 +318,11 @@
     {
       "scope": "module",
       "source": "profile_store",
+      "target": "mint_service"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
       "target": "paths"
     },
     {
@@ -374,11 +344,6 @@
       "scope": "module",
       "source": "psidts_recovery",
       "target": "cookie_merge"
-    },
-    {
-      "scope": "module",
-      "source": "psidts_recovery",
-      "target": "cookie_pair"
     },
     {
       "scope": "module",
@@ -678,11 +643,6 @@
       "path": "src/notebooklm/_auth/account_types.py"
     },
     {
-      "lines": 5,
-      "name": "cookie_contract",
-      "path": "src/notebooklm/_auth/cookie_contract.py"
-    },
-    {
       "lines": 96,
       "name": "cookie_filter",
       "path": "src/notebooklm/_auth/cookie_filter.py"
@@ -691,11 +651,6 @@
       "lines": 448,
       "name": "cookie_merge",
       "path": "src/notebooklm/_auth/cookie_merge.py"
-    },
-    {
-      "lines": 366,
-      "name": "cookie_pair",
-      "path": "src/notebooklm/_auth/cookie_pair.py"
     },
     {
       "lines": 909,
@@ -708,12 +663,12 @@
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 401,
+      "lines": 637,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
     {
-      "lines": 784,
+      "lines": 833,
       "name": "cookies",
       "path": "src/notebooklm/_auth/cookies.py"
     },
@@ -753,7 +708,7 @@
       "path": "src/notebooklm/_auth/master_token_types.py"
     },
     {
-      "lines": 298,
+      "lines": 297,
       "name": "mint_service",
       "path": "src/notebooklm/_auth/mint_service.py"
     },
@@ -778,12 +733,12 @@
       "path": "src/notebooklm/_auth/profile_migration.py"
     },
     {
-      "lines": 907,
+      "lines": 921,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
     {
-      "lines": 998,
+      "lines": 1091,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
@@ -828,11 +783,11 @@
     "module_level": []
   },
   "summary": {
-    "function_local_edges": 13,
-    "module_edges": 117,
-    "modules": 34,
-    "total_lines": 13671,
-    "unique_edges": 130
+    "function_local_edges": 12,
+    "module_edges": 111,
+    "modules": 32,
+    "total_lines": 13691,
+    "unique_edges": 123
   },
   "version": 1
 }

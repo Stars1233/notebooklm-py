@@ -19,7 +19,7 @@
           "notebooks",
           "sharing"
         ],
-        "note": "Notebook lifecycle and access policy remain separate typed contracts even though both are notebook-scoped."
+        "note": "NotebooksAPI spans account listing and creation plus per-notebook lifecycle; SharingAPI is notebook-scoped."
       },
       {
         "id": "organization",
@@ -78,8 +78,8 @@
     {
       "id": "assembly",
       "type": "backend",
-      "label": "Client Assembly",
-      "sublabel": "one selected graph",
+      "label": "Selected Backend Graph",
+      "sublabel": "_web/assembly · _android/assembly",
       "tag": "client.backends",
       "pos": [
         292,
@@ -244,8 +244,8 @@
       "dot": "cyan",
       "title": "Two scopes",
       "items": [
-        "Notebooks, sharing and labels are notebook-scoped",
-        "Settings and collections are account-scoped"
+        "NotebooksAPI spans account and notebook operations",
+        "Sharing/labels use notebook scope; settings/collections use account scope"
       ]
     },
     {
@@ -261,7 +261,7 @@
       "title": "Stable surface",
       "items": [
         "Abstract APIs and public dataclasses stay backend-neutral",
-        "Web and Android adapters own only wire encoding and row projection"
+        "Adapters own transport projection and backend-specific RPC choreography"
       ]
     }
   ]

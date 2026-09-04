@@ -30,10 +30,10 @@
     {"id": "shared", "type": "database", "label": "SharedRuntime", "sublabel": "_runtime/init.py", "tag": "neutral bundle", "pos": [282, 60], "size": [170, 84]},
     {"id": "supervisor", "type": "backend", "label": "CallSupervisor", "sublabel": "generation leases", "tag": "admission · metrics · semaphore", "pos": [544, 60], "size": [170, 84]},
     {"id": "lifecycle", "type": "backend", "label": "ClientLifecycle", "sublabel": "root state machine", "tag": "participant tuples", "pos": [806, 60], "size": [165, 84]},
-    {"id": "sidecar", "type": "backend", "label": "LazyWebSidecar", "sublabel": "materialises WebRuntime", "tag": "no keepalive", "pos": [1063, 60], "size": [155, 84]},
+    {"id": "sidecar", "type": "backend", "label": "LazyWebSidecar", "sublabel": "_client_compat.py", "tag": "root-owned · inert", "pos": [1063, 60], "size": [155, 84]},
     {"id": "client", "type": "backend", "label": "NotebookLMClient", "sublabel": "public surface", "tag": "composition root", "pos": [30, 260], "size": [160, 90]},
-    {"id": "assembly", "type": "backend", "label": "_client_assembly", "sublabel": "conditional construction", "tag": "one primary runtime", "pos": [282, 260], "size": [170, 90]},
-    {"id": "webruntime", "type": "backend", "label": "WebRuntime", "sublabel": "reqid · auth · kernel", "tag": "transport · executor · uploader", "pos": [544, 260], "size": [170, 90]},
+    {"id": "assembly", "type": "backend", "label": "_client_assembly", "sublabel": "selects branch assembler", "tag": "one primary runtime", "pos": [282, 260], "size": [170, 90]},
+    {"id": "webruntime", "type": "backend", "label": "WebRuntime", "sublabel": "reqid · session auth · kernel", "tag": "transport · executor · uploader", "pos": [544, 260], "size": [170, 90]},
     {"id": "composed", "type": "database", "label": "ClientComposed", "sublabel": "write-once Web holder", "tag": "transport · executor · chain", "pos": [806, 260], "size": [165, 90]},
     {"id": "chainhost", "type": "backend", "label": "MiddlewareChainHost", "sublabel": "retry · auth refresh", "tag": "error injection · tracing", "pos": [1063, 260], "size": [155, 90]},
     {"id": "androidruntime", "type": "backend", "label": "AndroidRuntime", "sublabel": "bearer · session · upload", "tag": "assets · phenotype", "pos": [282, 460], "size": [170, 84]},
@@ -51,10 +51,10 @@
     {"id": "shared-supervisor", "from": "shared", "to": "supervisor", "label": "owns"},
     {"id": "supervisor-lifecycle", "from": "supervisor", "to": "lifecycle", "label": "generation state"},
     {"id": "lifecycle-sidecar", "from": "lifecycle", "to": "sidecar", "label": "pre-registers proxy", "variant": "dashed", "labelAt": [1017, 158]},
-    {"id": "assembly-web", "from": "assembly", "to": "webruntime", "label": "backend=web", "variant": "emphasis"},
+    {"id": "assembly-web", "from": "assembly", "to": "webruntime", "label": "via _web/assembly", "variant": "emphasis"},
     {"id": "web-composed", "from": "webruntime", "to": "composed", "label": "binds once"},
     {"id": "composed-chain", "from": "composed", "to": "chainhost", "label": "owns chain"},
-    {"id": "assembly-android", "from": "assembly", "to": "androidruntime", "label": "backend=android", "variant": "dashed", "labelAt": [367, 405]},
+    {"id": "assembly-android", "from": "assembly", "to": "androidruntime", "label": "via _android/assembly", "variant": "dashed", "labelAt": [367, 405]},
     {"id": "android-session", "from": "androidruntime", "to": "session", "label": "owns"},
     {"id": "session-epoch", "from": "session", "to": "epoch", "label": "reads task-local tag", "variant": "dashed", "labelAt": [760, 558]}
   ],
@@ -65,7 +65,7 @@
       "items": [
         "RuntimeCollaborators remains only a private alias for neutral SharedRuntime",
         "WebRuntime and AndroidRuntime contain their backend-specific collaborators",
-        "Conditional assembly does not construct the unused primary backend runtime"
+        "The root selector imports only the chosen branch-local assembler"
       ]
     },
     {
@@ -82,8 +82,8 @@
       "title": "Android compatibility",
       "items": [
         "Namespace operation scopes bind an epoch.py session-tagged ContextVar for nested Android calls",
-        "LazyWebSidecar is inert until deprecated rpc_call is used on an Android client",
-        "A materialised sidecar owns close and reopen but never installs keepalive"
+        "_client_compat.py alone installs the Android compatibility proxy",
+        "A materialised sidecar owns close and reopen but never installs keepalive or a drain hook"
       ]
     }
   ]

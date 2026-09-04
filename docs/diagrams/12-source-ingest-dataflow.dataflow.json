@@ -106,7 +106,7 @@
       "sublabel": "validate · register",
       "stage": 1,
       "row": 2,
-      "tag": "idempotent"
+      "tag": "mixed retry safety"
     },
     {
       "id": "scotty",
@@ -146,7 +146,7 @@
     {
       "id": "waitready",
       "type": "backend",
-      "label": "wait_for_ready",
+      "label": "wait_until_ready",
       "sublabel": "poll until READY",
       "stage": 4,
       "row": 1,
@@ -191,9 +191,13 @@
       "from": "addsvc",
       "to": "rpcpath",
       "label": "mutating RPC",
-      "classification": "probe guarded",
+      "classification": "URL/Drive probe · text direct",
       "variant": "emphasis",
-      "route": "straight"
+      "route": "straight",
+      "labelAt": [
+        423,
+        428
+      ]
     },
     {
       "id": "scotty-index",

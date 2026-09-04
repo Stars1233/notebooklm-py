@@ -2642,7 +2642,7 @@
     },
     {
       "kind": "from",
-      "lineno": 20,
+      "lineno": 19,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._auth.cookies",
@@ -2750,7 +2750,7 @@
     },
     {
       "kind": "from",
-      "lineno": 469,
+      "lineno": 346,
       "scope": "_resolve_recovery_path",
       "scope_kind": "function",
       "source": "notebooklm._auth.psidts_recovery",
@@ -9617,7 +9617,7 @@
       "modules": 39
     },
     "auth": {
-      "lines": 13692,
+      "lines": 13691,
       "modules": 32
     },
     "cli": {
@@ -9654,7 +9654,7 @@
     }
   },
   "summary": {
-    "authored_lines": 141839,
+    "authored_lines": 141838,
     "authored_modules": 447,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1056,

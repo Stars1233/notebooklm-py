@@ -19,7 +19,7 @@
     { "id": "loopguard", "type": "backend", "label": "LoopGuard", "sublabel": "assert_bound_loop()", "tag": "Protocol", "pos": [282, 260], "size": [170, 90] },
     { "id": "supervisor", "type": "backend", "label": "CallSupervisor", "sublabel": "production satisfier", "pos": [544, 260], "size": [170, 90] },
     { "id": "chatapi", "type": "backend", "label": "ChatAPI", "sublabel": "declares LoopGuard", "pos": [806, 260], "size": [165, 90] },
-    { "id": "loopbound", "type": "backend", "label": "LoopBoundPrimitive", "sublabel": "eleven direct subclasses", "tag": "mixin", "pos": [1063, 260], "size": [155, 90] },
+    { "id": "loopbound", "type": "backend", "label": "LoopBoundPrimitive", "sublabel": "seven direct subclasses", "tag": "mixin", "pos": [1063, 260], "size": [155, 90] },
     { "id": "kernelp", "type": "backend", "label": "Kernel", "sublabel": "post · cookies · close", "tag": "Protocol", "pos": [282, 460], "size": [170, 84] },
     { "id": "kernelc", "type": "backend", "label": "Kernel (concrete)", "sublabel": "epoch-fenced client", "pos": [544, 460], "size": [170, 84] },
     { "id": "upload", "type": "backend", "label": "SourceUploadPipeline", "sublabel": "sole consumer", "pos": [806, 460], "size": [165, 84] },

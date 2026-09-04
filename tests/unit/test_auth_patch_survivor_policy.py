@@ -13,6 +13,11 @@ from tests._baselines.registry import (
     _derive_browser_patch_sites,
 )
 
+# Both policy checks perform repository-wide AST projections. They stay well
+# below this bound in isolation, but xdist CPU contention can exceed the
+# suite-wide 60-second default; the matching baseline freeze uses the same cap.
+pytestmark = pytest.mark.timeout(180)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SURVIVOR_POLICY = REPO_ROOT / "tests/fixtures/policies/auth_patch_survivors.json"
 LIFECYCLE_POLICY = REPO_ROOT / "tests/fixtures/policies/auth_lifecycle_cleanup.json"

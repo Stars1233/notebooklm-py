@@ -8,6 +8,7 @@ the compatibility names.
 from __future__ import annotations
 
 import http.cookiejar
+import json
 import logging
 from collections.abc import Callable
 from pathlib import Path
@@ -16,23 +17,21 @@ from typing import Any, TypeAlias, cast
 import httpx
 
 from ..paths import get_storage_path
-from . import cookie_pair as _cookie_pair
 from . import cookie_policy as _cookie_policy
 from . import cookie_semantics as _cookie_semantics
+from . import cookie_types as _cookie_types
+from . import mint_service as _mint_service
 from .paths import resolve_auth_json_env
 
 logger = logging.getLogger("notebooklm.auth")
 
 
-StorageStateValidationError = _cookie_pair.StorageStateValidationError
-_SanitizedCookieEntry = _cookie_pair._SanitizedCookieEntry
-_LoadedCookiePair = _cookie_pair._LoadedCookiePair
-_bounded_row_field = _cookie_pair._bounded_row_field
-_sanitize_cookie_entry = _cookie_pair._sanitize_cookie_entry
-_sanitized_auth_entries = _cookie_pair._sanitized_auth_entries
-_load_storage_state = _cookie_pair._load_storage_state
-_load_storage_state_from_env_value = _cookie_pair._load_storage_state_from_env_value
-_cookie_is_http_only = _cookie_pair._cookie_is_http_only
+StorageStateValidationError = _cookie_types.StorageStateValidationError
+_SanitizedCookieEntry = _cookie_types._SanitizedCookieEntry
+_LoadedCookiePair = _cookie_types._LoadedCookiePair
+_bounded_row_field = _cookie_types._bounded_row_field
+_sanitize_cookie_entry = _cookie_types._sanitize_cookie_entry
+_sanitized_auth_entries = _cookie_types._sanitized_auth_entries
 
 
 CookieKey: TypeAlias = tuple[str, str, str]
@@ -77,14 +76,11 @@ def _validate_routable_entries(
     if not require_routable:
         return
 
-    # Keep the cookies -> recovery dependency acyclic.  Recovery owns the
-    # actual request-jar projection and the #2057 duplicate/routing predicate.
-    # Breaks the cookies <-> psidts_recovery cycle: ``psidts_recovery`` imports
-    # THIS module at module scope (it reuses the loaders/converters here), so
-    # the reverse edge has to stay function-local.
-    from . import psidts_recovery  # noqa: PLC0415 (cycle: psidts_recovery -> cookies)
-
-    if not psidts_recovery._psidts_routes_to_rotate(entries, to_cookie=to_cookie):
+    if not _cookie_types._psidts_routes_to_rotate(
+        entries,
+        to_cookie=to_cookie,
+        rotate_url=_mint_service.KEEPALIVE_ROTATE_URL,
+    ):
         raise RequiredCookieValidationError(
             f"Required cookie __Secure-1PSIDTS is not routable{context}.\n{_EXTRACTION_HINT}",
             reason="psidts_unroutable",
@@ -314,6 +310,65 @@ def resolve_auth_storage_path(path: Path | None, profile: str | None) -> Path | 
     return get_storage_path(profile=profile)
 
 
+def _load_storage_state(path: Path | None = None) -> dict[str, Any]:
+    """Load Playwright storage state using the canonical auth precedence."""
+    if path is not None:
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Storage file not found: {path}\nRun 'notebooklm login' to authenticate first."
+            )
+        storage_state = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(storage_state, dict) or not isinstance(
+            storage_state.get("cookies"), list
+        ):
+            raise StorageStateValidationError(
+                "Storage state must contain a 'cookies' list.\n"
+                'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
+            )
+        return storage_state
+
+    env_auth_json = resolve_auth_json_env()
+    if env_auth_json is not None:
+        return _load_storage_state_from_env_value(env_auth_json)
+
+    storage_path = get_storage_path()
+    if not storage_path.exists():
+        raise FileNotFoundError(
+            f"Storage file not found: {storage_path}\nRun 'notebooklm login' to authenticate first."
+        )
+    storage_state = json.loads(storage_path.read_text(encoding="utf-8"))
+    if not isinstance(storage_state, dict) or not isinstance(storage_state.get("cookies"), list):
+        raise StorageStateValidationError(
+            "Storage state must contain a 'cookies' list.\n"
+            'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
+        )
+    return storage_state
+
+
+def _load_storage_state_from_env_value(env_auth_json: str) -> dict[str, Any]:
+    """Parse one already-captured inline-auth value."""
+    auth_json = env_auth_json.strip()
+    if not auth_json:
+        raise StorageStateValidationError(
+            "NOTEBOOKLM_AUTH_JSON environment variable is set but empty.\n"
+            "Provide valid Playwright storage state JSON or unset the variable."
+        )
+    try:
+        storage_state = json.loads(auth_json)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in NOTEBOOKLM_AUTH_JSON environment variable: {exc}\n"
+            "Ensure the value is valid Playwright storage state JSON."
+        ) from exc
+    if not isinstance(storage_state, dict) or not isinstance(storage_state.get("cookies"), list):
+        raise StorageStateValidationError(
+            "NOTEBOOKLM_AUTH_JSON must contain valid Playwright storage state "
+            "with a 'cookies' key.\n"
+            'Expected format: {"cookies": [{"name": "SID", "value": "...", ...}]}'
+        )
+    return storage_state
+
+
 def load_httpx_cookies(path: Path | None = None) -> httpx.Cookies:
     """Load cookies as an httpx.Cookies object for authenticated downloads.
 
@@ -415,17 +470,11 @@ def _load_cookies_pure(path: Path | None = None, *, require_routable: bool = Tru
 def _load_cookie_pair_pure(
     path: Path | None = None, *, require_routable: bool = True
 ) -> _LoadedCookiePair:
-    """Compatibility loader retaining the historical cookies-owned seam."""
-    routable_check = None
-    if require_routable:
-        from . import psidts_recovery
-
-        routable_check = psidts_recovery._psidts_routes_to_rotate
-    return _cookie_pair._load_cookie_pair_pure(
-        path,
+    """Load one raw state sample into its paired live and typed projections."""
+    storage_state = _load_storage_state(path)
+    return _build_cookie_pair_from_storage_state(
+        storage_state,
         require_routable=require_routable,
-        routable_check=routable_check,
-        converter=_cookie_from_normalized_entry,
     )
 
 
@@ -502,17 +551,12 @@ def _build_cookie_pair_from_storage_state(
     context: str = "",
     require_routable: bool,
 ) -> _LoadedCookiePair:
-    """Compatibility projection retaining the historical converter patch seam."""
-    routable_check = None
-    if require_routable:
-        from . import psidts_recovery
-
-        routable_check = psidts_recovery._psidts_routes_to_rotate
-    return _cookie_pair._build_cookie_pair_from_storage_state(
+    """Compatibility projection over the canonical typed-cookie owner."""
+    return _cookie_types._build_cookie_pair_from_storage_state(
         storage_state,
         context=context,
         require_routable=require_routable,
-        routable_check=routable_check,
+        rotate_url=_mint_service.KEEPALIVE_ROTATE_URL,
         converter=_cookie_from_normalized_entry,
     )
 
@@ -593,6 +637,11 @@ def build_cookie_jar(
     for (name, domain, path), value in normalize_cookie_map(cookies).items():
         jar.set(name, value, domain=domain, path=path)
     return jar
+
+
+def _cookie_is_http_only(cookie: Any) -> bool:
+    """Return whether an http.cookiejar.Cookie has the HttpOnly marker."""
+    return _cookie_semantics.cookie_is_http_only(cookie)
 
 
 def _cookie_to_storage_state(cookie: Any) -> dict[str, Any]:

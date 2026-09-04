@@ -697,9 +697,11 @@ def test_result_projections_and_compatibility_value_identities() -> None:
     assert "MintedSessionWriteRequest" not in storage.__all__
     assert not hasattr(auth, "MintedSessionWriteRequest")
     assert storage.MintedSessionWriteRequest is profile_store.MintedSessionWriteRequest
+    assert cookies.StorageStateValidationError.__module__ == "notebooklm._auth.cookies"
 
 
 def test_phase9_closed_values_and_paired_compatibility_owners_are_exact() -> None:
+    assert cookies._LoadedCookiePair.__module__ == "notebooklm._auth.cookies"
     value_shapes = {
         tokens.InlineAuthSource: ([("document", "ProfileDocument", True)], False),
         tokens.FileAuthSource: (
@@ -1117,8 +1119,8 @@ def test_all_remaining_facade_inventory_callables_are_exact_identity_reexports()
 EXPECTED_DIRECT_CALLERS = {
     "AuthTokens": [
         "src/notebooklm/__init__.py",
-        "src/notebooklm/_android/assembly.py",
         "src/notebooklm/_client_assembly.py",
+        "src/notebooklm/_client_compat.py",
         "src/notebooklm/_web/assembly.py",
         "src/notebooklm/_web/transport/auth.py",
         "src/notebooklm/_web/transport/cookie_persistence.py",

@@ -31,7 +31,6 @@ _EXPECTED_IMPORTS = {
     ("module", "dataclasses", "field", 0, None),
     ("module", "typing", "Any", 0, None),
     ("module", "httpx", "", 0, None),
-    ("module", "", "cookie_contract", 1, "_cookie_contract"),
     ("module", "exceptions", "MissingDependencyError", 2, None),
     ("module", "master_token_types", "MasterToken", 1, None),
     ("_require_gpsoauth", "gpsoauth", "", 0, None),
@@ -1053,9 +1052,11 @@ def test_service_importers_callers_and_lock_boundary_are_exact() -> None:
     assert _module_importers(SERVICE_MODULE) == {
         "_android/auth.py",
         "_android/assembly.py",
+        "_auth/cookies.py",
         "_auth/keepalive.py",
         "_auth/master_token.py",
         "_auth/master_token_bootstrap.py",
+        "_auth/profile_store.py",
     }
     assert _service_calls() == {
         ("_android/assembly.py", "assemble_android_backend", "construct"),

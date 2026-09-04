@@ -23,7 +23,7 @@
         "id": "ambiguity",
         "label": "Unconfirmed writes",
         "focus": ["webpolicy", "androidpolicy", "idempotency", "scrub"],
-        "note": "Non-replayed writes surface transport-loss ambiguity without retaining callbacks or secret-owning frames."
+        "note": "Non-replayed writes surface transport-loss ambiguity; Android boundaries additionally scrub secret-owning frames."
       }
     ]
   },
@@ -48,7 +48,7 @@
     {"id": "androidpolicy", "lane": "android", "col": 2, "width": 112, "type": "database", "label": "Android Manifest", "sublabel": "method ceiling"},
     {"id": "androidretry", "lane": "android", "col": 4, "width": 112, "type": "backend", "label": "Android Retry", "sublabel": "auth · rate · server"},
     {"id": "idempotency", "lane": "shared", "col": 3, "width": 132, "type": "security", "label": "Outcome Helpers", "sublabel": "unsafe write · probe · tag"},
-    {"id": "scrub", "lane": "shared", "col": 5, "width": 110, "type": "security", "label": "Scrub + Surface", "sublabel": "unconfirmed error"}
+    {"id": "scrub", "lane": "shared", "col": 5, "width": 110, "type": "security", "label": "Mark + Surface", "sublabel": "unconfirmed error"}
   ],
   "edges": [
     {"id": "call-select", "from": "call", "to": "select", "variant": "emphasis", "role": "main"},
@@ -82,7 +82,7 @@
       "dot": "rose",
       "title": "Secret-safe failure",
       "items": [
-        "Ambiguous writes clear traceback frames and suppress cause and context before re-raise",
+        "Android ambiguous-write paths clear secret-owning traceback frames, cause and context before re-raise",
         "Cancellation and confirmed backend rejections are never relabeled unconfirmed"
       ]
     }

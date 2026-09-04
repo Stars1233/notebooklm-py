@@ -355,7 +355,6 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 0, "dataclasses", "field", None),
     ("module", 0, "enum", "Enum", None),
     ("module", 0, "pathlib", "Path", None),
-    ("module", 0, "typing", "TYPE_CHECKING", None),
     ("module", 0, "typing", "Any", None),
     ("module", 0, "typing", "Protocol", None),
     ("module", 0, "typing", "TypeVar", None),
@@ -364,10 +363,14 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 2, "exceptions", "LockUnavailableError", None),
     ("module", 1, "", "cookie_merge", "_cookie_merge"),
     ("module", 1, "", "cookie_policy", "_cookie_policy"),
+    ("module", 1, "", "mint_service", "_mint_service"),
     ("module", 1, "cookie_filter", "filter_storage_state_cookies_by_domain_policy", None),
     ("module", 1, "cookie_merge", "RecoveryObservation", None),
     ("module", 1, "cookie_types", "CookieIdentity", None),
     ("module", 1, "cookie_types", "CookieJar", None),
+    ("module", 1, "cookie_types", "StorageStateValidationError", None),
+    ("module", 1, "cookie_types", "_build_cookie_pair_from_storage_state", None),
+    ("module", 1, "cookie_types", "_LoadedCookiePair", None),
     ("module", 1, "credential_io", "_commit_profile_json", None),
     ("module", 1, "master_token_file", "MasterTokenFile", None),
     ("module", 1, "master_token_types", "MasterToken", None),
@@ -388,9 +391,6 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 1, "storage_lock", "LockRequest", None),
     ("module", 1, "storage_lock", "LockState", None),
     ("module", 1, "storage_lock", "StorageLockManager", None),
-    ("module", 1, "cookie_pair", "_LoadedCookiePair", None),
-    ("function", 1, "cookie_pair", "StorageStateValidationError", None),
-    ("function", 1, "cookie_pair", "_load_cookie_pair_pure", None),
 ]
 
 

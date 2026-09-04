@@ -32,7 +32,7 @@
           "webresponse",
           "webverify"
         ],
-        "note": "Web downloads use _redirect_guard or httpx redirect hooks to revalidate each hop before attaching cookie credentials."
+        "note": "AssetDownloadService uses _redirect_guard or httpx hooks to revalidate each hop before attaching cookie credentials."
       },
       {
         "id": "android-download",
@@ -129,17 +129,17 @@
     {
       "id": "webresponse",
       "type": "cloud",
-      "label": "Web Media Response",
+      "label": "Web Download Client",
       "stage": 3,
       "row": 1
     },
     {
       "id": "webverify",
       "type": "backend",
-      "label": "Verify & Publish",
+      "label": "Asset Download",
       "stage": 4,
       "row": 1,
-      "tag": "single-file staging"
+      "tag": "staging · atomic replace"
     },
     {
       "id": "asseturl",
@@ -151,7 +151,7 @@
     {
       "id": "hoppolicy",
       "type": "security",
-      "label": "Android Guard Plane",
+      "label": "Android URL Policy",
       "stage": 1,
       "row": 2,
       "tag": "every redirect"
@@ -159,7 +159,7 @@
     {
       "id": "downloadcreds",
       "type": "security",
-      "label": "CredentialPolicy",
+      "label": "_StickyBearerPolicy",
       "stage": 2,
       "row": 2,
       "tag": "per URL · generation"
@@ -167,14 +167,14 @@
     {
       "id": "response",
       "type": "cloud",
-      "label": "Media Response",
+      "label": "Guarded Response",
       "stage": 3,
       "row": 2
     },
     {
       "id": "verify",
       "type": "backend",
-      "label": "Verify & Publish",
+      "label": "guarded_transfer",
       "stage": 4,
       "row": 2,
       "tag": "same-dir staging"
@@ -304,8 +304,8 @@
       "dot": "cyan",
       "title": "Backend-selected download planes",
       "items": [
-        "Web uses _make_download_client, _redirect_guard, or httpx redirect hooks",
-        "Android uses _artifact/_guarded_transfer.py with a sticky bearer policy"
+        "Web AssetDownloadService uses _make_download_client plus redirect guards and hooks",
+        "AndroidAssetDownloadService wraps shared guarded_transfer with a sticky bearer policy"
       ]
     },
     {
@@ -320,7 +320,7 @@
       "dot": "emerald",
       "title": "Cleanup and publication",
       "items": [
-        "Android _await_advisory_cleanup shields response exit, per-URL close, and batch task cleanup",
+        "Shared _await_advisory_cleanup shields response exit, per-URL close, and batch cleanup",
         "Exit precedence is process exit, pending cancellation, current cancellation, then cleanup cancellation",
         "Single-file downloads replace same-directory staging only after a complete transfer"
       ]

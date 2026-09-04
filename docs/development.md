@@ -457,7 +457,8 @@ closed `LoadedAuth` result, and `StoredAuthLoader`. Its only structural test sea
 `TokenAcquirer`; inject that seam for ladder-result tests, and patch the call-time
 `tokens._load_stored_auth` provider for `AuthTokens.from_storage`/client composition tests. Raw
 loads and PSIDTS heal, file-account resolution, and the initial `ProfileStore` merge remain worker
-offloads. `_auth/cookies.py` owns one-sample live/SameSite-preserving seed provenance.
+offloads. `_auth/cookie_types.py` owns one-sample live/SameSite-preserving seed provenance;
+`_auth/cookies.py` preserves the compatibility loader and conversion seams over that owner.
 `_auth/recovery.py` now owns the complete cold operation. A fresh, one-shot
 `ColdRecoveryCoordinator` spells L2.5 → L3 → L4 directly; its class-owned `_drive_cold` and
 `_coalesce_cold` methods are the sole ladder and flight bodies. `ColdRecoveryState` owns the
@@ -503,12 +504,13 @@ cancellation: the caller is cancelled immediately, while an already-dispatched w
 and commit. File auth alone constructs the store; inline env auth logs the existing skip and does
 not persist. Patch the private typed helper/store method for these tests, not the retired private
 `refresh.save_cookies_to_storage` alias. The public saver/facade and client/runtime saver-injection
-seams remain exact. The completed ownership refactor's closing snapshot measured
-**40 modules / 15,237 lines / 128 unique edges (117 module +
-11 function-local)**. Module-only and all-scope SCC sets are both empty. The final touched production
-LOC is: account 252, account-repair 132, account-types 50, cookie-types 396, cookies 961, keepalive
-438, master-token 455, master-token-types 68, PSIDTS recovery 1,222, recovery 530, refresh 1,184,
-single-flight 268, and storage 1,127. These are ratchet evidence, not a budget to spend.
+seams remain exact. The current no-split auth graph measures
+**32 modules / 13,691 lines / 123 unique edges (111 module +
+12 function-local)**. Module-only and all-scope SCC sets are both empty. Current touched production
+LOC is: account 252, account-repair 132, account-types 50, cookie-types 637, cookies 833, keepalive
+438, master-token 469, master-token-types 70, profile-store 921, PSIDTS recovery 1,091, recovery 712,
+refresh 1,184, single-flight 268, and storage 1,089. These are ratchet evidence, not a budget to
+spend: the global module budget remains 1,500 lines, while PSIDTS recovery's shrink lock is 1,091.
 
 Runtime ownership is complete. `NotebookLMClient.from_storage` registers a
 `FileLoadedAuth` result's exact `ProfileStore`/baseline pair with `CookiePersistence`, without a

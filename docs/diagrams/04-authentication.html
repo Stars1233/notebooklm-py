@@ -5050,15 +5050,15 @@
         <path data-edge-from="gpsoauth" data-edge-to="bearer" data-edge-label="new generation" data-edge-key="12" data-edge-id="mint-bearer" data-composition-points="806,502;714,502" d="M 806 502 L 714 502" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
 
         <!-- Components -->
-        <g id="node-sidecar" data-node-id="sidecar" data-node-label="LazyWebSidecar" tabindex="0" role="button" aria-label="Focus LazyWebSidecar, Android compatibility, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="Android compatibility" data-node-tag="no keepalive" data-node-context="Architecture component">
-          <title>LazyWebSidecar · Android compatibility · Architecture component · no keepalive</title>
+        <g id="node-sidecar" data-node-id="sidecar" data-node-label="LazyWebSidecar" tabindex="0" role="button" aria-label="Focus LazyWebSidecar, _client_compat.py, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="_client_compat.py" data-node-tag="no keepalive" data-node-context="Architecture component">
+          <title>LazyWebSidecar · _client_compat.py · Architecture component · no keepalive</title>
           <rect x="25" y="60" width="170" height="84" rx="6" class="c-mask"/>
           <rect x="25" y="60" width="170" height="84" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(31 66) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="110" y="100" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LazyWebSidecar</text>
-        <text data-detail="context" x="110" y="116" class="t-muted" font-size="9" text-anchor="middle">Android compatibility</text>
+        <text data-detail="context" x="110" y="116" class="t-muted" font-size="9" text-anchor="middle">_client_compat.py</text>
         <text data-detail="fine" x="110" y="136" class="t-backend" font-size="7" text-anchor="middle">no keepalive</text>
         </g>
 
@@ -5476,7 +5476,7 @@
         </div>
         <ul>
           <li>&bull; refresh_auth uses WebRuntime.auth_coord on Web and AndroidRuntime.bearer_provider on Android</li>
-          <li>&bull; Android re-mints by generation; the Web ladder exists there only during a lazy sidecar window</li>
+          <li>&bull; Android re-mints by generation; its Web ladder exists only after the compatibility runtime is materialised</li>
         </ul>
       </div>
 
@@ -5487,7 +5487,7 @@
         </div>
         <ul>
           <li>&bull; WebRawAPI accepts Web RPCMethod values; AndroidRawAPI accepts explicit gRPC descriptors</li>
-          <li>&bull; Android calls do not build Web transport; only deprecated rpc_call materialises the scoped sidecar</li>
+          <li>&bull; Android calls do not build Web transport; only deprecated rpc_call materialises the sidecar&#39;s WebRuntime</li>
         </ul>
       </div>
 

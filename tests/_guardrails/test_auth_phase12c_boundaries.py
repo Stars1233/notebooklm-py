@@ -12,7 +12,6 @@ import notebooklm.auth as auth_facade
 from notebooklm._auth import (
     account,
     account_types,
-    cookie_pair,
     cookie_types,
     cookies,
     keepalive,
@@ -36,15 +35,14 @@ _MODULE_HASHES = {
     "account_repair.py": "4d6cd6af598c26d04bbeed07970708f587f23a24358ccd0125e5883470e8d074",
     "account_types.py": "ae645b74c6d3f46ee9532179672c90d5b690877b900120889022d32d8efa372a",
     "profile_account.py": "899baf4cc0c748740247b68c3adfa2a3754bb565b143d4a1150329a05f456ce4",
-    "cookie_types.py": "203e902e76add32859cab6bdad2c4855d34dea57dfc4f1ed56b47587c36dd6d8",
-    "cookie_pair.py": "094d06abd94f7f8e79e751d2e1990de22ace5a20211ae64f101a4810ff0f7392",
-    "cookies.py": "d7cc8a862f229ad2949dd0be76bc6550a5bf6b76342a5a24767883ea822ceecf",
+    "cookie_types.py": "c7e3704f9e08e0dc2fb8dc04b72e9dc9e3ccbfb55b37985b9193c404e2c543be",
+    "cookies.py": "d5236519a8a4f693faee522305caacdd1ebc65b675c326c3e0dafe36bb7bdee6",
     "keepalive.py": "505cfcf1d093d7aea2f26c2b7745a27ed8f7b51698e1bebdc3fafe4d6f78f065",
     "master_token.py": "42b3d3c3a4bc96c860d454ef8defd243b5d55617df7d3b4fc95467ae675bab78",
     "master_token_types.py": "856c741582249f7049fca0030e7af84cbda9141c7099a7aad6be6066090e5d57",
     "profile_migration.py": "ea6408a76890563c6f0f948e8031038436687611c0dd832b19c07b0177ede582",
-    "profile_store.py": "d1458435d6d80e0caa2c96d9d7ac5466bb1092547e5cc2e727f1be7b00b2355b",
-    "psidts_recovery.py": "0c7dabe85b7d66b7911906ab0a2b3f6d54505717b63a123f94581986d78ea762",
+    "profile_store.py": "1ed4945720ba1c25940677cd197210d5c80c62a3b8b6cf7b8f0c1f88783759bd",
+    "psidts_recovery.py": "707fdc06f2ce921b44c04efb6315199e38e1719f617ff6b0c02d51102ea1055d",
     "recovery.py": "7a728071e7f763b13f68639b86be263c200c1c88c338599df0a692d00f15b4f7",
     "refresh.py": "edeed1f338dda8f2d5add4f3c1dccfb7e069477c5d019b9dbf687202849da60a",
     "single_flight.py": "8e298fe515dd667a3dfc95449165ab45345d327381951e98474aafa67510f246",
@@ -181,7 +179,7 @@ _NODE_HASHES = {
         "_psidts_is_live",
     ): "44a2553d6d7377cf2cbdb6fe53f450d93ee6ac68ee06b5d10488d395c99e194f",
     (
-        "cookie_pair.py",
+        "psidts_recovery.py",
         "_psidts_routes_to_rotate",
     ): "30fcdd3c278df2f69143d12a42929101dc1e0038f63ea9f1c431285b0c1d2dd9",
     (
@@ -372,7 +370,6 @@ def test_relocated_values_errors_helpers_and_retired_upward_aliases_are_exact() 
     )
     assert storage._cookie_jar_for_merge.__module__ == "notebooklm._auth.storage"
     assert cookies.load_session_jar.__module__ == "notebooklm._auth.cookies"
-    assert psidts_recovery._psidts_routes_to_rotate is cookie_pair._psidts_routes_to_rotate
     for name in {
         "load_session_jar",
         "_load_storage_state",
@@ -390,7 +387,6 @@ def test_relocated_values_errors_helpers_and_retired_upward_aliases_are_exact() 
         ("account_types.py", {"account", "account_repair", "profile_store", "storage"}),
         ("account_repair.py", {"account", "storage"}),
         ("cookie_types.py", {"cookies", "profile_store", "storage"}),
-        ("cookie_pair.py", {"cookies", "profile_store", "psidts_recovery", "mint_service"}),
         ("master_token_types.py", {"master_token", "profile_store", "storage"}),
         ("psidts_recovery.py", {"cookies", "storage"}),
     ],
