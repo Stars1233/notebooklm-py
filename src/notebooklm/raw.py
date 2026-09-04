@@ -20,6 +20,7 @@ import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
 from .exceptions import DecodingError
@@ -231,10 +232,12 @@ def _validated_metadata(metadata: GrpcMetadata | None) -> tuple[tuple[str, str |
     return tuple(validated)
 
 
-_LAZY_EXPORTS = {
-    "AndroidRawAPI": ("notebooklm._android.raw", "AndroidRawAPI"),
-    "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
-}
+_LAZY_EXPORTS = MappingProxyType(
+    {
+        "AndroidRawAPI": ("notebooklm._android.raw", "AndroidRawAPI"),
+        "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
+    }
+)
 
 
 def __getattr__(name: str) -> object:
