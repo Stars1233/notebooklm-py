@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
-from ._client_compat import LazyWebSidecar, WebSeamOverrides
+from ._client_compat import WebSeamOverrides, _install_android_web_compatibility
 from ._client_contracts import BackendAssembly, BackendName, CookieRotator, CookieSaver
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
@@ -25,7 +25,7 @@ from ._runtime.config import (
     validate_read_timeout_kwarg,
 )
 from ._runtime.error_injection import _refuse_synthetic_error_outside_test_context
-from ._runtime.init import SharedRuntimeConfig, validate_shared_runtime_config
+from ._runtime.init import validate_shared_runtime_config
 from ._runtime.lifecycle import ClientLifecycle
 from .auth import AuthTokens
 
@@ -85,57 +85,6 @@ def _install_lifecycle(client: NotebookLMClient, assembly: BackendAssembly) -> N
     client._rpc_call_deprecation_warned = False
     if assembly.bind_collaborators is not None:
         assembly.bind_collaborators(client._collaborators)
-
-
-def _install_android_lifecycle(
-    client: NotebookLMClient,
-    assembly: BackendAssembly,
-    *,
-    auth: AuthTokens,
-    shared_config: SharedRuntimeConfig,
-    seam_overrides: WebSeamOverrides,
-    refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
-    use_default_refresh_callback: bool,
-    timeout: float,
-    refresh_retry_delay: float,
-    rate_limit_max_retries: int,
-    server_error_max_retries: int,
-    max_concurrent_uploads: int | None,
-    async_client_factory: Callable[..., httpx.AsyncClient] | None,
-) -> None:
-    """Add the root-owned 0.x sidecar without teaching Android about Web."""
-
-    def build_sidecar_runtime() -> Any:
-        from ._web.assembly import build_compatibility_runtime
-
-        runtime, resolved_seams = build_compatibility_runtime(
-            auth=auth,
-            refresh_callback=refresh_callback,
-            use_default_refresh_callback=use_default_refresh_callback,
-            shared=assembly.collaborators,
-            shared_config=shared_config,
-            seam_overrides=seam_overrides,
-            timeout=timeout,
-            refresh_retry_delay=refresh_retry_delay,
-            rate_limit_max_retries=rate_limit_max_retries,
-            server_error_max_retries=server_error_max_retries,
-            max_concurrent_uploads=max_concurrent_uploads,
-            async_client_factory=async_client_factory,
-        )
-        client._seams = resolved_seams
-        runtime.composed.bind_runtime_collaborators(client._collaborators)
-        return runtime
-
-    sidecar = LazyWebSidecar(build_sidecar_runtime)
-    client._web_sidecar = sidecar
-    lifecycle = ClientLifecycle(
-        supervisor=assembly.collaborators.call_supervisor,
-        transports=(*assembly.transports, sidecar),
-        loop_participants=(*assembly.loop_participants, sidecar),
-    )
-    client._collaborators = dataclasses.replace(assembly.collaborators, _lifecycle=lifecycle)
-    client._backends = assembly.backends
-    client._rpc_call_deprecation_warned = False
 
 
 def _assemble_client(
@@ -272,7 +221,7 @@ def _assemble_client(
             shared_config=shared_config,
             on_rpc_event=on_rpc_event,
         )
-        _install_android_lifecycle(
+        _install_android_web_compatibility(
             client,
             assembly,
             auth=auth,

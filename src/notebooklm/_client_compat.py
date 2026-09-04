@@ -1,11 +1,22 @@
-"""Root-owned 0.x compatibility transport for Android ``rpc_call``."""
+"""Root-owned 0.x Android-to-Web compatibility bridge for ``rpc_call``."""
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
+
+from ._runtime.lifecycle import ClientLifecycle
+
+if TYPE_CHECKING:
+    import httpx
+
+    from ._client_contracts import BackendAssembly
+    from ._runtime.init import SharedRuntimeConfig
+    from .auth import AuthTokens
+    from .client import NotebookLMClient
 
 _NOT_OPEN = "Client not initialized. Use 'async with' context."
 
@@ -17,6 +28,57 @@ class WebSeamOverrides:
     decode_response: Callable[..., Any] | None
     sleep: Callable[[float], Awaitable[Any]] | None
     is_auth_error: Callable[[Exception], bool] | None
+
+
+def _install_android_web_compatibility(
+    client: NotebookLMClient,
+    assembly: BackendAssembly,
+    *,
+    auth: AuthTokens,
+    shared_config: SharedRuntimeConfig,
+    seam_overrides: WebSeamOverrides,
+    refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    use_default_refresh_callback: bool,
+    timeout: float,
+    refresh_retry_delay: float,
+    rate_limit_max_retries: int,
+    server_error_max_retries: int,
+    max_concurrent_uploads: int | None,
+    async_client_factory: Callable[..., httpx.AsyncClient] | None,
+) -> None:
+    """Add the root-owned 0.x sidecar without teaching Android about Web."""
+
+    def build_sidecar_runtime() -> Any:
+        from ._web.assembly import build_compatibility_runtime
+
+        runtime, resolved_seams = build_compatibility_runtime(
+            auth=auth,
+            refresh_callback=refresh_callback,
+            use_default_refresh_callback=use_default_refresh_callback,
+            shared=assembly.collaborators,
+            shared_config=shared_config,
+            seam_overrides=seam_overrides,
+            timeout=timeout,
+            refresh_retry_delay=refresh_retry_delay,
+            rate_limit_max_retries=rate_limit_max_retries,
+            server_error_max_retries=server_error_max_retries,
+            max_concurrent_uploads=max_concurrent_uploads,
+            async_client_factory=async_client_factory,
+        )
+        client._seams = resolved_seams
+        runtime.composed.bind_runtime_collaborators(client._collaborators)
+        return runtime
+
+    sidecar = LazyWebSidecar(build_sidecar_runtime)
+    client._web_sidecar = sidecar
+    lifecycle = ClientLifecycle(
+        supervisor=assembly.collaborators.call_supervisor,
+        transports=(*assembly.transports, sidecar),
+        loop_participants=(*assembly.loop_participants, sidecar),
+    )
+    client._collaborators = dataclasses.replace(assembly.collaborators, _lifecycle=lifecycle)
+    client._backends = assembly.backends
+    client._rpc_call_deprecation_warned = False
 
 
 class LazyWebSidecar:

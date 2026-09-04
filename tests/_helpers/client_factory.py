@@ -75,7 +75,8 @@ def build_client_shell_for_tests(
     Shell-specific defaults (unchanged from the historical helper):
 
     - ``refresh_callback=None`` — no auth-refresh coordination unless a
-      test injects one (production wires ``client.refresh_auth``).
+      test injects one (production binds the Web-owned session refresh
+      operation).
     - ``keepalive_storage_path`` — passed through verbatim, bypassing the
       production canonicalization (``expanduser().resolve()``) of
       ``auth.storage_path``; an explicit ``None`` still falls through to

@@ -10,6 +10,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PATH = REPO_ROOT / "src" / "notebooklm" / "client.py"
 ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_assembly.py"
+CLIENT_COMPAT_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_compat.py"
 WEB_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "assembly.py"
 ANDROID_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_android" / "assembly.py"
 COMPOSED_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "transport" / "composed.py"
@@ -97,7 +98,7 @@ INLINE_CLIENT_ATTRS = {
 }
 
 
-def _tree(path: Path) -> ast.AST:
+def _tree(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"))
 
 
@@ -207,3 +208,117 @@ def test_client_composed_does_not_expose_collaborators_alias() -> None:
         "ClientComposed must expose runtime_collaborators, not collaborators:\n  "
         + "\n  ".join(violations)
     )
+
+
+def test_android_web_compatibility_installer_has_one_root_owner() -> None:
+    """The temporary 0.x bridge must not leak back into either backend assembler."""
+    definitions: list[str] = []
+    sidecar_constructors: list[str] = []
+    installer_calls: list[str] = []
+    runtime_builder_calls: list[str] = []
+    for path in sorted((REPO_ROOT / "src" / "notebooklm").rglob("*.py")):
+        relative = path.relative_to(REPO_ROOT)
+        for node in ast.walk(_tree(path)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
+                "_install_android_lifecycle",
+                "_install_android_web_compatibility",
+            }:
+                definitions.append(f"{relative}:{node.name}")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "LazyWebSidecar"
+            ):
+                sidecar_constructors.append(f"{relative}:{node.lineno}")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "_install_android_web_compatibility":
+                    installer_calls.append(f"{relative}:{node.lineno}")
+                if node.func.id == "build_compatibility_runtime":
+                    runtime_builder_calls.append(f"{relative}:{node.lineno}")
+
+    assert definitions == ["src/notebooklm/_client_compat.py:_install_android_web_compatibility"]
+    assert len(sidecar_constructors) == 1
+    assert sidecar_constructors[0].startswith("src/notebooklm/_client_compat.py:")
+    assert len(installer_calls) == 1
+    assert installer_calls[0].startswith("src/notebooklm/_client_assembly.py:")
+    assert len(runtime_builder_calls) == 1
+    assert runtime_builder_calls[0].startswith("src/notebooklm/_client_compat.py:")
+
+
+def test_android_web_compatibility_import_and_lifecycle_placement_are_exact() -> None:
+    """Only the root owner may lazily build Web and extend the frozen lifecycle tuples."""
+    tree = _tree(CLIENT_COMPAT_PATH)
+    installer = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_install_android_web_compatibility"
+    )
+    builder = next(
+        node
+        for node in installer.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_sidecar_runtime"
+    )
+    web_imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "_web.assembly"
+    ]
+    assert len(web_imports) == 1
+    assert web_imports[0] in list(ast.walk(builder))
+    assert not [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and (
+            any(alias.name.startswith("notebooklm._android") for alias in node.names)
+            if isinstance(node, ast.Import)
+            else node.module is not None and "_android" in node.module
+        )
+    ]
+
+    lifecycle_calls = [
+        node
+        for node in ast.walk(installer)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "ClientLifecycle"
+    ]
+    assert len(lifecycle_calls) == 1
+    keywords = {keyword.arg: keyword.value for keyword in lifecycle_calls[0].keywords}
+    assert ast.unparse(keywords["transports"]) == "(*assembly.transports, sidecar)"
+    assert ast.unparse(keywords["loop_participants"]) == "(*assembly.loop_participants, sidecar)"
+
+
+def test_android_rpc_call_materializes_sidecar_inside_operation_lease() -> None:
+    """The temporary Web runtime must never materialize outside root admission."""
+    rpc_call = next(
+        node
+        for node in ast.walk(_tree(CLIENT_PATH))
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "rpc_call"
+    )
+    materialize_calls = [
+        node
+        for node in ast.walk(rpc_call)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "materialize"
+    ]
+    leases = [
+        node
+        for node in ast.walk(rpc_call)
+        if isinstance(node, ast.AsyncWith)
+        and any(
+            isinstance(item.context_expr, ast.Call)
+            and isinstance(item.context_expr.func, ast.Attribute)
+            and item.context_expr.func.attr == "operation_scope"
+            and len(item.context_expr.args) == 1
+            and isinstance(item.context_expr.args[0], ast.Constant)
+            and item.context_expr.args[0].value == "rpc_call.sidecar"
+            for item in node.items
+        )
+    ]
+    assert len(materialize_calls) == 1
+    assert len(leases) == 1
+    assert materialize_calls[0] in [
+        child for statement in leases[0].body for child in ast.walk(statement)
+    ]
