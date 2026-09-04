@@ -1000,7 +1000,7 @@ def test_persistence_and_legacy_adapter_own_exact_state() -> None:
         if isinstance(node, ast.ClassDef)
         and any(isinstance(base, ast.Name) and base.id == "Protocol" for base in node.bases)
     }
-    assert protocols == {"SaveCookiesToStorage", "ToThread"}
+    assert protocols == {"ToThread"}
     module_assignments = {
         name
         for node in tree.body
@@ -1126,12 +1126,13 @@ def test_cookie_save_result_imports_and_consumers_are_exact() -> None:
             ("_auth/storage.py", "_cookie_save_return", "name:load"): 2,
             ("_auth/storage.py", "save_cookies_to_storage", "name:load"): 1,
             ("_auth/storage.py", "merge_cookie_delta", "name:load"): 4,
-            ("_web/transport/cookie_persistence.py", "<module>", "import:direct"): 1,
+            ("_client_contracts.py", "<module>", "import:direct"): 1,
             (
-                "_web/transport/cookie_persistence.py",
+                "_client_contracts.py",
                 "SaveCookiesToStorage.__call__",
                 "name:load",
             ): 1,
+            ("_web/transport/cookie_persistence.py", "<module>", "import:direct"): 1,
             (
                 "_web/transport/cookie_persistence.py",
                 "CookiePersistence._save_v0_callback",
@@ -1487,10 +1488,22 @@ def test_client_chain_spelling_without_constructor_provenance_is_untrusted() -> 
 
 def test_public_exports_and_compatibility_signatures_remain_narrow() -> None:
     import notebooklm._web.transport.cookie_persistence as module
+    from notebooklm._client_contracts import CookieRotator, CookieSaver, SaveCookiesToStorage
     from notebooklm._runtime.lifecycle import ClientLifecycle
-    from notebooklm._web.transport.lifecycle import WebTransportLifecycle
+    from notebooklm._web.transport.lifecycle import (
+        CookieRotator as LegacyCookieRotator,
+    )
+    from notebooklm._web.transport.lifecycle import (
+        CookieSaver as LegacyCookieSaver,
+    )
+    from notebooklm._web.transport.lifecycle import (
+        WebTransportLifecycle,
+    )
 
     assert module.__all__ == ["CookiePersistence", "SaveCookiesToStorage"]
+    assert module.SaveCookiesToStorage is SaveCookiesToStorage
+    assert LegacyCookieSaver is CookieSaver is SaveCookiesToStorage
+    assert LegacyCookieRotator is CookieRotator
     assert str(inspect.signature(module.SaveCookiesToStorage.__call__)) == (
         "(self, cookie_jar: 'httpx.Cookies', path: 'Path', /, *, "
         "original_snapshot: 'CookieSnapshot | None', return_result: 'bool') -> "

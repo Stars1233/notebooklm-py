@@ -11,7 +11,7 @@ import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar
 
 import httpx
 
@@ -29,21 +29,22 @@ from ..._auth.storage import (
 )
 from ...auth import AuthTokens
 
+if TYPE_CHECKING:
+    from ..._client_contracts import SaveCookiesToStorage
+
 logger = logging.getLogger("notebooklm.auth")
 
 
-class SaveCookiesToStorage(Protocol):
-    """Callable shape for the exact v0.x callback invocation."""
+def __getattr__(name: str) -> object:
+    if name != "SaveCookiesToStorage":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from ..._client_contracts import SaveCookiesToStorage
 
-    def __call__(
-        self,
-        cookie_jar: httpx.Cookies,
-        path: Path,
-        /,
-        *,
-        original_snapshot: CookieSnapshot | None,
-        return_result: bool,
-    ) -> bool | CookieSaveResult: ...
+    return SaveCookiesToStorage
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *__all__})
 
 
 T = TypeVar("T")

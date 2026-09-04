@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from notebooklm._client_assembly import BackendName, _assemble_client
+from notebooklm._client_contracts import CookieRotator, CookieSaver
 from notebooklm._runtime.config import (
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
     DEFAULT_CONNECT_TIMEOUT,
@@ -17,7 +18,6 @@ from notebooklm._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
 )
-from notebooklm._web.transport.lifecycle import CookieRotator, CookieSaver
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.types import RpcTelemetryEvent

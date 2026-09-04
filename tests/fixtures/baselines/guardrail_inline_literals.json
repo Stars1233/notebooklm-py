@@ -54,7 +54,7 @@
   },
   "tests/_guardrails/test_auth_storage_compatibility.py": {
     "EXPECTED_ALIAS_CALLERS": 61,
-    "EXPECTED_DIRECT_CALLERS": 62,
+    "EXPECTED_DIRECT_CALLERS": 64,
     "EXPECTED_SIGNATURES": 561,
     "FACADE_INVENTORY_IDENTITIES": 23,
     "LIVE_SIGNATURES": 61
@@ -86,6 +86,10 @@
   },
   "tests/_guardrails/test_cli_vcr_coverage.py": {
     "GROUP_COVERAGE": 24
+  },
+  "tests/_guardrails/test_client_composition.py": {
+    "FEATURE_API_NAMES": 26,
+    "WEB_ONLY_NAMESPACE_IMPORTS": 26
   },
   "tests/_guardrails/test_error_contract_catch_ordering.py": {
     "EXCLUDED_FROM_REQUIRED": 28

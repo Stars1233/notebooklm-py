@@ -53,6 +53,21 @@ def _backend_subprocess_env() -> dict[str, str]:
     return env
 
 
+ANDROID_CONSTRUCTION_WEB_COMPAT_MODULES = frozenset(
+    {
+        "notebooklm._web",
+        "notebooklm._web.transport",
+        "notebooklm._web.transport.error_injection",
+        "notebooklm._web.transport.seams",
+        "notebooklm._web.wire",
+        "notebooklm._web.wire.decoder",
+        "notebooklm._web.wire.encoder",
+        "notebooklm._web.wire.overrides",
+        "notebooklm._web.wire.safe_index",
+    }
+)
+
+
 def _auth() -> AuthTokens:
     return AuthTokens(
         cookies={"SID": "sid"},
@@ -484,6 +499,30 @@ assert not any(
         env=_backend_subprocess_env(),
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_android_construction_web_imports_match_transitional_allowlist() -> None:
+    script = """
+import json
+import sys
+from notebooklm.auth import AuthTokens
+from notebooklm.client import NotebookLMClient
+
+NotebookLMClient(
+    AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
+    backend="android",
+)
+after = {name for name in sys.modules if name.startswith("notebooklm._web")}
+print(json.dumps(sorted(after)))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert set(json.loads(completed.stdout)) == ANDROID_CONSTRUCTION_WEB_COMPAT_MODULES
 
 
 def test_android_preference_has_no_unqualified_namespace_log(caplog) -> None:  # type: ignore[no-untyped-def]

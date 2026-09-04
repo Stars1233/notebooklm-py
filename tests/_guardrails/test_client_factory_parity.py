@@ -145,6 +145,9 @@ def test_client_namespace_annotations_keep_neutral_api_identities() -> None:
     assert annotations["settings"] is SettingsAPI
     assert annotations["sharing"] is SharingAPI
 
+    raw_annotation = typing.get_type_hints(NotebookLMClient.raw.fget)["return"]
+    assert raw_annotation == (client_module.WebRawAPI | client_module.AndroidRawAPI)
+
 
 def test_shared_wiring_identities_hold_on_both_paths() -> None:
     """Identity pins the surface comparison cannot see.

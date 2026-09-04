@@ -98,9 +98,7 @@ LAZY_WEB_IMPORT_ALLOWLIST = frozenset(
 
 ALLOWED_WEB_IMPORTERS = frozenset(
     {
-        "notebooklm.client",
         "notebooklm._client_assembly",
-        "notebooklm.raw",
         "notebooklm.rpc",
         "notebooklm.rpc.types",
         "notebooklm._artifact",

@@ -14,7 +14,7 @@ import httpx
 import pytest
 
 import notebooklm._android.auth as android_auth
-import notebooklm._client_assembly as assembly
+import notebooklm._web.assembly as web_assembly
 from notebooklm._auth.master_token_types import MasterToken
 from notebooklm._web.transport.sidecar import LazyWebSidecar
 from notebooklm.auth import AuthTokens
@@ -224,7 +224,7 @@ async def test_sidecar_recancellation_detaches_but_root_close_joins_retirement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime, open_started, close_started, release_close = _blocking_partial_open_runtime()
-    monkeypatch.setattr(assembly, "build_web_runtime", MagicMock(return_value=runtime))
+    monkeypatch.setattr(web_assembly, "build_web_runtime", MagicMock(return_value=runtime))
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     client = NotebookLMClient(
         AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
@@ -341,7 +341,11 @@ async def test_android_sidecar_uses_own_refresh_ladder_and_persists_cookies(
     def client_factory(**kwargs: object) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr(assembly, "_resolve_async_client_factory", lambda _factory: client_factory)
+    monkeypatch.setattr(
+        web_assembly,
+        "_resolve_async_client_factory",
+        lambda _factory: client_factory,
+    )
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     client = NotebookLMClient(auth, backend="android")
     client._seams.decode_response = lambda *_args, **_kwargs: ["ok"]
@@ -378,7 +382,7 @@ async def test_android_deprecated_rpc_call_builds_once_warns_once_and_refuses_dr
 ) -> None:
     runtime = _runtime(result=["ok"])
     build = MagicMock(return_value=runtime)
-    monkeypatch.setattr(assembly, "build_web_runtime", build)
+    monkeypatch.setattr(web_assembly, "build_web_runtime", build)
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     client = NotebookLMClient(
         AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),

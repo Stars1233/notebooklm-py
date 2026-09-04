@@ -22,12 +22,13 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import os
 from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
@@ -35,8 +36,7 @@ if TYPE_CHECKING:
     from .rpc import RPCMethod
     from .types import ClientMetricsSnapshot, ConnectionLimits, RpcTelemetryEvent
 
-# Keep feature/collaborator types importable for runtime type-hint introspection.
-from ._android.runtime import AndroidRuntime
+from . import raw as raw_api
 from ._artifacts import ArtifactsAPI
 from ._auth import tokens as _auth_tokens
 from ._auth.account import _probe_authuser
@@ -51,6 +51,7 @@ from ._client_assembly import (
     _assemble_client,
     resolve_backend_preference,
 )
+from ._client_contracts import CookieRotator, CookieSaver
 from ._collections import CollectionsAPI
 from ._deprecation import warn_deprecated, warn_registered_deprecation
 from ._env import get_base_url as get_base_url
@@ -72,23 +73,48 @@ from ._settings import SettingsAPI
 from ._sharing import SharingAPI
 from ._sources import SourcesAPI
 from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
-from ._web.mind_maps import NoteBackedMindMapService as NoteBackedMindMapService  # noqa: F401
-from ._web.notes import NoteService as NoteService  # noqa: F401
-from ._web.transport.composed import ClientComposed as ClientComposed  # noqa: F401
-from ._web.transport.executor import RpcExecutor as RpcExecutor  # noqa: F401
-from ._web.transport.init import WebRuntime
-from ._web.transport.init import compose_client_internals as compose_client_internals  # noqa: F401
-from ._web.transport.lifecycle import CookieRotator, CookieSaver
-from ._web.transport.seams import ClientSeams
-from ._web.transport.seams import resolve_client_seams as resolve_client_seams  # noqa: F401
-from ._web.transport.sidecar import LazyWebSidecar
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
-from .raw import AndroidRawAPI, WebRawAPI
 
 __all__ = ["NotebookLMClient"]
 
 logger = logging.getLogger(__name__)
+
+_LAZY_COMPAT_EXPORTS = {
+    "AndroidRawAPI": ("notebooklm._android.raw", "AndroidRawAPI"),
+    "AndroidRuntime": ("notebooklm._android.runtime", "AndroidRuntime"),
+    "ClientComposed": ("notebooklm._web.transport.composed", "ClientComposed"),
+    "ClientSeams": ("notebooklm._web.transport.seams", "ClientSeams"),
+    "LazyWebSidecar": ("notebooklm._client_compat", "LazyWebSidecar"),
+    "NoteBackedMindMapService": (
+        "notebooklm._web.mind_maps",
+        "NoteBackedMindMapService",
+    ),
+    "NoteService": ("notebooklm._web.notes", "NoteService"),
+    "RpcExecutor": ("notebooklm._web.transport.executor", "RpcExecutor"),
+    "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
+    "WebRuntime": ("notebooklm._web.transport.init", "WebRuntime"),
+    "compose_client_internals": (
+        "notebooklm._web.transport.init",
+        "compose_client_internals",
+    ),
+    "resolve_client_seams": (
+        "notebooklm._web.transport.seams",
+        "resolve_client_seams",
+    ),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_COMPAT_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = target
+    return getattr(importlib.import_module(module_name), attribute)
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_COMPAT_EXPORTS})
 
 
 class NotebookLMClient:
@@ -142,11 +168,11 @@ class NotebookLMClient:
     # ``tests/_guardrails/test_client_factory_parity.py`` pins the
     # runtime attribute surface itself.
     _auth: AuthTokens
-    _seams: ClientSeams
+    _seams: Any
     _collaborators: SharedRuntime
-    _web_runtime: WebRuntime | None
-    _web_sidecar: LazyWebSidecar | None
-    _android_runtime: AndroidRuntime | None
+    _web_runtime: Any | None
+    _web_sidecar: Any | None
+    _android_runtime: Any | None
     _backend_preference: BackendPreference
     _backends: Mapping[str, BackendName]
     _rpc_call_deprecation_warned: bool
@@ -161,9 +187,9 @@ class NotebookLMClient:
     sharing: SharingAPI
     labels: LabelsAPI
     collections: CollectionsAPI
-    _raw: WebRawAPI | AndroidRawAPI
+    _raw: Any
 
-    def _require_web_runtime(self) -> WebRuntime:
+    def _require_web_runtime(self) -> Any:
         """Return the web bundle or fail before a web-only operation."""
         runtime = self._web_runtime
         if runtime is None:
@@ -171,10 +197,10 @@ class NotebookLMClient:
         return runtime
 
     @property
-    def raw(self) -> WebRawAPI | AndroidRawAPI:
+    def raw(self) -> raw_api.WebRawAPI | raw_api.AndroidRawAPI:
         """Return the advanced wire adapter selected for this client backend."""
 
-        return self._raw
+        return cast("raw_api.WebRawAPI | raw_api.AndroidRawAPI", self._raw)
 
     def __init__(
         self,
@@ -838,7 +864,7 @@ class NotebookLMClient:
 
     async def _refresh_web_runtime_auth_for_epoch(
         self,
-        web: WebRuntime,
+        web: Any,
         *,
         allow_headless: bool = False,
         expected_epoch: int,

@@ -10,13 +10,20 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PATH = REPO_ROOT / "src" / "notebooklm" / "client.py"
 ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_assembly.py"
+WEB_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "assembly.py"
+ANDROID_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_android" / "assembly.py"
 COMPOSED_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "transport" / "composed.py"
 
 # Both composition-root files: ``client.py`` (the thin ``__init__``
 # delegate) and ``_client_assembly.py`` (the shared assembly seam the
 # constructor and the canonical test factory both run). The guards below
 # scan both so moving wiring between them can't dodge the gate.
-COMPOSITION_ROOT_PATHS = (CLIENT_PATH, ASSEMBLY_PATH)
+COMPOSITION_ROOT_PATHS = (
+    CLIENT_PATH,
+    ASSEMBLY_PATH,
+    WEB_ASSEMBLY_PATH,
+    ANDROID_ASSEMBLY_PATH,
+)
 
 # Names a composition-root scope may bind the client instance to:
 # ``self`` inside ``NotebookLMClient`` methods, ``client`` inside
@@ -38,9 +45,35 @@ FEATURE_API_NAMES = {
     "WebSourcesAPI",
     "SourceUploadPipeline",
     "NoteService",
+    "AndroidArtifactsAPI",
+    "AndroidChatAPI",
+    "AndroidCollectionsAPI",
+    "AndroidLabelsAPI",
+    "AndroidMindMapsAPI",
+    "AndroidNotebooksAPI",
+    "AndroidNotesAPI",
+    "AndroidResearchAPI",
+    "AndroidSettingsAPI",
+    "AndroidSharingAPI",
+    "AndroidSourcesAPI",
+    "NoteBackedMindMapArtifactAdapter",
 }
 
-WEB_ONLY_NAMESPACE_IMPORTS: dict[str, str] = {}
+WEB_ONLY_NAMESPACE_IMPORTS = {
+    "WebArtifactsAPI": "_web.artifacts",
+    "WebChatAPI": "_web.chat",
+    "WebCollectionsAPI": "_web.collections",
+    "WebLabelsAPI": "_web.labels",
+    "WebMindMapsAPI": "_web.mind_maps",
+    "WebNotebooksAPI": "_web.notebooks",
+    "WebNotesAPI": "_web.notes",
+    "WebResearchAPI": "_web.research",
+    "WebSettingsAPI": "_web.settings",
+    "WebSharingAPI": "_web.sharing",
+    "WebSourcesAPI": "_web.sources",
+    "NoteBackedMindMapService": "_web.mind_maps",
+    "NoteService": "_web.notes",
+}
 
 NEUTRAL_NAMESPACE_IMPORTS = {
     "CollectionsAPI": "_collections",
@@ -68,9 +101,9 @@ def _tree(path: Path) -> ast.AST:
     return ast.parse(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("path", COMPOSITION_ROOT_PATHS, ids=lambda p: p.name)
-def test_web_only_namespaces_are_composed_from_their_canonical_modules(path: Path) -> None:
-    """Client annotations and assembly share the exact moved class objects."""
+@pytest.mark.parametrize("path", (CLIENT_PATH, ASSEMBLY_PATH), ids=lambda p: p.name)
+def test_public_client_and_root_selector_import_no_web_namespaces(path: Path) -> None:
+    """Only the selected Web assembler may import Web namespace implementations."""
     imported_from: dict[str, str] = {}
     for node in ast.walk(_tree(path)):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
@@ -79,7 +112,7 @@ def test_web_only_namespaces_are_composed_from_their_canonical_modules(path: Pat
             if alias.name in WEB_ONLY_NAMESPACE_IMPORTS:
                 imported_from[alias.name] = node.module
 
-    assert imported_from == WEB_ONLY_NAMESPACE_IMPORTS
+    assert imported_from == {}
 
 
 def test_client_annotations_use_neutral_namespace_contracts() -> None:
@@ -98,14 +131,26 @@ def test_client_annotations_use_neutral_namespace_contracts() -> None:
 def test_assembly_uses_concrete_web_namespace_implementations() -> None:
     """The composition root, and only it, selects the web backend classes."""
     imported_from: dict[str, str] = {}
-    for node in ast.walk(_tree(ASSEMBLY_PATH)):
+    for node in ast.walk(_tree(WEB_ASSEMBLY_PATH)):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
             continue
         for alias in node.names:
             if alias.name in WEB_NAMESPACE_IMPLEMENTATION_IMPORTS:
-                imported_from[alias.name] = node.module
+                imported_from[alias.name] = f"_web.{node.module.lstrip('.')}"
 
     assert imported_from == WEB_NAMESPACE_IMPLEMENTATION_IMPORTS
+
+
+def test_web_assembly_imports_every_namespace_from_its_canonical_module() -> None:
+    imported_from: dict[str, str] = {}
+    for node in ast.walk(_tree(WEB_ASSEMBLY_PATH)):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        for alias in node.names:
+            if alias.name in WEB_ONLY_NAMESPACE_IMPORTS:
+                imported_from[alias.name] = f"_web.{node.module.lstrip('.')}"
+
+    assert imported_from == WEB_ONLY_NAMESPACE_IMPORTS
 
 
 @pytest.mark.parametrize("path", COMPOSITION_ROOT_PATHS, ids=lambda p: p.name)

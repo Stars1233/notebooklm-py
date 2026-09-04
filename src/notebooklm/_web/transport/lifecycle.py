@@ -11,18 +11,15 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from ..._client_contracts import CookieRotator, CookieSaver
 from ..._runtime.config import CORE_LOGGER_NAME
 from ...auth import AuthTokens
-from .cookie_persistence import SaveCookiesToStorage
 from .kernel import Kernel
 
 if TYPE_CHECKING:
     from ...types import ConnectionLimits
     from .auth import AuthRefreshCoordinator
     from .cookie_persistence import CookiePersistence
-
-CookieSaver = SaveCookiesToStorage
-CookieRotator = Callable[..., Awaitable[None]]
 
 logger = logging.getLogger(CORE_LOGGER_NAME)
 

@@ -60,7 +60,12 @@ _LEGACY_RESULT_NAMES = frozenset(
 )
 _EXPECTED_LEGACY_RESULT_DEPENDENCIES = {
     "CookieSaveResult": frozenset(
-        {"_auth/storage.py", "_web/transport/cookie_persistence.py", "auth.py"}
+        {
+            "_auth/storage.py",
+            "_client_contracts.py",
+            "_web/transport/cookie_persistence.py",
+            "auth.py",
+        }
     ),
     "LoginWriteOutcome": frozenset({"_auth/storage.py", "auth.py"}),
     "LoginWriteStatus": frozenset({"_auth/storage.py"}),
@@ -1112,7 +1117,9 @@ def test_all_remaining_facade_inventory_callables_are_exact_identity_reexports()
 EXPECTED_DIRECT_CALLERS = {
     "AuthTokens": [
         "src/notebooklm/__init__.py",
+        "src/notebooklm/_android/assembly.py",
         "src/notebooklm/_client_assembly.py",
+        "src/notebooklm/_web/assembly.py",
         "src/notebooklm/_web/transport/auth.py",
         "src/notebooklm/_web/transport/cookie_persistence.py",
         "src/notebooklm/_web/transport/init.py",
@@ -2196,11 +2203,11 @@ def test_first_party_facade_callers_are_frozen_in_both_import_idioms() -> None:
     union = {(name, path) for name, paths in direct.items() for path in paths}
     union |= {(name, path) for name, paths in aliases.items() for path in paths}
     assert len(direct) == 18
-    assert sum(map(len, direct.values())) == 44
+    assert sum(map(len, direct.values())) == 46
     assert len(aliases) == 28
     assert sum(map(len, aliases.values())) == 33
     assert len({name for name, _path in union}) == 42
-    assert len(union) == 77
+    assert len(union) == 79
 
 
 @pytest.mark.skipif(not hasattr(ast, "TryStar"), reason="exception-group AST requires 3.11+")
