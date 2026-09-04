@@ -216,6 +216,29 @@ async def test_replay_mismatch_reaches_the_test_verbatim_through_the_public_clie
             await client.sharing.get_status(values.notebook_id)
 
 
+@pytest.mark.asyncio
+async def test_sequential_replays_install_fresh_lazy_assembly_seams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A prior replay must not strand its exhausted bearer/session in assembly."""
+    monkeypatch.delenv("NOTEBOOKLM_ANDROID_GRPC_RECORD", raising=False)
+
+    async with android_cassette_client(
+        CASSETTES / "get_or_create_account_recorded.grpc.json",
+        monkeypatch=monkeypatch,
+        scratch=None,
+    ) as (first, _values):
+        await first.settings.get_user_settings()
+
+    async with android_cassette_client(
+        CASSETTES / "get_project_rich_recorded.grpc.json",
+        monkeypatch=monkeypatch,
+        scratch=None,
+    ) as (second, values):
+        await second.notebooks.get(values.notebook_id)
+        await second.sources.list(values.notebook_id)
+
+
 def test_request_constants_are_numbered_per_request_independently_of_response_traffic() -> None:
     from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import (
         sources_pb2,

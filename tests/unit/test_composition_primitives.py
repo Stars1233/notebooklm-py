@@ -93,6 +93,7 @@ def test_runtime_bundles_follow_backend_ownership_boundary() -> None:
         "kernel",
         "cookie_persistence",
         "web_transport",
+        "session_auth",
         "composed",
         "executor",
         "source_uploader",
