@@ -30,6 +30,7 @@ from ._runtime.lifecycle import ClientLifecycle
 from .auth import AuthTokens
 
 if TYPE_CHECKING:
+    from ._android.auth import MasterTokenReader, OAuthMinter
     from .client import NotebookLMClient
     from .types import ConnectionLimits, RpcTelemetryEvent
 
@@ -164,6 +165,8 @@ def _assemble_client(
     sleep: Callable[[float], Awaitable[Any]] | None = None,
     is_auth_error: Callable[[Exception], bool] | None = None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    master_token_reader: MasterTokenReader | _UnsetType = _UNSET,
+    oauth_minter: OAuthMinter | _UnsetType = _UNSET,
 ) -> None:
     """Normalize root-owned inputs, select one backend, and freeze its lifecycle."""
 
@@ -247,7 +250,11 @@ def _assemble_client(
 
         assembly = assemble_android_backend(
             client,
-            auth=auth,
+            profile_path=Path(auth.storage_path) if auth.storage_path is not None else None,
+            master_token_reader=(
+                None if isinstance(master_token_reader, _UnsetType) else master_token_reader
+            ),
+            oauth_minter=None if isinstance(oauth_minter, _UnsetType) else oauth_minter,
             timeout=timeout,
             refresh_retry_delay=refresh_retry_delay,
             rate_limit_max_retries=rate_limit_max_retries,

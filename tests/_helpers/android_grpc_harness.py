@@ -350,7 +350,11 @@ async def android_cassette_client(
         sanitizer=compose_sanitizers(normalize_request, redactor),
     )
     bearer = ReplayBearer()
-    monkeypatch.setattr(android_auth, "_make_bearer_provider", lambda _storage_path: bearer)
+    monkeypatch.setattr(
+        android_auth,
+        "_make_bearer_provider",
+        lambda _master_token_reader, _oauth_minter: bearer,
+    )
     _inject_grpc_loader(monkeypatch, replay)
     auth = AuthTokens(
         cookies={"SID": "synthetic-cookie"},

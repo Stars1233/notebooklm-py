@@ -232,7 +232,7 @@ async def test_sidecar_recancellation_detaches_but_root_close_joins_retirement(
         backend="android",
     )
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()
@@ -352,7 +352,7 @@ async def test_android_sidecar_uses_own_refresh_ladder_and_persists_cookies(
     client._seams.decode_response = lambda *_args, **_kwargs: ["ok"]
     client._seams.sleep = AsyncMock()
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()
@@ -391,7 +391,7 @@ async def test_android_deprecated_rpc_call_builds_once_warns_once_and_refuses_dr
         backend="android",
     )
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()

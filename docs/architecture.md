@@ -207,6 +207,15 @@ lifecycle participants where their protocols require it. Cross-namespace joins
 receive the already-selected Android collaborators, so a typed Android operation
 does not fall back to a Web namespace object.
 
+Android composition receives an explicit narrow master-token reader and OAuth
+minter. The selected Android assembler constructs the concrete, transaction-safe
+`ProfileStore` and stateless `MintService` without reading either credential or
+filesystem state; the bearer provider performs its first read only during async
+open, after the Android optional-dependency checks. The root retains the public
+identity-stable `AuthTokens` solely for the 0.x Web compatibility sidecar and
+facade behavior; no Android runtime or feature adapter receives that Web session
+object.
+
 ### Web chat ask path
 
 The neutral `ChatAPI.ask()` owns conversation, lock, cache, ID-recovery, and
@@ -1091,7 +1100,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_web/transport/composed.py` | Web composition holder for transport, executor, chain host, middleware metadata, and the shared runtime bundle. |
 | `_web/transport/seams.py` | Constructor-only injectable seams used by tests and collaborator construction. |
 | `_android/` | Android backend package. Its package marker and selected adapter imports are dependency-free; generated protobuf modules remain lazy. Explicit Android preference installs Android adapters for all eleven public namespaces. The installed namespace graph has no Web operation collaborators; native gRPC/Scotty/asset paths and local composition cover the public contract. |
-| `_android/auth.py` | Generation-fenced `BearerProvider`: off-loop typed profile reads, shared mint waves, bounded expiry caching, compare-and-clear invalidation, and secret-safe teardown. |
+| `_android/auth.py` | Generation-fenced `BearerProvider` over explicit narrow `MasterTokenReader` / `OAuthMinter` capabilities: off-loop typed reads, shared mint waves, bounded expiry caching, compare-and-clear invalidation, and secret-safe teardown. It performs no path discovery and imports no `ProfileStore` or concrete `MintService`. |
 | `_android/phenotype.py` | Headless GMS Phenotype token provider: mints the per-account Play Books experiment `serverToken` via a single-package `getExperimentsAndConfigs` POST, TTL-caches it, and wraps it into the `x-goog-ext-202964622-bin` add-path metadata (#2302). |
 | `_android/play_books.py` | Android Play Books wire codecs plus the exact tentative-state and static-metadata helpers used by its guarded one-time stale-token retry. |
 | `_android/codecs/` | Typed protobuf-to-public-dataclass projection package for Android adapters. |

@@ -19,11 +19,10 @@ from notebooklm._android.auth import (
     BearerCredential,
     BearerProvider,
     _make_bearer_provider,
-    _NoMasterTokenProfile,
+    _NoMasterTokenReader,
 )
 from notebooklm._auth.master_token_types import MasterToken
 from notebooklm._auth.mint_service import MintedOAuthToken, OAuthMintError
-from notebooklm._auth.profile_store import ProfileStore
 from notebooklm.exceptions import AuthError, ConfigurationError, MissingDependencyError
 
 MASTER_SECRET = "aas_et/never-render-this-master"
@@ -108,7 +107,7 @@ def test_bearer_credential_repr_never_renders_the_token() -> None:
 
 def test_the_profile_less_reader_reports_no_master_token() -> None:
     """Direct clients with no profile path get ``None``, not an I/O attempt."""
-    assert _NoMasterTokenProfile().read_master_token() is None
+    assert _NoMasterTokenReader().read_master_token() is None
 
 
 # ---------------------------------------------------------------------------
@@ -598,14 +597,10 @@ async def test_prepare_close_requires_a_bound_loop() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_a_provider_without_a_storage_path_reads_no_profile() -> None:
-    provider = _make_bearer_provider(None)
+def test_provider_factory_binds_the_explicit_reader_and_minter() -> None:
+    reader = _NoMasterTokenReader()
+    minter = _Minter()
+    provider = _make_bearer_provider(reader, minter)
 
-    assert isinstance(provider._profile_store, _NoMasterTokenProfile)
-    assert provider._profile_store.read_master_token() is None
-
-
-def test_a_provider_with_a_storage_path_uses_the_profile_store(tmp_path) -> None:
-    provider = _make_bearer_provider(tmp_path)
-
-    assert isinstance(provider._profile_store, ProfileStore)
+    assert provider._master_token_reader is reader
+    assert provider._oauth_minter is minter

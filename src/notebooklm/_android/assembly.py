@@ -8,12 +8,14 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from .._auth.mint_service import MintService
+from .._auth.profile_store import ProfileStore
 from .._client_contracts import BackendAssembly, installed_backend_map
 from .._runtime.config import normalize_max_concurrent_uploads, resolve_chat_read_timeout
 from .._runtime.init import SharedRuntimeConfig, build_collaborators
 from .artifacts import AndroidArtifactsAPI
 from .assets import AndroidAssetDownloadService
-from .auth import _make_bearer_provider
+from .auth import MasterTokenReader, OAuthMinter, _make_bearer_provider, _NoMasterTokenReader
 from .chat import AndroidChatAPI
 from .collections import AndroidCollectionsAPI
 from .labels import AndroidLabelsAPI
@@ -32,7 +34,6 @@ from .sources import AndroidSourcesAPI
 from .upload import AndroidUploadPipeline
 
 if TYPE_CHECKING:
-    from ..auth import AuthTokens
     from ..client import NotebookLMClient
     from ..types import RpcTelemetryEvent
 
@@ -55,7 +56,9 @@ def _validate_android_settings(
 def assemble_android_backend(
     client: NotebookLMClient,
     *,
-    auth: AuthTokens,
+    profile_path: Path | None,
+    master_token_reader: MasterTokenReader | None,
+    oauth_minter: OAuthMinter | None,
     timeout: float,
     refresh_retry_delay: float,
     rate_limit_max_retries: int,
@@ -77,9 +80,13 @@ def assemble_android_backend(
         max_concurrent_uploads=max_concurrent_uploads,
     )
     shared = build_collaborators(shared_config, on_rpc_event=on_rpc_event)
-    bearer_provider = _make_bearer_provider(
-        Path(auth.storage_path) if auth.storage_path is not None else None
-    )
+    if master_token_reader is None:
+        master_token_reader = (
+            ProfileStore(profile_path) if profile_path is not None else _NoMasterTokenReader()
+        )
+    if oauth_minter is None:
+        oauth_minter = MintService()
+    bearer_provider = _make_bearer_provider(master_token_reader, oauth_minter)
     session = AndroidSession(
         bearer_provider,
         shared.call_supervisor,
