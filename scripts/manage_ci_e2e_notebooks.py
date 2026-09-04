@@ -66,6 +66,8 @@ DEFAULT_PREPARED_CONTRACT = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "e2e_prepared_role_contract.json"
 )
 _COPIED_TEMPLATE_REQUIRED_FAMILIES = frozenset({"audio", "video", "infographic", "slide_deck"})
+_COPY_SETTLE_TIMEOUT_SECONDS = 600.0
+_COPY_SETTLE_POLL_SECONDS = 10.0
 
 T = TypeVar("T")
 
@@ -454,8 +456,20 @@ class NotebookLifecycleManager:
         if _turn_has_content(turns):
             raise ContractError("prepared clean role inherited conversation state")
 
-    async def validate_template(self, *, include_title: bool = True) -> dict[str, int]:
-        """Validate immutable copied state using public typed APIs only."""
+    async def validate_template(
+        self,
+        *,
+        include_title: bool = True,
+        tolerate_incomplete: bool = False,
+        require_artifacts: bool = True,
+    ) -> dict[str, int] | None:
+        """Validate immutable copied state using public typed APIs only.
+
+        A newly copied notebook exposes its sources and artifact rows before
+        their processing states settle. ``tolerate_incomplete`` turns only
+        those content deficiencies into ``None`` so the bounded copy poller
+        can retry them; identity and title violations still fail immediately.
+        """
 
         try:
             notebook = await self._read(lambda: self.client.notebooks.get(self.template_id))
@@ -476,6 +490,7 @@ class NotebookLifecycleManager:
         sources = await self._read(lambda: self.client.sources.list(self.template_id, strict=True))
         source_contract = self.template_contract["sources"]
         ready_sources = [source for source in sources if getattr(source, "is_ready", False)]
+        incomplete: list[str] = []
         if source_contract["require_text_addressable"] is True:
             non_text_kinds = {"image", "media", "unknown"}
             text_ready = [
@@ -484,39 +499,63 @@ class NotebookLifecycleManager:
                 if _kind_value(getattr(source, "kind", None)) not in non_text_kinds
             ]
             if len(text_ready) < source_contract["minimum_ready"]:
-                raise ContractError("template has too few text-addressable ready sources")
+                incomplete.append("template has too few text-addressable ready sources")
         distinct_titles = {
             str(getattr(source, "title", "")).strip().casefold()
             for source in ready_sources
             if str(getattr(source, "title", "")).strip()
         }
         if len(ready_sources) < source_contract["minimum_ready"]:
-            raise ContractError("template has too few ready sources")
+            incomplete.append("template has too few ready sources")
         if len(distinct_titles) < source_contract["minimum_distinct_titles"]:
-            raise ContractError("template source topics are not sufficiently distinct")
+            incomplete.append("template source topics are not sufficiently distinct")
 
-        artifacts = await self._read(lambda: self.client.artifacts.list(self.template_id))
-        completed = [artifact for artifact in artifacts if _artifact_completed(artifact)]
-        families = {_kind_value(getattr(artifact, "kind", None)) for artifact in completed}
-        required = set(self.template_contract["artifacts"]["required_completed_families"])
-        missing = sorted(required - families)
-        if missing:
-            raise ContractError("template is missing completed families: " + ",".join(missing))
-        if self.template_contract["artifacts"]["require_interactive_mind_map"] and not any(
-            getattr(artifact, "is_interactive_mind_map", False) for artifact in completed
-        ):
-            raise ContractError("template is missing a completed interactive mind map")
+        completed: list[Any] = []
+        families: set[str] = set()
+        if require_artifacts:
+            artifacts = await self._read(lambda: self.client.artifacts.list(self.template_id))
+            completed = [artifact for artifact in artifacts if _artifact_completed(artifact)]
+            families = {_kind_value(getattr(artifact, "kind", None)) for artifact in completed}
+            required = set(self.template_contract["artifacts"]["required_completed_families"])
+            missing = sorted(required - families)
+            if missing:
+                incomplete.append("template is missing completed families: " + ",".join(missing))
+            if self.template_contract["artifacts"]["require_interactive_mind_map"] and not any(
+                getattr(artifact, "is_interactive_mind_map", False) for artifact in completed
+            ):
+                incomplete.append("template is missing a completed interactive mind map")
+        if incomplete:
+            if tolerate_incomplete:
+                return None
+            raise ContractError(incomplete[0])
         return {
             "ready_sources": len(ready_sources),
             "completed_artifacts": len(completed),
             "artifact_families": len(families),
         }
 
-    async def _validate_copy_shape(self, notebook_id: str) -> dict[str, int]:
+    async def _validate_copy_shape(
+        self,
+        notebook_id: str,
+        *,
+        require_artifacts: bool = True,
+    ) -> dict[str, int]:
         original = self.template_id
         self.template_id = notebook_id
         try:
-            return await self.validate_template(include_title=False)
+            deadline = self.clock() + _COPY_SETTLE_TIMEOUT_SECONDS
+            while True:
+                counts = await self.validate_template(
+                    include_title=False,
+                    tolerate_incomplete=True,
+                    require_artifacts=require_artifacts,
+                )
+                if counts is not None:
+                    return counts
+                now = self.clock()
+                if now >= deadline:
+                    raise ContractError("copied template state did not settle within ten minutes")
+                await self.sleep(min(_COPY_SETTLE_POLL_SECONDS, deadline - now))
         finally:
             self.template_id = original
 
@@ -1020,7 +1059,10 @@ class NotebookLifecycleManager:
             notebook_id = str(row["notebook_id"])
             if mask is not None:
                 mask(notebook_id)
-            await self._validate_copy_shape(notebook_id)
+            await self._validate_copy_shape(
+                notebook_id,
+                require_artifacts=role == "reference",
+            )
             if role == "reference":
                 await self.prepare_reference(notebook_id)
             else:

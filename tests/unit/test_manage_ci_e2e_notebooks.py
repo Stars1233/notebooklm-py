@@ -1489,6 +1489,61 @@ async def test_template_validation_enforces_interactive_mind_map_when_required(
 
 
 @pytest.mark.asyncio
+async def test_copy_shape_waits_for_processing_artifacts_to_settle(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.list_script.append(
+        [artifact for artifact in _artifacts() if artifact.kind not in {"audio", "video"}]
+    )
+
+    counts = await manager._validate_copy_shape(copied.id)
+
+    assert counts["completed_artifacts"] == 9
+    assert clock.value == 10.0
+
+
+@pytest.mark.asyncio
+async def test_copy_shape_fails_closed_when_processing_never_settles(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.by_notebook[copied.id] = [
+        artifact for artifact in _artifacts() if artifact.kind != "audio"
+    ]
+
+    with pytest.raises(ContractError, match="did not settle within ten minutes"):
+        await manager._validate_copy_shape(copied.id)
+
+    assert clock.value == 600.0
+
+
+@pytest.mark.asyncio
+async def test_clean_copy_shape_requires_sources_but_not_inherited_artifact_completion(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.by_notebook[copied.id] = []
+
+    counts = await manager._validate_copy_shape(copied.id, require_artifacts=False)
+
+    assert counts == {"ready_sources": 3, "completed_artifacts": 0, "artifact_families": 0}
+    assert clock.value == 0.0
+
+
+@pytest.mark.asyncio
 async def test_template_validation_rejects_wrong_notebook_lookup(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],

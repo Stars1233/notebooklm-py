@@ -814,9 +814,12 @@ can identify consistently: ready sources plus completed audio, video, infographi
 artifacts. Legacy quiz and flashcard rows in this public notebook have no Web variant metadata;
 report, data-table, and interactive mind-map artifacts are absent. Those optional read-only checks
 skip when unavailable, while the full E2E lanes generate and exercise every family on disposable
-notebooks. The checked-in template shape is `tests/fixtures/e2e_template_contract.json`. Notes and
-chat history are deliberately absent from that contract. Provisioning creates and validates those
-on the disposable `reference` copy using
+notebooks. Copying is asynchronous: provisioning polls the copied source and artifact states for up
+to ten minutes before treating a missing required family on the read-only reference copy as a
+contract failure. Generation, multi-source, and RPC copies wait only for ready sources because
+their inherited artifacts are immediately removed. The checked-in template shape is
+`tests/fixtures/e2e_template_contract.json`. Notes and chat history are deliberately absent from
+that contract. Provisioning creates and validates those on the disposable `reference` copy using
 `tests/fixtures/e2e_prepared_role_contract.json`.
 The configured template is the public notebook titled
 `Make Your Writing More Powerful and Persuasive`. Its title cannot be changed; replacing the
