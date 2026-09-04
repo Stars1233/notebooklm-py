@@ -54,7 +54,7 @@ def test_manifest_paths_use_a_store_owned_private_child_directory() -> None:
         assert "CI_E2E_MANIFEST=$RUNNER_TEMP/notebooklm-e2e/manifest.json" in str(configure["run"])
 
 
-def test_live_workflows_resolve_only_main_before_planning_or_secrets() -> None:
+def test_live_workflows_resolve_trusted_targets_before_planning_or_secrets() -> None:
     for name in LIVE_NAMES:
         workflow = _load(name)
         resolver = workflow["jobs"]["resolve-target"]
@@ -63,13 +63,36 @@ def test_live_workflows_resolve_only_main_before_planning_or_secrets() -> None:
         assert "release/" not in resolver_text
         assert "secrets." not in resolver_text
         assert "secrets[" not in resolver_text
+        if name != "verify-package.yml":
+            assert workflow["permissions"] == {"contents": "read"}
+            assert resolver["permissions"] == {
+                "contents": "read",
+                "pull-requests": "read",
+            }
+            assert "qualification_pr" in resolver_text
+            assert "github.actor" in resolver_text
+            assert "github.triggering_actor" in resolver_text
+            assert "github.run_attempt" in resolver_text
+            assert "same-repository PR targeting main" in resolver_text
+            resolver_checkout = next(
+                step for step in _steps(resolver) if "checkout@" in str(step.get("uses"))
+            )
+            assert resolver_checkout["with"]["ref"] == ("${{ steps.resolve.outputs.checkout_ref }}")
+            target = _step(resolver, "target")
+            assert target["env"]["EXPECTED_SHA"] == ("${{ steps.resolve.outputs.expected_sha }}")
+            assert 'actual_sha" != "$EXPECTED_SHA' in str(target["run"])
 
         planner_name = "plan-live-lanes" if name != "verify-package.yml" else "plan-account"
         planner = workflow["jobs"][planner_name]
         assert "secrets." not in str(planner)
         assert "secrets[" not in str(planner)
         checkout = next(step for step in _steps(planner) if "checkout@" in str(step.get("uses")))
-        assert checkout["with"]["ref"] == "${{ needs.resolve-target.outputs.sha }}"
+        expected_ref = (
+            "${{ needs.resolve-target.outputs.sha }}"
+            if name == "verify-package.yml"
+            else "${{ needs.resolve-target.outputs.trusted_sha }}"
+        )
+        assert checkout["with"]["ref"] == expected_ref
 
 
 @pytest.mark.parametrize("name", LIVE_NAMES)
@@ -83,7 +106,7 @@ def test_live_workflows_resolve_only_main_before_planning_or_secrets() -> None:
         ("workflow_dispatch", "refs/tags/v0.9.0", "false"),
     ],
 )
-def test_trusted_target_shell_accepts_only_exact_main(
+def test_trusted_target_shell_defaults_to_main_and_rejects_other_workflow_refs(
     name: str,
     event_name: str,
     ref: str,
@@ -94,7 +117,6 @@ def test_trusted_target_shell_accepts_only_exact_main(
     resolver = workflow["jobs"]["resolve-target"]
     step_id = "trust" if name == "verify-package.yml" else "resolve"
     command = str(_step(resolver, step_id)["run"])
-    assert "EVENT_NAME" not in command
     output = tmp_path / f"{name}-{event_name}-{expected}.out"
     completed = subprocess.run(
         ["bash", "-c", command],
@@ -104,8 +126,11 @@ def test_trusted_target_shell_accepts_only_exact_main(
         env={
             **os.environ,
             "EVENT_NAME": event_name,
+            "GITHUB_ACTOR_VALUE": "teng-lin",
             "GITHUB_REF_VALUE": ref,
+            "GITHUB_SHA_VALUE": "b" * 40,
             "GITHUB_OUTPUT": str(output),
+            "QUALIFICATION_PR": "",
         },
     )
     assert completed.returncode == (0 if expected == "true" else 1)
@@ -115,6 +140,189 @@ def test_trusted_target_shell_accepts_only_exact_main(
         if "=" in line
     )
     assert values["is_standard"] == expected
+
+
+@pytest.mark.parametrize("name", ("nightly.yml", "rpc-health.yml"))
+def test_owner_can_pin_an_open_same_repo_main_pr_for_live_qualification(
+    name: str,
+    tmp_path: Path,
+) -> None:
+    workflow = _load(name)
+    command = str(_step(workflow["jobs"]["resolve-target"], "resolve")["run"])
+    output = tmp_path / f"{name}-pr.out"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$GH_STUB_FIELDS"\n', encoding="utf-8")
+    fake_gh.chmod(0o755)
+    sha = "a" * 40
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CANONICAL_REPOSITORY": "teng-lin/notebooklm-py",
+            "EVENT_NAME": "workflow_dispatch",
+            "GITHUB_ACTOR_VALUE": "teng-lin",
+            "GITHUB_REF_VALUE": "refs/heads/main",
+            "GITHUB_SHA_VALUE": "b" * 40,
+            "GITHUB_TRIGGERING_ACTOR_VALUE": "teng-lin",
+            "GITHUB_OUTPUT": str(output),
+            "GH_STUB_FIELDS": (
+                f"open\tteng-lin/notebooklm-py\tmain\tteng-lin/notebooklm-py\t{sha}"
+            ),
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "QUALIFICATION_PR": "2353",
+            "RUN_ATTEMPT": "1",
+        },
+    )
+    assert completed.returncode == 0, completed.stderr
+    values = dict(
+        line.split("=", 1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+    assert values == {
+        "branch": "pr-2353",
+        "checkout_ref": sha,
+        "expected_sha": sha,
+        "is_standard": "true",
+        "trusted_sha": "b" * 40,
+    }
+
+
+@pytest.mark.parametrize("name", ("nightly.yml", "rpc-health.yml"))
+@pytest.mark.parametrize(
+    ("actor", "triggering_actor", "run_attempt", "fields"),
+    [
+        (
+            "another-maintainer",
+            "another-maintainer",
+            "1",
+            f"open\tteng-lin/notebooklm-py\tmain\tteng-lin/notebooklm-py\t{'a' * 40}",
+        ),
+        (
+            "teng-lin",
+            "another-maintainer",
+            "1",
+            f"open\tteng-lin/notebooklm-py\tmain\tteng-lin/notebooklm-py\t{'a' * 40}",
+        ),
+        (
+            "teng-lin",
+            "teng-lin",
+            "2",
+            f"open\tteng-lin/notebooklm-py\tmain\tteng-lin/notebooklm-py\t{'a' * 40}",
+        ),
+        (
+            "teng-lin",
+            "teng-lin",
+            "1",
+            f"open\tteng-lin/notebooklm-py\tmain\ta-contributor/notebooklm-py\t{'a' * 40}",
+        ),
+        (
+            "teng-lin",
+            "teng-lin",
+            "1",
+            f"closed\tteng-lin/notebooklm-py\tmain\tteng-lin/notebooklm-py\t{'a' * 40}",
+        ),
+        (
+            "teng-lin",
+            "teng-lin",
+            "1",
+            f"open\tteng-lin/notebooklm-py\tdevelop\tteng-lin/notebooklm-py\t{'a' * 40}",
+        ),
+    ],
+)
+def test_live_pr_qualification_rejects_untrusted_candidates(
+    name: str,
+    actor: str,
+    triggering_actor: str,
+    run_attempt: str,
+    fields: str,
+    tmp_path: Path,
+) -> None:
+    workflow = _load(name)
+    command = str(_step(workflow["jobs"]["resolve-target"], "resolve")["run"])
+    output = tmp_path / f"{name}-rejected-pr.out"
+    fake_gh = tmp_path / "gh"
+    fake_gh.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$GH_STUB_FIELDS"\n', encoding="utf-8")
+    fake_gh.chmod(0o755)
+    completed = subprocess.run(
+        ["bash", "-c", command],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={
+            **os.environ,
+            "CANONICAL_REPOSITORY": "teng-lin/notebooklm-py",
+            "EVENT_NAME": "workflow_dispatch",
+            "GITHUB_ACTOR_VALUE": actor,
+            "GITHUB_REF_VALUE": "refs/heads/main",
+            "GITHUB_SHA_VALUE": "b" * 40,
+            "GITHUB_TRIGGERING_ACTOR_VALUE": triggering_actor,
+            "GITHUB_OUTPUT": str(output),
+            "GH_STUB_FIELDS": fields,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "QUALIFICATION_PR": "2353",
+            "RUN_ATTEMPT": run_attempt,
+        },
+    )
+    assert completed.returncode == 1
+    values = dict(
+        line.split("=", 1)
+        for line in output.read_text(encoding="utf-8").splitlines()
+        if "=" in line
+    )
+    assert values["is_standard"] == "false"
+
+
+def test_pr_qualification_keeps_account_selection_and_raw_token_consumer_trusted() -> None:
+    workflows = (_load("nightly.yml"), _load("rpc-health.yml"))
+    for workflow in workflows:
+        planner = workflow["jobs"]["plan-live-lanes"]
+        planner_checkout = next(
+            step for step in _steps(planner) if "checkout@" in str(step.get("uses"))
+        )
+        assert planner_checkout["with"]["ref"] == (
+            "${{ needs.resolve-target.outputs.trusted_sha }}"
+        )
+
+    live_jobs = (
+        workflows[0]["jobs"]["e2e"],
+        workflows[1]["jobs"]["health-check"],
+        workflows[1]["jobs"]["android-grpc-health"],
+    )
+    for job in live_jobs:
+        trusted_checkout = next(
+            step for step in _steps(job) if step.get("name") == "Checkout trusted CI helpers"
+        )
+        assert trusted_checkout["with"] == {
+            "ref": "${{ needs.resolve-target.outputs.trusted_sha }}",
+            "path": "trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}",
+            "fetch-depth": 1,
+            "persist-credentials": False,
+        }
+        auth = next(
+            step for step in _steps(job) if step.get("name") == "Materialize selected account"
+        )
+        trusted_install = next(
+            step for step in _steps(job) if step.get("name") == "Install trusted auth environment"
+        )
+        trusted_install_run = str(trusted_install["run"])
+        assert 'cd "$trusted_root"' in trusted_install_run
+        assert "uv sync --frozen --extra headless --no-dev" in trusted_install_run
+        auth_run = str(auth["run"])
+        assert 'PYTHONPATH="$trusted_root/src"' in auth_run
+        assert 'cd "$trusted_root"' in auth_run
+        assert "uv run --frozen --no-sync python" in auth_run
+        assert "scripts/materialize_ci_auth.py" in auth_run
+        assert "uv run python scripts/materialize_ci_auth.py" not in auth_run
+        steps = _steps(job)
+        assert steps.index(trusted_install) < steps.index(auth)
+        candidate_install = next(
+            step for step in steps if step.get("name") == "Install dependencies"
+        )
+        assert steps.index(auth) < steps.index(candidate_install)
 
 
 def test_secret_bearing_jobs_have_both_literal_gates_and_exact_sha_checkout() -> None:

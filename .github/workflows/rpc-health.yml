@@ -6,6 +6,11 @@ on:
     - cron: '0 7 * * *'
   workflow_dispatch:
     inputs:
+      qualification_pr:
+        description: 'Open same-repository PR to qualify (dispatch this workflow on main)'
+        required: false
+        type: string
+        default: ''
       account_rotation_base:
         description: 'Account-rotation base; lane offsets still apply'
         required: true
@@ -20,35 +25,111 @@ jobs:
   resolve-target:
     runs-on: ubuntu-latest
     if: github.repository == 'teng-lin/notebooklm-py'
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       branch: ${{ steps.resolve.outputs.branch }}
       is_standard: ${{ steps.resolve.outputs.is_standard }}
       sha: ${{ steps.target.outputs.sha }}
+      trusted_sha: ${{ steps.resolve.outputs.trusted_sha }}
     steps:
       - name: Resolve trusted target
         id: resolve
         env:
+          CANONICAL_REPOSITORY: teng-lin/notebooklm-py
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_ACTOR_VALUE: ${{ github.actor }}
           GITHUB_REF_VALUE: ${{ github.ref }}
+          GITHUB_SHA_VALUE: ${{ github.sha }}
+          GITHUB_TRIGGERING_ACTOR_VALUE: ${{ github.triggering_actor }}
+          GH_TOKEN: ${{ github.token }}
+          QUALIFICATION_PR: ${{ inputs.qualification_pr }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          echo "branch=main" >> "$GITHUB_OUTPUT"
-          if [ "$GITHUB_REF_VALUE" = refs/heads/main ]; then
-            echo "is_standard=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ "$GITHUB_REF_VALUE" != refs/heads/main ]; then
             echo "is_standard=false" >> "$GITHUB_OUTPUT"
-            echo "::error::Authenticated RPC health accepts only refs/heads/main"
+            echo "::error::Dispatch the trusted RPC health workflow on main"
             exit 1
           fi
+          if ! [[ "$GITHUB_SHA_VALUE" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::GitHub returned an invalid trusted workflow SHA"
+            exit 1
+          fi
+          echo "trusted_sha=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
+
+          if [ -z "$QUALIFICATION_PR" ]; then
+            echo "branch=main" >> "$GITHUB_OUTPUT"
+            echo "checkout_ref=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
+            echo "expected_sha=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
+            echo "is_standard=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$EVENT_NAME" != workflow_dispatch ]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::PR qualification is available only through workflow_dispatch"
+            exit 1
+          fi
+          if [ "$GITHUB_ACTOR_VALUE" != teng-lin ] || \
+             [ "$GITHUB_TRIGGERING_ACTOR_VALUE" != teng-lin ]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Only the repository owner may authorize live PR qualification"
+            exit 1
+          fi
+          if [ "$RUN_ATTEMPT" != 1 ]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::PR qualification cannot be rerun; dispatch a fresh run to pin its head"
+            exit 1
+          fi
+          if ! [[ "$QUALIFICATION_PR" =~ ^[1-9][0-9]*$ ]]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::qualification_pr must be a positive PR number"
+            exit 1
+          fi
+
+          pr_fields=$(gh api "repos/$CANONICAL_REPOSITORY/pulls/$QUALIFICATION_PR" \
+            --jq '[.state, .base.repo.full_name, .base.ref, .head.repo.full_name, .head.sha] | @tsv')
+          IFS=$'\t' read -r state base_repo base_ref head_repo head_sha <<< "$pr_fields"
+          if [ "$state" != open ] || [ "$base_repo" != "$CANONICAL_REPOSITORY" ] || \
+             [ "$base_ref" != main ] || [ "$head_repo" != "$CANONICAL_REPOSITORY" ]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Qualification requires an open, same-repository PR targeting main"
+            exit 1
+          fi
+          if ! [[ "$head_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "is_standard=false" >> "$GITHUB_OUTPUT"
+            echo "::error::GitHub returned an invalid PR head SHA"
+            exit 1
+          fi
+          echo "branch=pr-$QUALIFICATION_PR" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "expected_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "is_standard=true" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@v7
         if: steps.resolve.outputs.is_standard == 'true'
         with:
-          ref: refs/heads/main
+          ref: ${{ steps.resolve.outputs.checkout_ref }}
           fetch-depth: 1
           persist-credentials: false
       - name: Resolve immutable commit
         id: target
         if: steps.resolve.outputs.is_standard == 'true'
-        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        env:
+          EXPECTED_SHA: ${{ steps.resolve.outputs.expected_sha }}
+          TARGET_LABEL: ${{ steps.resolve.outputs.branch }}
+        run: |
+          set -euo pipefail
+          actual_sha=$(git rev-parse HEAD)
+          if [ -n "$EXPECTED_SHA" ] && [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked-out commit does not match the authorized PR head SHA"
+            exit 1
+          fi
+          echo "sha=$actual_sha" >> "$GITHUB_OUTPUT"
+          printf '### Live target\n\nTarget: `%s@%s`\n' \
+            "$TARGET_LABEL" "$actual_sha" >> "$GITHUB_STEP_SUMMARY"
 
   plan-live-lanes:
     needs: resolve-target
@@ -64,7 +145,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
-        ref: ${{ needs.resolve-target.outputs.sha }}
+        ref: ${{ needs.resolve-target.outputs.trusted_sha }}
         fetch-depth: 1
         persist-credentials: false
     - name: Select health account slots
@@ -142,6 +223,14 @@ jobs:
         fetch-depth: 1
         persist-credentials: false
 
+    - name: Checkout trusted CI helpers
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.resolve-target.outputs.trusted_sha }}
+        path: trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        fetch-depth: 1
+        persist-credentials: false
+
     - name: Configure runner-local paths
       run: |
         {
@@ -157,6 +246,29 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # @ v7.0.0
+
+    - name: Install trusted auth environment
+      shell: bash
+      run: |
+        trusted_root="$GITHUB_WORKSPACE/trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+        cd "$trusted_root"
+        uv sync --frozen --extra headless --no-dev
+
+    - name: Materialize selected account
+      id: auth
+      if: >-
+        needs.resolve-target.outputs.is_standard == 'true' &&
+        github.repository == 'teng-lin/notebooklm-py'
+      continue-on-error: true
+      env:
+        NOTEBOOKLM_MASTER_TOKEN_JSON: ${{ secrets[needs.plan-live-lanes.outputs.web_secret_name] }}
+      run: |
+        trusted_root="$GITHUB_WORKSPACE/trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+        cd "$trusted_root"
+        PYTHONPATH="$trusted_root/src" uv run --frozen --no-sync python \
+          scripts/materialize_ci_auth.py \
+          --account-slot "${{ needs.plan-live-lanes.outputs.web_account_slot }}" \
+          --profile "$NOTEBOOKLM_PROFILE"
 
     - name: Install dependencies
       # `uv sync --frozen` reproduces the lockfile-pinned dep tree. The RPC
@@ -179,19 +291,6 @@ jobs:
           sleep $((attempt * 15))
           attempt=$((attempt + 1))
         done
-
-    - name: Materialize selected account
-      id: auth
-      if: >-
-        needs.resolve-target.outputs.is_standard == 'true' &&
-        github.repository == 'teng-lin/notebooklm-py'
-      continue-on-error: true
-      env:
-        NOTEBOOKLM_MASTER_TOKEN_JSON: ${{ secrets[needs.plan-live-lanes.outputs.web_secret_name] }}
-      run: >-
-        uv run python scripts/materialize_ci_auth.py
-        --account-slot "${{ needs.plan-live-lanes.outputs.web_account_slot }}"
-        --profile "$NOTEBOOKLM_PROFILE"
 
     - name: Sweep stale RPC copies
       id: sweep
@@ -957,10 +1056,10 @@ jobs:
       cancel-in-progress: false
     # Explicit: a red canary must surface as a red job, never be absorbed.
     continue-on-error: false
-    # Same unconditional environment binding as ``health-check`` (#1009);
-    # a feature-branch workflow_dispatch never reaches this job because of
-    # the ``is_standard`` gate above. See docs/development.md → "Workflow
-    # secret gates".
+    # Same unconditional environment binding as ``health-check`` (#1009).
+    # Direct feature-ref dispatches stay blocked; only an owner-authorized PR
+    # SHA resolved by the trusted main workflow can reach this job. See
+    # docs/development.md → "Workflow secret gates".
     environment: protected-readonly
     env:
       NOTEBOOKLM_PROFILE: ci-${{ needs.plan-live-lanes.outputs.android_account_slot }}-rpc-health-android
@@ -969,6 +1068,14 @@ jobs:
     - uses: actions/checkout@v7
       with:
         ref: ${{ needs.resolve-target.outputs.sha }}
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Checkout trusted CI helpers
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.resolve-target.outputs.trusted_sha }}
+        path: trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}
         fetch-depth: 1
         persist-credentials: false
 
@@ -983,6 +1090,29 @@ jobs:
 
     - name: Install uv
       uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78  # @ v7.0.0
+
+    - name: Install trusted auth environment
+      shell: bash
+      run: |
+        trusted_root="$GITHUB_WORKSPACE/trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+        cd "$trusted_root"
+        uv sync --frozen --extra headless --no-dev
+
+    - name: Materialize selected account
+      id: auth
+      if: >-
+        needs.resolve-target.outputs.is_standard == 'true' &&
+        github.repository == 'teng-lin/notebooklm-py'
+      continue-on-error: true
+      env:
+        NOTEBOOKLM_MASTER_TOKEN_JSON: ${{ secrets[needs.plan-live-lanes.outputs.android_secret_name] }}
+      run: |
+        trusted_root="$GITHUB_WORKSPACE/trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+        cd "$trusted_root"
+        PYTHONPATH="$trusted_root/src" uv run --frozen --no-sync python \
+          scripts/materialize_ci_auth.py \
+          --account-slot "${{ needs.plan-live-lanes.outputs.android_account_slot }}" \
+          --profile "$NOTEBOOKLM_PROFILE"
 
     - name: Install dependencies
       # The SAME extras line as the nightly Android E2E lane, so the canary
@@ -1003,19 +1133,6 @@ jobs:
           sleep $((attempt * 15))
           attempt=$((attempt + 1))
         done
-
-    - name: Materialize selected account
-      id: auth
-      if: >-
-        needs.resolve-target.outputs.is_standard == 'true' &&
-        github.repository == 'teng-lin/notebooklm-py'
-      continue-on-error: true
-      env:
-        NOTEBOOKLM_MASTER_TOKEN_JSON: ${{ secrets[needs.plan-live-lanes.outputs.android_secret_name] }}
-      run: >-
-        uv run python scripts/materialize_ci_auth.py
-        --account-slot "${{ needs.plan-live-lanes.outputs.android_account_slot }}"
-        --profile "$NOTEBOOKLM_PROFILE"
 
     - name: Validate immutable template through Android
       id: template_validate

@@ -345,7 +345,7 @@ def test_nightly_coverage_is_sha_pinned_secret_free_and_enforces_floors() -> Non
         if str(step.get("uses", "")).startswith("actions/checkout@")
     )
     assert resolve_checkout["with"] == {
-        "ref": "refs/heads/main",
+        "ref": "${{ steps.resolve.outputs.checkout_ref }}",
         "fetch-depth": 1,
         "persist-credentials": False,
     }
@@ -448,7 +448,15 @@ def test_nightly_e2e_maps_backends_and_suites_to_designated_runners() -> None:
     assert planner_run.count('"mode": "full"') == 2
     assert planner_run.count('"mode": "readonly"') == 1
     assert '"selection": "readonly and not variants"' in planner_run
-    assert 'if not os.environ["TEST_FILTER"]' in planner_run
+    assert 'selected_lane in {"all", "web"}' in planner_run
+    assert 'selected_lane in {"all", "android"}' in planner_run
+    assert 'selected_lane in {"all", "readonly"} and not test_filter' in planner_run
+
+    triggers = workflow.get("on", workflow.get(True))
+    inputs = triggers["workflow_dispatch"]["inputs"]
+    assert inputs["qualification_pr"]["type"] == "string"
+    assert inputs["qualification_pr"]["default"] == ""
+    assert inputs["e2e_lane"]["options"] == ["all", "web", "android", "readonly"]
 
     install = str(_step(job, "Install dependencies")["run"])
     assert "uv sync --frozen" in install
