@@ -32,6 +32,7 @@ from _ci_e2e_notebooks import (  # noqa: E402
     validate_manifest,
 )
 from manage_ci_e2e_notebooks import (  # noqa: E402
+    DEFAULT_TEMPLATE_ID,
     TEMPLATE_ID_ENV,
     CleanupError,
     ContractError,
@@ -1792,6 +1793,37 @@ def test_environment_block_contains_no_activation_for_partial_preparation(tmp_pa
     path.write_text("PREEXISTING=1\n")
     assert "NOTEBOOKLM_E2E_MANAGED_COPIES" not in path.read_text()
     assert os.fspath(path)
+
+
+def test_template_id_uses_public_default_when_environment_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(TEMPLATE_ID_ENV, raising=False)
+
+    assert lifecycle._template_id_from_env(TEMPLATE_ID_ENV) == DEFAULT_TEMPLATE_ID
+
+
+def test_template_id_environment_overrides_public_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TEMPLATE_ID_ENV, TEMPLATE_ID)
+
+    assert lifecycle._template_id_from_env(TEMPLATE_ID_ENV) == TEMPLATE_ID
+
+
+def test_template_id_environment_rejects_malformed_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(TEMPLATE_ID_ENV, "not a notebook id")
+
+    with pytest.raises(ManifestError, match="malformed"):
+        lifecycle._template_id_from_env(TEMPLATE_ID_ENV)
+
+
+def test_cli_defaults_to_public_template_environment_name() -> None:
+    args = lifecycle.build_parser().parse_args(["validate", "--backend", "web"])
+
+    assert args.template_id_env == TEMPLATE_ID_ENV
 
 
 def test_cli_cleanup_absent_manifest_never_opens_auth(
