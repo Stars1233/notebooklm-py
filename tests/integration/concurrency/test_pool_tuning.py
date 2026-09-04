@@ -26,9 +26,8 @@ from __future__ import annotations
 import httpx
 import pytest
 
-import notebooklm._runtime.init as _runtime_init
-from notebooklm import NotebookLMClient
 from notebooklm.types import ConnectionLimits
+from tests._helpers.client_factory import build_client_shell_for_tests
 
 # pool-config + patch-based tuning tests; no HTTP, no cassette.
 # Opt out of the tier-enforcement hook in tests/integration/conftest.py.
@@ -57,7 +56,7 @@ def test_connection_limits_to_httpx_limits_round_trip() -> None:
     assert hl.keepalive_expiry == 15.0
 
 
-async def test_default_limits_passed_to_async_client(auth_tokens, monkeypatch) -> None:
+async def test_default_limits_passed_to_async_client(auth_tokens) -> None:
     """No explicit ``limits=`` -> runtime config uses ConnectionLimits() defaults."""
     captured: dict[str, httpx.Limits | None] = {"limits": None}
     calls = {"count": 0}
@@ -68,12 +67,11 @@ async def test_default_limits_passed_to_async_client(auth_tokens, monkeypatch) -
         captured["limits"] = kwargs.get("limits")  # type: ignore[assignment]
         return real_async_client(**kwargs)  # type: ignore[arg-type]
 
-    # ADR-0007 Form-2: object-form patch against the locally-imported
-    # `_runtime.init` seam alias. `_runtime_init.httpx` is the same module
-    # object the production factory reads `AsyncClient` off of, so patching
-    # the attribute here intercepts default-path client construction.
-    monkeypatch.setattr(_runtime_init.httpx, "AsyncClient", _capturing_client)
-    async with NotebookLMClient(auth_tokens):
+    client = build_client_shell_for_tests(
+        auth_tokens,
+        async_client_factory=_capturing_client,
+    )
+    async with client:
         pass
 
     # Bite-check: the injected seam was actually exercised.
@@ -85,7 +83,7 @@ async def test_default_limits_passed_to_async_client(auth_tokens, monkeypatch) -
     assert captured_limits.keepalive_expiry == 30.0
 
 
-async def test_custom_limits_passed_to_async_client(auth_tokens, monkeypatch) -> None:
+async def test_custom_limits_passed_to_async_client(auth_tokens) -> None:
     """Explicit `limits=ConnectionLimits(...)` -> AsyncClient sees those values."""
     custom = ConnectionLimits(
         max_connections=500,
@@ -101,10 +99,12 @@ async def test_custom_limits_passed_to_async_client(auth_tokens, monkeypatch) ->
         captured["limits"] = kwargs.get("limits")  # type: ignore[assignment]
         return real_async_client(**kwargs)  # type: ignore[arg-type]
 
-    # ADR-0007 Form-2: object-form patch against the locally-imported
-    # `_runtime.init` seam alias (see the default-limits test above).
-    monkeypatch.setattr(_runtime_init.httpx, "AsyncClient", _capturing_client)
-    async with NotebookLMClient(auth_tokens, limits=custom):
+    client = build_client_shell_for_tests(
+        auth_tokens,
+        limits=custom,
+        async_client_factory=_capturing_client,
+    )
+    async with client:
         pass
 
     # Bite-check: the injected seam was actually exercised.

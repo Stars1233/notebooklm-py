@@ -134,6 +134,29 @@ def test_android_factory_shell_matches_production_constructor_surface() -> None:
     )
 
 
+def test_android_factory_retains_injected_web_seams_without_resolving_them() -> None:
+    def decode(*_args: object, **_kwargs: object) -> object:
+        return None
+
+    async def sleep(_seconds: float) -> None:
+        return None
+
+    def classify(_error: Exception) -> bool:
+        return False
+
+    shell = build_client_shell_for_tests(
+        auth=_make_auth(),
+        backend="android",
+        decode_response=decode,
+        sleep=sleep,
+        is_auth_error=classify,
+    )
+
+    assert shell._seams.decode_response is decode
+    assert shell._seams.sleep is sleep
+    assert shell._seams.is_auth_error is classify
+
+
 def test_client_namespace_annotations_keep_neutral_api_identities() -> None:
     """Runtime annotations and compatibility imports name the neutral bases."""
     assert client_module.NotesAPI is NotesAPI

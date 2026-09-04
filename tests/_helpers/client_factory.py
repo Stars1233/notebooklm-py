@@ -78,6 +78,10 @@ def build_client_shell_for_tests(
       ``auth.storage_path``; an explicit ``None`` still falls through to
       ``compose_client_internals``' own raw ``auth.storage_path``
       fallback, as it always did.
+    - Web-only decoder/classifier overrides resolve into ``ClientSeams`` for a
+      Web shell. An Android shell retains the raw override values without
+      importing Web code and resolves them only if its deprecated sidecar is
+      materialized.
     - The client is returned **unopened**: loop binding still happens at
       ``open()`` time (via ``__aenter__``), exactly as in production.
     """

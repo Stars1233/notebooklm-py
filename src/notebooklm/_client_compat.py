@@ -3,10 +3,20 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any, NoReturn
 
 _NOT_OPEN = "Client not initialized. Use 'async with' context."
+
+
+@dataclass
+class WebSeamOverrides:
+    """Unresolved test-only Web seam values retained by an Android client."""
+
+    decode_response: Callable[..., Any] | None
+    sleep: Callable[[float], Awaitable[Any]] | None
+    is_auth_error: Callable[[Exception], bool] | None
 
 
 class LazyWebSidecar:
@@ -248,4 +258,4 @@ class LazyWebSidecar:
             raise failure
 
 
-__all__ = ["LazyWebSidecar"]
+__all__ = ["LazyWebSidecar", "WebSeamOverrides"]

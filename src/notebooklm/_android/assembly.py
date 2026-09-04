@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from .._client_contracts import BackendAssembly, installed_backend_map
-from .._runtime.config import resolve_chat_read_timeout
+from .._runtime.config import normalize_max_concurrent_uploads, resolve_chat_read_timeout
+from .._runtime.init import SharedRuntimeConfig, build_collaborators
 from .artifacts import AndroidArtifactsAPI
 from .assets import AndroidAssetDownloadService
 from .auth import _make_bearer_provider
@@ -33,6 +34,22 @@ from .upload import AndroidUploadPipeline
 if TYPE_CHECKING:
     from ..auth import AuthTokens
     from ..client import NotebookLMClient
+    from ..types import RpcTelemetryEvent
+
+
+def _validate_android_settings(
+    *,
+    rate_limit_max_retries: int,
+    server_error_max_retries: int,
+    max_concurrent_uploads: int | None,
+) -> None:
+    """Validate Android-owned values in the historical constructor order."""
+
+    if rate_limit_max_retries < 0:
+        raise ValueError(f"rate_limit_max_retries must be >= 0, got {rate_limit_max_retries}")
+    if server_error_max_retries < 0:
+        raise ValueError(f"server_error_max_retries must be >= 0, got {server_error_max_retries}")
+    normalize_max_concurrent_uploads(max_concurrent_uploads)
 
 
 def assemble_android_backend(
@@ -49,10 +66,17 @@ def assemble_android_backend(
     import_research_timeout: float | None,
     chat_response_max_bytes: int | None,
     sleep: Callable[[float], Awaitable[Any]] | None,
-    shared: Any,
+    shared_config: SharedRuntimeConfig,
+    on_rpc_event: Callable[[RpcTelemetryEvent], object] | None,
 ) -> BackendAssembly:
     """Install only the Android graph and return its neutral lifecycle parts."""
 
+    _validate_android_settings(
+        rate_limit_max_retries=rate_limit_max_retries,
+        server_error_max_retries=server_error_max_retries,
+        max_concurrent_uploads=max_concurrent_uploads,
+    )
+    shared = build_collaborators(shared_config, on_rpc_event=on_rpc_event)
     bearer_provider = _make_bearer_provider(
         Path(auth.storage_path) if auth.storage_path is not None else None
     )

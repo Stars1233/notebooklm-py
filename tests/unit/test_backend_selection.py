@@ -53,21 +53,6 @@ def _backend_subprocess_env() -> dict[str, str]:
     return env
 
 
-ANDROID_CONSTRUCTION_WEB_COMPAT_MODULES = frozenset(
-    {
-        "notebooklm._web",
-        "notebooklm._web.transport",
-        "notebooklm._web.transport.error_injection",
-        "notebooklm._web.transport.seams",
-        "notebooklm._web.wire",
-        "notebooklm._web.wire.decoder",
-        "notebooklm._web.wire.encoder",
-        "notebooklm._web.wire.overrides",
-        "notebooklm._web.wire.safe_index",
-    }
-)
-
-
 def _auth() -> AuthTokens:
     return AuthTokens(
         cookies={"SID": "sid"},
@@ -501,10 +486,11 @@ assert not any(
     assert completed.returncode == 0, completed.stderr
 
 
-def test_android_construction_web_imports_match_transitional_allowlist() -> None:
-    script = """
+def test_android_construction_loads_no_web_module() -> None:
+    script = (
+        f"import sys\nsys.path.insert(0, {str(_SRC_ROOT)!r})\n"
+        + """
 import json
-import sys
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 
@@ -515,6 +501,7 @@ NotebookLMClient(
 after = {name for name in sys.modules if name.startswith("notebooklm._web")}
 print(json.dumps(sorted(after)))
 """
+    )
     completed = subprocess.run(
         [sys.executable, "-I", "-c", script],
         check=True,
@@ -522,7 +509,63 @@ print(json.dumps(sorted(after)))
         text=True,
     )
 
-    assert set(json.loads(completed.stdout)) == ANDROID_CONSTRUCTION_WEB_COMPAT_MODULES
+    assert json.loads(completed.stdout) == []
+
+
+def test_android_construction_retains_web_seam_overrides_without_resolving_defaults() -> None:
+    client = NotebookLMClient(_auth(), backend="android")
+
+    assert client._seams.decode_response is None
+    assert client._seams.sleep is None
+    assert client._seams.is_auth_error is None
+
+
+def test_android_global_synthetic_error_guard_is_web_free() -> None:
+    script = (
+        f"import sys\nsys.path.insert(0, {str(_SRC_ROOT)!r})\n"
+        + """
+import os
+from notebooklm.auth import AuthTokens
+from notebooklm.client import NotebookLMClient
+
+os.environ["NOTEBOOKLM_VCR_RECORD_ERRORS"] = "5xx"
+os.environ.pop("PYTEST_CURRENT_TEST", None)
+try:
+    NotebookLMClient(
+        AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
+        backend="android",
+    )
+except RuntimeError as error:
+    assert "NOTEBOOKLM_VCR_RECORD_ERRORS" in str(error)
+else:
+    raise AssertionError("global synthetic-error guard did not refuse construction")
+assert not [name for name in sys.modules if name.startswith("notebooklm._web")]
+"""
+    )
+    subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"rate_limit_max_retries": -1}, "rate_limit_max_retries must be >= 0, got -1"),
+        ({"server_error_max_retries": -1}, "server_error_max_retries must be >= 0, got -1"),
+        ({"max_concurrent_uploads": 0}, "max_concurrent_uploads must be >= 1, got 0"),
+    ],
+)
+def test_android_owned_validation_preserves_exact_errors(
+    kwargs: dict[str, int],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError) as raised:
+        NotebookLMClient(_auth(), backend="android", **kwargs)  # type: ignore[arg-type]
+
+    assert str(raised.value) == message
 
 
 def test_android_preference_has_no_unqualified_namespace_log(caplog) -> None:  # type: ignore[no-untyped-def]

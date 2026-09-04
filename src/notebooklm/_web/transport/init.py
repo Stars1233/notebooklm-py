@@ -18,18 +18,14 @@ from ..._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
 )
-from ..._runtime.init import (
-    SharedRuntime,
-    ValidatedSessionConfig,
-    build_collaborators,
-    validate_constructor_args,
-)
+from ..._runtime.error_injection import _refuse_synthetic_error_outside_test_context
+from ..._runtime.init import SharedRuntime, SharedRuntimeConfig, build_collaborators
 from ...auth import AuthTokens
 from ..sources.upload import SourceUploadPipeline
 from .auth import AuthRefreshCoordinator
 from .composed import ClientComposed
+from .config import WebSessionConfig, validate_web_config
 from .cookie_persistence import CookiePersistence
-from .error_injection import _refuse_synthetic_error_outside_test_context
 from .executor import RpcExecutor
 from .kernel import Kernel
 from .lifecycle import (
@@ -83,6 +79,7 @@ class ClientInternals:
 
     collaborators: SharedRuntime
     web_runtime: WebRuntime
+    seams: ClientSeams
 
 
 def _resolve_async_client_factory(
@@ -173,7 +170,7 @@ def wire_middleware_chain(
 
 
 def _build_web_transport(
-    config: ValidatedSessionConfig,
+    config: WebSessionConfig,
     *,
     auth: AuthTokens,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
@@ -243,6 +240,7 @@ def compose_client_internals(
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
     seams: ClientSeams | None = None,
     composed: ClientComposed | None = None,
+    shared_config: SharedRuntimeConfig | None = None,
 ) -> ClientInternals:
     """Build the shared runtime and the complete web runtime bundle."""
     # MUST stay first — preserves the earliest-opportunity refusal that
@@ -257,7 +255,7 @@ def compose_client_internals(
     composed = composed or ClientComposed()
     async_client_factory = _resolve_async_client_factory(async_client_factory)
 
-    config = validate_constructor_args(
+    config, shared_config = validate_web_config(
         timeout=timeout,
         connect_timeout=connect_timeout,
         refresh_retry_delay=refresh_retry_delay,
@@ -274,8 +272,9 @@ def compose_client_internals(
         sleep=seams.sleep,
         is_auth_error=seams.is_auth_error,
         async_client_factory=async_client_factory,
+        shared_config=shared_config,
     )
-    shared = build_collaborators(config, on_rpc_event=on_rpc_event)
+    shared = build_collaborators(shared_config, on_rpc_event=on_rpc_event)
     web_runtime = build_web_runtime(
         config=config,
         auth=auth,
@@ -288,12 +287,12 @@ def compose_client_internals(
         seams=seams,
         composed=composed,
     )
-    return ClientInternals(collaborators=shared, web_runtime=web_runtime)
+    return ClientInternals(collaborators=shared, web_runtime=web_runtime, seams=seams)
 
 
 def build_web_runtime(
     *,
-    config: ValidatedSessionConfig,
+    config: WebSessionConfig,
     auth: AuthTokens,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
     shared: SharedRuntime,

@@ -128,28 +128,33 @@ def test_client_module_keeps_required_identity_attributes() -> None:
 
 def test_plain_client_import_does_not_load_backend_runtime_or_compat_implementations() -> None:
     script = """
-import notebooklm.client as client
 import sys
 import typing
+import types
+
+package = types.ModuleType("notebooklm")
+package.__package__ = "notebooklm"
+package.__path__ = [sys.argv[1]]
+sys.modules["notebooklm"] = package
+
+import notebooklm.client as client
 
 typing.get_type_hints(client.NotebookLMClient)
 
 forbidden = {
     "notebooklm._android.runtime",
     "notebooklm._android.raw",
-    "notebooklm._web.assembly",
-    "notebooklm._web.raw",
-    "notebooklm._web.transport.executor",
-    "notebooklm._web.transport.init",
-    "notebooklm._web.transport.sidecar",
 }
 loaded = sorted(forbidden & sys.modules.keys())
 if loaded:
     raise AssertionError(f"plain client import loaded backend implementations: {loaded}")
+loaded_web = sorted(name for name in sys.modules if name.startswith("notebooklm._web"))
+if loaded_web:
+    raise AssertionError(f"plain client import loaded Web modules: {loaded_web}")
 assert "ClientSeams" in dir(client)
 """
     subprocess.run(
-        [sys.executable, "-I", "-c", script],
+        [sys.executable, "-I", "-c", script, str(SRC_ROOT)],
         check=True,
         capture_output=True,
         text=True,

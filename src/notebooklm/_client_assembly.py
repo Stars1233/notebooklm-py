@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
-from ._client_compat import LazyWebSidecar
+from ._client_compat import LazyWebSidecar, WebSeamOverrides
 from ._client_contracts import BackendAssembly, BackendName, CookieRotator, CookieSaver
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
@@ -24,7 +24,8 @@ from ._runtime.config import (
     DEFAULT_TIMEOUT,
     validate_read_timeout_kwarg,
 )
-from ._runtime.init import build_collaborators, validate_constructor_args
+from ._runtime.error_injection import _refuse_synthetic_error_outside_test_context
+from ._runtime.init import SharedRuntimeConfig, validate_shared_runtime_config
 from ._runtime.lifecycle import ClientLifecycle
 from .auth import AuthTokens
 
@@ -90,8 +91,14 @@ def _install_android_lifecycle(
     assembly: BackendAssembly,
     *,
     auth: AuthTokens,
-    compatibility_config: Any,
+    shared_config: SharedRuntimeConfig,
+    seam_overrides: WebSeamOverrides,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    timeout: float,
+    refresh_retry_delay: float,
+    rate_limit_max_retries: int,
+    server_error_max_retries: int,
+    max_concurrent_uploads: int | None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None,
 ) -> None:
     """Add the root-owned 0.x sidecar without teaching Android about Web."""
@@ -99,14 +106,20 @@ def _install_android_lifecycle(
     def build_sidecar_runtime() -> Any:
         from ._web.assembly import build_compatibility_runtime
 
-        runtime = build_compatibility_runtime(
-            config=compatibility_config,
+        runtime, resolved_seams = build_compatibility_runtime(
             auth=auth,
             refresh_callback=refresh_callback,
             shared=assembly.collaborators,
-            seams=client._seams,
+            shared_config=shared_config,
+            seam_overrides=seam_overrides,
+            timeout=timeout,
+            refresh_retry_delay=refresh_retry_delay,
+            rate_limit_max_retries=rate_limit_max_retries,
+            server_error_max_retries=server_error_max_retries,
+            max_concurrent_uploads=max_concurrent_uploads,
             async_client_factory=async_client_factory,
         )
+        client._seams = resolved_seams
         runtime.composed.bind_runtime_collaborators(client._collaborators)
         return runtime
 
@@ -202,16 +215,7 @@ def _assemble_client(
         name="import_research_timeout",
     )
 
-    from ._web.transport.error_injection import _refuse_synthetic_error_outside_test_context
-    from ._web.transport.seams import resolve_client_seams
-
-    client._seams = resolve_client_seams(
-        decode_response=decode_response,
-        sleep=sleep,
-        is_auth_error=is_auth_error,
-    )
-    if max_concurrent_rpcs is not None and max_concurrent_rpcs < 1:
-        raise ValueError(f"max_concurrent_rpcs must be >= 1, got {max_concurrent_rpcs!r}")
+    shared_config = validate_shared_runtime_config(max_concurrent_rpcs=max_concurrent_rpcs)
     _refuse_synthetic_error_outside_test_context()
 
     if client._backend_preference.preferred == "android":
@@ -234,25 +238,12 @@ def _assemble_client(
 
         from ._android.assembly import assemble_android_backend
 
-        compatibility_config = validate_constructor_args(
-            timeout=timeout,
-            connect_timeout=DEFAULT_CONNECT_TIMEOUT,
-            refresh_retry_delay=refresh_retry_delay,
-            rate_limit_max_retries=rate_limit_max_retries,
-            server_error_max_retries=server_error_max_retries,
-            keepalive=None,
-            keepalive_min_interval=DEFAULT_KEEPALIVE_MIN_INTERVAL,
-            keepalive_storage_path=None,
-            auth_storage_path=auth.storage_path,
-            limits=None,
-            max_concurrent_uploads=max_concurrent_uploads,
-            max_concurrent_rpcs=max_concurrent_rpcs,
-            decode_response=client._seams.decode_response,
-            sleep=client._seams.sleep,
-            is_auth_error=client._seams.is_auth_error,
-            async_client_factory=async_client_factory or httpx.AsyncClient,
+        seam_overrides = WebSeamOverrides(
+            decode_response=decode_response,
+            sleep=sleep,
+            is_auth_error=is_auth_error,
         )
-        shared = build_collaborators(compatibility_config, on_rpc_event=on_rpc_event)
+        client._seams = seam_overrides
 
         assembly = assemble_android_backend(
             client,
@@ -267,14 +258,21 @@ def _assemble_client(
             import_research_timeout=import_research_timeout,
             chat_response_max_bytes=chat_response_max_bytes,
             sleep=sleep,
-            shared=shared,
+            shared_config=shared_config,
+            on_rpc_event=on_rpc_event,
         )
         _install_android_lifecycle(
             client,
             assembly,
             auth=auth,
-            compatibility_config=compatibility_config,
+            shared_config=shared_config,
+            seam_overrides=seam_overrides,
             refresh_callback=refresh_callback,
+            timeout=timeout,
+            refresh_retry_delay=refresh_retry_delay,
+            rate_limit_max_retries=rate_limit_max_retries,
+            server_error_max_retries=server_error_max_retries,
+            max_concurrent_uploads=max_concurrent_uploads,
             async_client_factory=async_client_factory,
         )
         return
@@ -305,7 +303,10 @@ def _assemble_client(
         connect_timeout=connect_timeout,
         keepalive_storage_path=keepalive_storage_path,
         async_client_factory=async_client_factory,
-        seams=client._seams,
+        decode_response=decode_response,
+        sleep=sleep,
+        is_auth_error=is_auth_error,
+        shared_config=shared_config,
     )
     _install_lifecycle(client, assembly)
 

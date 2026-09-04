@@ -520,6 +520,18 @@ def test_scrub_response_noop_when_env_var_unset(monkeypatch):
 # --- (3) _web/transport/error_injection.py mode resolver ----------------------------------
 
 
+def test_web_error_guard_path_reexports_neutral_owner_by_identity() -> None:
+    from notebooklm._runtime import error_injection as neutral
+    from notebooklm._web.transport import error_injection as legacy
+
+    assert legacy.ERROR_INJECT_ENV_VAR is neutral.ERROR_INJECT_ENV_VAR
+    assert legacy._get_error_injection_mode is neutral._get_error_injection_mode
+    assert (
+        legacy._refuse_synthetic_error_outside_test_context
+        is neutral._refuse_synthetic_error_outside_test_context
+    )
+
+
 def test_core_get_error_injection_mode_unset(monkeypatch):
     monkeypatch.delenv(ERROR_INJECT_ENV_VAR, raising=False)
     assert _get_error_injection_mode() is None

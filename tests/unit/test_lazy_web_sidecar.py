@@ -16,6 +16,7 @@ import pytest
 import notebooklm._android.auth as android_auth
 import notebooklm._web.assembly as web_assembly
 from notebooklm._auth.master_token_types import MasterToken
+from notebooklm._web.transport.seams import ClientSeams
 from notebooklm._web.transport.sidecar import LazyWebSidecar
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -366,6 +367,7 @@ async def test_android_sidecar_uses_own_refresh_ladder_and_persists_cookies(
         assert client._web_sidecar is not None
         runtime = client._web_sidecar.runtime
         assert runtime is not None
+        assert isinstance(client._seams, ClientSeams)
         assert runtime.web_transport._keepalive_task is None
         assert calls == 2
         refresh.assert_awaited_once()

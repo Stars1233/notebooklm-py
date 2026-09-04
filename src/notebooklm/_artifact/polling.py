@@ -13,8 +13,9 @@ from .._deadline import Monotonic, RuntimeDeadline, Sleep
 from .._polling_registry import PollRegistry
 from .._types.artifacts import _status_from_code
 from .._types.enums import ArtifactStatus, ArtifactTypeCode, artifact_status_to_str
-from ..exceptions import ArtifactInProgressTimeoutError, ArtifactPendingTimeoutError
-from ..rpc import (
+from ..exceptions import (
+    ArtifactInProgressTimeoutError,
+    ArtifactPendingTimeoutError,
     NetworkError,
     RPCTimeoutError,
     ServerError,
