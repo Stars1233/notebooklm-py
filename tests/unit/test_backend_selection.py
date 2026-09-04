@@ -41,6 +41,17 @@ from notebooklm.exceptions import ConfigurationError, MissingDependencyError
 from notebooklm.raw import AndroidRawAPI, WebRawAPI
 from notebooklm.types import ConnectionLimits
 
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+
+
+def _backend_subprocess_env() -> dict[str, str]:
+    """Prefer this worktree's sources over any concurrently relinked editable install."""
+    env = os.environ.copy()
+    env.pop("NOTEBOOKLM_BACKEND", None)
+    inherited = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = os.pathsep.join(part for part in (str(_SRC_ROOT), inherited) if part)
+    return env
+
 
 def _auth() -> AuthTokens:
     return AuthTokens(
@@ -405,23 +416,11 @@ def test_default_and_explicit_web_keep_every_namespace_on_web(backend: str | Non
     assert client._android_runtime is None
 
 
-def test_default_web_construction_does_not_import_android_or_optional_runtime() -> None:
+def test_web_construction_resolves_relative_imports_without_optional_runtime() -> None:
     script = """
-import builtins
+import sys
 
-original_import = builtins.__import__
-
-def guarded_import(name, *args, **kwargs):
-    if (
-        name == "grpc"
-        or name == "gpsoauth"
-        or name.startswith("google.protobuf")
-        or name.startswith("notebooklm._android")
-    ):
-        raise AssertionError(f"default Web construction imported {name}")
-    return original_import(name, *args, **kwargs)
-
-builtins.__import__ = guarded_import
+before = set(sys.modules)
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 
@@ -429,31 +428,35 @@ client = NotebookLMClient(
     AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session")
 )
 assert set(client.backends.values()) == {"web"}
+delta = set(sys.modules) - before
+# The former __import__ hook saw the unresolved relative name
+# ``_android.runtime`` and missed this eager import entirely.
+assert "notebooklm._android.runtime" in delta
+assert not any(
+    name == "grpc"
+    or name.startswith("grpc.")
+    or name == "gpsoauth"
+    or name.startswith("gpsoauth.")
+    or name == "google.protobuf"
+    or name.startswith("google.protobuf.")
+    for name in delta
+)
 """
-    env = os.environ.copy()
-    env.pop("NOTEBOOKLM_BACKEND", None)
     completed = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
-        env=env,
+        env=_backend_subprocess_env(),
     )
     assert completed.returncode == 0, completed.stderr
 
 
 def test_android_construction_defers_optional_runtime_imports_to_open() -> None:
     script = """
-import builtins
+import sys
 
-original_import = builtins.__import__
-
-def guarded_import(name, *args, **kwargs):
-    if name == "grpc" or name == "gpsoauth" or name.startswith("google.protobuf"):
-        raise AssertionError(f"Android construction imported {name}")
-    return original_import(name, *args, **kwargs)
-
-builtins.__import__ = guarded_import
+before = set(sys.modules)
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 
@@ -462,15 +465,23 @@ client = NotebookLMClient(
     backend="android",
 )
 assert client.backends["collections"] == "android"
+delta = set(sys.modules) - before
+assert not any(
+    name == "grpc"
+    or name.startswith("grpc.")
+    or name == "gpsoauth"
+    or name.startswith("gpsoauth.")
+    or name == "google.protobuf"
+    or name.startswith("google.protobuf.")
+    for name in delta
+)
 """
-    env = os.environ.copy()
-    env.pop("NOTEBOOKLM_BACKEND", None)
     completed = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
-        env=env,
+        env=_backend_subprocess_env(),
     )
     assert completed.returncode == 0, completed.stderr
 
@@ -719,6 +730,11 @@ async def test_from_storage_threads_explicit_backend(
     client = await NotebookLMClient.from_storage(path=str(storage), backend="android")._build()
     assert client._backend_preference.preferred == "android"
     assert set(client.backends.values()) == {"android"}
+    assert client.auth.csrf_token == "csrf"
+    assert client.auth.session_id == "session"
+    assert [(request.method, str(request.url)) for request in httpx_mock.get_requests()] == [
+        ("GET", "https://notebook.google.com/")
+    ]
 
 
 async def test_android_from_storage_uses_name_only_psidts_policy(
@@ -774,7 +790,12 @@ async def test_android_from_storage_uses_name_only_psidts_policy(
     assert client._web_runtime is None
     assert client.auth.cookie_jar is not None
     assert client.auth.cookie_jar.get("SID", domain=".google.com", path="/") == "fresh"
+    assert client.auth.csrf_token == "csrf"
+    assert client.auth.session_id == "session"
     assert storage.read_text(encoding="utf-8") == stored_payload
+    assert [(request.method, str(request.url)) for request in httpx_mock.get_requests()] == [
+        ("GET", "https://notebook.google.com/")
+    ]
     recovery.assert_not_called()
     poke.assert_not_called()
     web_ladder.assert_not_called()

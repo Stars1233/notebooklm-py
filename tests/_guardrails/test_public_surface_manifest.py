@@ -1315,6 +1315,8 @@ def test_baseline_registry_is_non_trivial() -> None:
         "auth_family_patch_scorecard",
         "auth_patch_sites",
         "auth_shared_mutations",
+        "backend_runtime_coupling",
+        "backend_static_coupling",
         "browser_import_graph",
         "browser_patch_sites",
         "guardrail_inline_literals",
@@ -1335,7 +1337,7 @@ def test_baseline_registry_is_non_trivial() -> None:
             baseline,
             marks=(
                 pytest.mark.timeout(360)
-                if baseline.name == "auth_family_patch_scorecard"
+                if baseline.name in {"auth_family_patch_scorecard", "backend_runtime_coupling"}
                 else pytest.mark.timeout(180)
                 if baseline.name == "auth_shared_mutations"
                 else ()
