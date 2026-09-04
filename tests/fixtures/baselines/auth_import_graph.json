@@ -296,6 +296,16 @@
       "target": "cookie_types"
     },
     {
+      "scope": "function",
+      "source": "profile_store",
+      "target": "cookies"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
+      "target": "cookies"
+    },
+    {
       "scope": "module",
       "source": "profile_store",
       "target": "credential_io"
@@ -489,36 +499,6 @@
       "scope": "module",
       "source": "refresh",
       "target": "storage"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "account"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "cookie_types"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "extraction"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "recovery"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "refresh"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "tokens"
     },
     {
       "scope": "module",
@@ -753,7 +733,7 @@
       "path": "src/notebooklm/_auth/profile_migration.py"
     },
     {
-      "lines": 876,
+      "lines": 907,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
@@ -778,11 +758,6 @@
       "path": "src/notebooklm/_auth/refresh.py"
     },
     {
-      "lines": 317,
-      "name": "session",
-      "path": "src/notebooklm/_auth/session.py"
-    },
-    {
       "lines": 268,
       "name": "single_flight",
       "path": "src/notebooklm/_auth/single_flight.py"
@@ -798,21 +773,27 @@
       "path": "src/notebooklm/_auth/storage_lock.py"
     },
     {
-      "lines": 938,
+      "lines": 952,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
     }
   ],
   "sccs": {
-    "all_scopes": [],
+    "all_scopes": [
+      [
+        "cookies",
+        "profile_store",
+        "psidts_recovery"
+      ]
+    ],
     "module_level": []
   },
   "summary": {
-    "function_local_edges": 12,
-    "module_edges": 115,
-    "modules": 33,
-    "total_lines": 13964,
-    "unique_edges": 127
+    "function_local_edges": 13,
+    "module_edges": 110,
+    "modules": 32,
+    "total_lines": 13692,
+    "unique_edges": 123
   },
   "version": 1
 }

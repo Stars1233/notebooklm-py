@@ -49,7 +49,7 @@
     "_ALLOWED_IMPORTS": 52
   },
   "tests/_guardrails/test_auth_profile_store_boundary.py": {
-    "_EXPECTED_IMPORTS": 225,
+    "_EXPECTED_IMPORTS": 245,
     "_NATIVE_REPLACE_CALLER_TESTS": 33
   },
   "tests/_guardrails/test_auth_storage_compatibility.py": {
@@ -67,7 +67,7 @@
     "_VALUE_FIELDS": 23
   },
   "tests/_guardrails/test_authtokens_jar_sync.py": {
-    "_COOKIE_SHADOW_INVENTORY": 96,
+    "_COOKIE_SHADOW_INVENTORY": 102,
     "_NON_AUTHTOKENS_CANDIDATES": 30
   },
   "tests/_guardrails/test_backend_abstract_contracts.py": {

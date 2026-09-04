@@ -1109,6 +1109,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `raw.py` | Public raw descriptors, replay policy, and backend-selected escape-hatch APIs. |
 | `_client_assembly.py` | Single private assembly seam (`_assemble_client`) that wires every constructor-set attribute; shared by `NotebookLMClient.__init__` and the canonical test factory (`tests/_helpers/client_factory.py`) so the two construction paths cannot drift. |
 | `_client_compat.py` | Sole root-owned 0.x Android-to-Web compatibility installer and inert `LazyWebSidecar`; imports `_web.assembly` only inside the first-use builder. |
+| `_client_contracts.py` | Neutral client-side collaborator protocols and construction-only contracts shared by the root, backend assemblers, and compatibility sidecar. |
+| `_adapter_support.py` | Small transport-neutral support leaf for adapter error/response helpers; imported by MCP and REST adapters without importing a backend implementation. |
 | `_web/raw.py` | Thin Web raw adapter that preserves `RpcExecutor.rpc_call` behavior. |
 | `_web/transport/composed.py` | Web composition holder for transport, executor, chain host, middleware metadata, and the shared runtime bundle. |
 | `_web/transport/seams.py` | Constructor-only injectable seams used by tests and collaborator construction. |
@@ -1196,7 +1198,12 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/proto/notebooklm/internal/android/wire/v1/source_content_pb2_grpc.py` | Deterministic service-free companion for the local source-content wire overlay. |
 | `_android/proto_src/` | Minimal compile-ready cumulative Android `.proto` closure. The evidence ledger is `docs/android/proto-evidence-ledger.md`; flattened `docs/android/schema.proto` is never a compile input. |
 | `_runtime/init.py` | Backend-neutral RPC-admission validation and `SharedRuntime` construction. Web transport validation lives in `_web/transport/config.py`; Android settings are validated by `_android/assembly.py`. |
+| `_runtime/error_injection.py` | Backend-neutral synthetic-error injection configuration and startup guard consumed by shared runtime construction and Web transport wiring. |
+| `_android/assembly.py` | Android-only branch-local assembler: validates Android settings, builds `AndroidRuntime` and all selected Android namespaces, and returns Android lifecycle participants without Web collaborators. |
+| `_android/raw.py` | Android raw gRPC escape-hatch adapter; exposes typed `unary` and `unary_stream` descriptors over the selected Android session. |
+| `_web/assembly.py` | Web-only branch-local assembler: validates Web configuration and constructs the Web runtime, namespaces, and Web lifecycle participants. |
 | `_web/transport/init.py` | Web runtime construction, middleware wiring, and `WebRuntime` assembly. |
+| `_web/transport/config.py` | Web-owned validated connection, retry, keepalive, decoder/classifier, sleep, and HTTP-client-factory configuration; Android construction creates none of this state. |
 | `_web/transport/kernel.py` | Concrete `Kernel` transport core (owns `httpx.AsyncClient` + cookie jar) |
 | `_runtime/config.py` | `DEFAULT_*` knobs and module-level constants. `CORE_LOGGER_NAME = "notebooklm._core"` is intentionally preserved as a compatibility logging contract even though the `_core` module was deleted; renaming it silently breaks downstream `caplog`/logger filters. |
 | `_runtime/call_supervisor.py` | `CallSupervisor`, `CallLease`, and `OperationLease` — shared logical-call policy and generation-isolated admission. |
@@ -1254,6 +1261,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_web/rows/research_task.py` | Internal parser for research task result-type selection |
 | `_web/rows/sharing.py` | `SharedUserRow` / `ShareStatusRow` decoding and construction used directly by Web operations and behind the public sharing models' deprecated lazy shims |
 | `_web/rows/sources.py` | `SourceRow` / `SourceRowShape` typed views over raw positional source RPC rows; sibling `source_models.py` owns public `Source` construction so the row module remains within its size budget |
+| `_web/rows/source_models.py` | Web-owned `Source` construction from strict row models; the deprecated public decoder shim delegates here lazily while first-party Web operations call it directly. |
 | `_web/rows/transfers.py` | Mapping-row views for the #2283 transfer replies (`CopiedSourceRow` / `CopiedArtifactRow` / `AddSourcesAsyncResponseRow` / `SourceAckRow`) plus the shared `unwrap_mapping_rows` envelope probe |
 | `_web/notebooks.py` | `WebNotebooksAPI`, the concrete `batchexecute` notebook backend; implements the shared create/copy hooks, preserves the executor identity and web-only decoding/quota/session-hint behavior, and owns the direct-construction `SourceLister` fallback |
 | `_web/sources/` | `WebSourcesAPI` and the concrete web source services: add/batch orchestration, source listing/content/search decoding, Drive import, and the resumable upload pipeline |
@@ -1377,8 +1385,10 @@ src/notebooklm/
 ├── _atomic_io.py                # Atomic JSON write/update helpers
 ├── _backoff.py                  # Shared retry backoff calculation
 ├── _callbacks.py                # Sync/async callback invocation helper
+├── _adapter_support.py          # Small transport-neutral adapter support leaf
 ├── _client_assembly.py          # Shared client-assembly seam (constructor + test factory)
 ├── _client_compat.py            # Root-owned 0.x Android-to-Web sidecar installer/proxy
+├── _client_contracts.py         # Neutral client collaborator protocols and contracts
 ├── _deadline.py                 # RuntimeDeadline helper for aggregate timeouts
 ├── _deprecation.py              # Immutable auth/raw-call specs + gated deprecation emitters
 ├── _env.py                      # Runtime environment/default endpoint helpers
@@ -1442,6 +1452,8 @@ src/notebooklm/
 │   └── views.py                 # Transport-neutral output-projection views: share_status_view (access/permission/view_level enum→label), source_view (kind/status_label/drive_status_label + is_drive_degraded added), notebook_view (role_label added), notebook_viewed_keys (last_viewed_at + its deprecated modified_at alias, for hand-built CLI JSON envelopes), ask_result_view (raw_response debug blob stripped); shared by the MCP tools + REST routes so both emit the identical enriched shape (Option B)
 ├── _android/                    # Android backend; all 11 public namespace adapters selected together
 │   ├── __init__.py              # Dependency-free package marker
+│   ├── assembly.py              # Android-only branch-local runtime and namespace assembler
+│   ├── raw.py                   # Typed Android raw gRPC escape-hatch adapter
 │   ├── auth.py                  # Epoch-aware short-lived bearer provider
 │   ├── account.py               # Private non-replayed account bootstrap adapter
 │   ├── phenotype.py             # Headless GMS Phenotype token acquisition for Play Books
@@ -1549,6 +1561,7 @@ src/notebooklm/
 │               └── sharing_pb2_grpc.py    # Exact two-method generated sharing stub
 ├── _web/                        # Private batchexecute web-backend implementation package
 │   ├── __init__.py              # Package boundary
+│   ├── assembly.py              # Web-only branch-local runtime and namespace assembler
 │   ├── contracts.py             # Web-only Kernel and RpcCaller Protocols
 │   ├── raw.py                   # Thin raw-RPC adapter over the shared Web executor
 │   ├── notebooks.py             # WebNotebooksAPI
@@ -1575,6 +1588,7 @@ src/notebooklm/
 │       ├── executor.py          # Batchexecute RPC dispatcher
 │       ├── init.py              # WebRuntime construction + middleware wiring
 │       ├── kernel.py            # Concrete Kernel transport core
+│       ├── config.py            # Web-owned validated transport configuration
 │       ├── session_auth.py      # Managed homepage/CSRF/session refresh owner
 │       ├── lifecycle.py         # Web resource open/prepare-close/close phases
 │       ├── reqid_counter.py     # Chat request-id counter
@@ -1599,6 +1613,7 @@ src/notebooklm/
 │   ├── call_supervisor.py       # Shared call admission, metrics, semaphore, and generation leases
 │   ├── config.py                # DEFAULT_* knobs + module-level constants
 │   ├── contracts.py             # Transport-neutral LoopGuard Protocol
+│   ├── error_injection.py       # Backend-neutral synthetic-error configuration and guard
 │   ├── helpers.py               # Auth classification, Google HTTP status, sleep, keepalive
 │   ├── init.py                  # Runtime collaborator construction + validation
 │   └── lifecycle.py             # Root lifecycle waves + phased transport orchestration
@@ -1633,6 +1648,7 @@ src/notebooklm/
 │   ├── research_task.py         # Deep-research task parser
 │   ├── sharing.py               # Shared-user and share-status row decoders behind public lazy shims
 │   ├── sources.py               # Source row adapter
+│   ├── source_models.py         # Web-owned public Source construction
 │   ├── play_books.py            # ListExpertIntelligenceContent row adapter (#2292): decode_play_books_response → PlayBook list
 │   └── transfers.py             # CopySourcesAsync / CopyArtifactsAsync / AddSourcesAsync mapping-row adapters (#2283)
 ├── _chat.py                     # Abstract ChatAPI + shared ask/configure/settings/turn-count orchestration over typed hooks
