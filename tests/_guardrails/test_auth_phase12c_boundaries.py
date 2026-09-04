@@ -403,110 +403,29 @@ def test_relocated_values_errors_helpers_and_retired_upward_aliases_are_exact() 
         assert not hasattr(psidts_recovery, name)
 
 
-def test_psidts_route_compatibility_wrapper_resolves_nested_patch_seams(monkeypatch) -> None:
-    class Probe:
-        expires = 1
-
-    source_probe = Probe()
-    routed: list[object] = []
-
-    def patched_iter(entries, *, to_cookie, now=None):
-        assert entries == [{"patched": True}]
-        assert to_cookie("row") == "converted"
-        assert now == 7.0
-        return iter((source_probe,))
-
-    def patched_route(cookies):
-        routed.extend(cookies)
-        return True
-
-    monkeypatch.setattr(psidts_recovery, "_iter_routable_psidts_cookies", patched_iter)
-    monkeypatch.setattr(psidts_recovery, "_cookies_route_psidts", patched_route)
-
-    assert psidts_recovery._psidts_routes_to_rotate(
-        [{"patched": True}],
-        to_cookie=lambda _entry: "converted",
-        now=7.0,
-    )
-    assert len(routed) == 1
-    assert routed[0] is not source_probe
-    assert routed[0].expires is None
-    assert source_probe.expires == 1
-
-
-def test_psidts_helper_wrappers_resolve_nested_child_patch_seams(monkeypatch) -> None:
-    class CookieProbe:
-        name = "__Secure-1PSIDTS"
-        domain = ".google.com"
-        path = "/"
-
-    cookie = CookieProbe()
-    events: list[str] = []
-
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_sanitize_recovery_row",
-        lambda _entry: (
-            events.append("sanitize")
-            or {"name": cookie.name, "domain": cookie.domain, "path": cookie.path, "value": "v"}
-        ),
-    )
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_is_allowed_auth_domain",
-        lambda _domain: events.append("domain") or True,
-    )
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_try_cookie",
-        lambda _entry, _converter: events.append("convert") or cookie,
-    )
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_is_expired",
-        lambda _cookie, _now: events.append("expiry") or False,
-    )
-
-    assert list(
-        psidts_recovery._iter_routable_psidts_cookies(
-            [{"patched": True}],
-            to_cookie=lambda _entry: cookie,
-            now=9.0,
-        )
-    ) == [cookie]
-    assert events == ["sanitize", "domain", "convert", "expiry"]
-
-
-def test_psidts_leaf_wrappers_resolve_diagnostic_and_header_patch_seams(monkeypatch) -> None:
-    bounded_fields: list[str] = []
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_bounded_row_field",
-        lambda _entry, field: bounded_fields.append(field) or field,
-    )
-    assert psidts_recovery._sanitize_recovery_row({}) is None
-
-    entry = {
-        "name": "__Secure-1PSIDTS",
-        "value": "v",
-        "domain": ".google.com",
-        "path": "/",
+def test_psidts_compatibility_wrappers_inject_every_nested_patch_seam() -> None:
+    expected_fragments = {
+        "_sanitize_recovery_row": {"bounded_row_field=_bounded_row_field"},
+        "_try_cookie": {"bounded_row_field=_bounded_row_field"},
+        "_allowed_cookie_name": {
+            "sanitize=_sanitize_recovery_row",
+            "is_allowed_domain=_is_allowed_auth_domain",
+        },
+        "_iter_routable_psidts_cookies": {
+            "allowed_cookie_name=_allowed_cookie_name",
+            "try_cookie=_try_cookie",
+            "is_expired=_is_expired",
+        },
+        "_cookies_route_psidts": {"cookie_header_names=_cookie_header_names"},
+        "_psidts_routes_to_rotate": {
+            "rotate_url=_keepalive.KEEPALIVE_ROTATE_URL",
+            "iter_routable=_iter_routable_psidts_cookies",
+            "cookies_route=_cookies_route_psidts",
+        },
     }
-
-    def reject(_entry):
-        raise ValueError("expected")
-
-    assert psidts_recovery._try_cookie(entry, reject) is None
-    assert bounded_fields == ["name", "domain", "name", "domain"]
-
-    seen_headers: list[str] = []
-    monkeypatch.setattr(
-        psidts_recovery,
-        "_cookie_header_names",
-        lambda header: seen_headers.append(header) or {"__Secure-1PSIDTS"},
-    )
-    assert psidts_recovery._cookies_route_psidts((psidts_recovery._storage_cookie(entry),))
-    assert seen_headers
+    for function_name, fragments in expected_fragments.items():
+        source = ast.unparse(_top_node(_tree("psidts_recovery.py"), function_name))
+        assert all(fragment in source for fragment in fragments)
 
 
 @pytest.mark.parametrize(

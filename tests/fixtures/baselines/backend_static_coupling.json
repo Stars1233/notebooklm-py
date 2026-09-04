@@ -3488,7 +3488,7 @@
     },
     {
       "kind": "from",
-      "lineno": 11,
+      "lineno": 12,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._types.sources",
@@ -3497,7 +3497,7 @@
     },
     {
       "kind": "from",
-      "lineno": 12,
+      "lineno": 13,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._types.sources",
@@ -3506,7 +3506,7 @@
     },
     {
       "kind": "from",
-      "lineno": 20,
+      "lineno": 21,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._types.sources",
@@ -3515,7 +3515,7 @@
     },
     {
       "kind": "from",
-      "lineno": 331,
+      "lineno": 338,
       "scope": "_extract_source_url",
       "scope_kind": "function",
       "source": "notebooklm._types.sources",
@@ -3524,7 +3524,7 @@
     },
     {
       "kind": "from",
-      "lineno": 345,
+      "lineno": 352,
       "scope": "_extract_source_created_at",
       "scope_kind": "function",
       "source": "notebooklm._types.sources",
@@ -3533,7 +3533,7 @@
     },
     {
       "kind": "from",
-      "lineno": 703,
+      "lineno": 711,
       "scope": "Source.from_api_response",
       "scope_kind": "function",
       "source": "notebooklm._types.sources",
@@ -3542,7 +3542,7 @@
     },
     {
       "kind": "from",
-      "lineno": 704,
+      "lineno": 712,
       "scope": "Source.from_api_response",
       "scope_kind": "function",
       "source": "notebooklm._types.sources",
@@ -9645,7 +9645,7 @@
       "modules": 19
     },
     "types": {
-      "lines": 5392,
+      "lines": 5404,
       "modules": 15
     },
     "web": {
@@ -9654,7 +9654,7 @@
     }
   },
   "summary": {
-    "authored_lines": 141833,
+    "authored_lines": 141845,
     "authored_modules": 447,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1056,
