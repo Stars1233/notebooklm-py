@@ -359,7 +359,7 @@ the `Found RPC IDs in response: [...]` line tells you what the server is
 now returning. Cross-reference against the call site that failed.
 
 Please also report the rotated IDs in a GitHub issue so the canonical
-mapping in `src/notebooklm/rpc/types.py` can be updated for everyone.
+mapping in `src/notebooklm/rpc/_identifiers.py` can be updated for everyone.
 
 #### How to get the full response preview from an RPCError
 

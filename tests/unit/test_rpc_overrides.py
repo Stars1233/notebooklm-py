@@ -36,6 +36,7 @@ from tests.unit.conftest import install_post_as_stream
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 RPC_TYPES_PATH = PROJECT_ROOT / "src" / "notebooklm" / "rpc" / "types.py"
+RPC_IDENTIFIERS_PATH = PROJECT_ROOT / "src" / "notebooklm" / "rpc" / "_identifiers.py"
 
 
 @pytest.fixture(autouse=True)
@@ -110,26 +111,36 @@ def test_rpc_types_keeps_override_env_parsing_out_of_protocol_enums() -> None:
 
 
 def test_rpc_overrides_depends_on_stable_rpc_identifiers() -> None:
-    """The Web policy imports RPC identifiers; it must not import back at call time."""
+    """The Web policy imports the dependency-bottom identifier owner directly."""
     path = Path(__file__).parents[2] / "src" / "notebooklm/_web/wire/overrides.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     imports = [
         alias.name
         for node in tree.body
-        if isinstance(node, ast.ImportFrom) and node.level == 3 and node.module == "rpc.types"
+        if isinstance(node, ast.ImportFrom)
+        and node.level == 3
+        and node.module == "rpc._identifiers"
         for alias in node.names
     ]
     assert imports == ["RPCMethod"]
 
-    deferred_rpc_imports = [
+    compatibility_imports = [
         node.lineno
         for node in ast.walk(tree)
-        if isinstance(node, ast.ImportFrom)
-        and node.level == 3
-        and node.module == "rpc.types"
-        and node not in tree.body
+        if isinstance(node, ast.ImportFrom) and node.level == 3 and node.module == "rpc.types"
     ]
-    assert deferred_rpc_imports == []
+    assert compatibility_imports == []
+
+
+def test_rpc_identifier_owner_is_dependency_bottom() -> None:
+    tree = ast.parse(RPC_IDENTIFIERS_PATH.read_text(encoding="utf-8"))
+    imports = [node for node in ast.walk(tree) if isinstance(node, (ast.Import, ast.ImportFrom))]
+    assert [
+        (node.module, node.level, [alias.name for alias in node.names])
+        for node in imports
+        if isinstance(node, ast.ImportFrom)
+    ] == [("enum", 0, ["Enum"])]
+    assert [node for node in imports if isinstance(node, ast.Import)] == []
 
 
 def test_rpc_overrides_imports_directly_without_package_cycle() -> None:
@@ -146,8 +157,16 @@ package.__package__ = "notebooklm"
 package.__path__ = [str(root)]
 sys.modules["notebooklm"] = package
 
+rpc_package = types.ModuleType("notebooklm.rpc")
+rpc_package.__package__ = "notebooklm.rpc"
+rpc_package.__path__ = [str(root / "rpc")]
+sys.modules["notebooklm.rpc"] = rpc_package
+
 overrides = importlib.import_module("notebooklm._web.wire.overrides")
 assert overrides.resolve_rpc_id("LIST_NOTEBOOKS", "canonical") == "canonical"
+assert "notebooklm.rpc.types" not in sys.modules
+identifiers = importlib.import_module("notebooklm.rpc._identifiers")
+assert overrides.RPCMethod is identifiers.RPCMethod
 """
     source_root = Path(__file__).parents[2] / "src" / "notebooklm"
     subprocess.run([sys.executable, "-I", "-c", script, str(source_root)], check=True)

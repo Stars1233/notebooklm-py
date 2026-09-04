@@ -2,6 +2,7 @@
 
 import ast
 import os
+import pickle
 import re
 import subprocess
 import sys
@@ -9,6 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from notebooklm.rpc import RPCMethod as FacadeRPCMethod
+from notebooklm.rpc import types as rpc_types
+from notebooklm.rpc._identifiers import RPCMethod as IdentifierRPCMethod
 from notebooklm.rpc.types import (
     BATCHEXECUTE_URL,
     QUERY_URL,
@@ -32,8 +36,36 @@ from notebooklm.rpc.types import (
 )
 
 
+def test_rpc_method_identity_and_historical_runtime_provenance() -> None:
+    """The dependency-bottom owner must not change the public enum object."""
+    assert IdentifierRPCMethod is RPCMethod is FacadeRPCMethod
+    assert RPCMethod.__module__ == "notebooklm.rpc.types"
+    assert RPCMethod.__qualname__ == "RPCMethod"
+    assert repr(RPCMethod) == "<enum 'RPCMethod'>"
+    assert repr(RPCMethod.LIST_NOTEBOOKS) == "<RPCMethod.LIST_NOTEBOOKS: 'wXbhsf'>"
+    assert str(RPCMethod.LIST_NOTEBOOKS) == "RPCMethod.LIST_NOTEBOOKS"
+
+    payload = pickle.dumps(RPCMethod.LIST_NOTEBOOKS)
+    assert b"notebooklm.rpc.types" in payload
+    assert b"_identifiers" not in payload
+    assert pickle.loads(payload) is RPCMethod.LIST_NOTEBOOKS
+
+
+def test_rpc_types_preserves_historical_wildcard_tail_order() -> None:
+    """Moving the enum owner must not reorder the compatibility star surface."""
+    assert rpc_types.__all__[-7:] == [
+        "QUERY_URL",
+        "UPLOAD_URL",
+        "get_batchexecute_url",
+        "get_query_url",
+        "get_upload_url",
+        "RPCMethod",
+        "resolve_rpc_id",
+    ]
+
+
 def test_rpc_types_does_not_own_runtime_override_policy() -> None:
-    """Runtime override policy belongs in Web wire, not the identifier owner."""
+    """Runtime override policy belongs in Web wire, not compatibility types."""
     path = Path(__file__).parents[2] / "src/notebooklm/rpc/types.py"
     tree = ast.parse(path.read_text())
 
@@ -103,6 +135,14 @@ def test_rpc_override_import_order_smoke() -> None:
         "from notebooklm.rpc.types import RPCMethod, resolve_rpc_id, _parse_rpc_overrides; "
         "assert resolve_rpc_id(RPCMethod.LIST_NOTEBOOKS.name, RPCMethod.LIST_NOTEBOOKS.value); "
         "assert hasattr(_parse_rpc_overrides, 'cache_clear')",
+        "from notebooklm._web.wire.overrides import RPCMethod as web_method; "
+        "from notebooklm.rpc.types import RPCMethod as compat_method; "
+        "from notebooklm.rpc import RPCMethod as public_method; "
+        "assert web_method is compat_method is public_method",
+        "from notebooklm.rpc._identifiers import RPCMethod as leaf_method; "
+        "from notebooklm._web.wire.overrides import RPCMethod as web_method; "
+        "from notebooklm.rpc.types import RPCMethod as compat_method; "
+        "assert leaf_method is web_method is compat_method",
     ]
     for snippet in snippets:
         subprocess.run([sys.executable, "-c", snippet], check=True)
@@ -154,7 +194,7 @@ class TestRPCMethod:
     re-stated ``rpc/types.py`` (zero behavioral value, a mechanical re-edit on
     every ID rotation). This is strictly stronger: it holds for ALL members and
     catches empties / malformed tokens / cross-enum duplicate IDs that the
-    individual pins never checked. ``rpc/types.py`` remains the single source of
+    individual pins never checked. ``rpc/_identifiers.py`` remains the single source of
     truth for the literal values.
     """
 

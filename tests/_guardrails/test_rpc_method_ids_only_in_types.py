@@ -1,6 +1,6 @@
-"""Guard that batchexecute RPC method IDs live only in ``rpc/types.py``.
+"""Guard that batchexecute RPC method IDs live only in ``rpc/_identifiers.py``.
 
-CLAUDE.md is explicit: ``src/notebooklm/rpc/types.py`` is the *source of truth*
+CLAUDE.md is explicit: ``src/notebooklm/rpc/_identifiers.py`` is the *source of truth*
 for every obfuscated batchexecute method ID, and the only escape hatch is the
 env-driven runtime override in ``_web/wire/overrides.py``. Nothing else in
 ``src/notebooklm/`` should hardcode a raw method-ID string.
@@ -18,7 +18,7 @@ This AST lint enforces that invariant two ways:
   string -- this also catches a *freshly invented* ID that has not (yet) been
   added to the enum.
 
-The method-ID vocabulary is read from ``rpc/types.py`` via AST so this lint
+The method-ID vocabulary is read from ``rpc/_identifiers.py`` via AST so this lint
 never drifts from the source of truth and pulls in no import side effects.
 """
 
@@ -29,7 +29,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "notebooklm"
-TYPES_MODULE = SRC_ROOT / "rpc" / "types.py"
+IDENTIFIERS_MODULE = SRC_ROOT / "rpc" / "_identifiers.py"
 
 # Call targets whose method-ID argument must be an ``RPCMethod`` member, never
 # an inline string. Matched by the (possibly attribute-qualified) callee name,
@@ -44,9 +44,11 @@ RPC_DISPATCH_KEYWORDS: dict[str, str] = {
 }
 
 
-def _rpc_method_values(types_module: Path = TYPES_MODULE) -> frozenset[str]:
-    """Return the set of ``RPCMethod`` string values declared in ``types.py``."""
-    tree = ast.parse(types_module.read_text(encoding="utf-8"), filename=str(types_module))
+def _rpc_method_values(identifiers_module: Path = IDENTIFIERS_MODULE) -> frozenset[str]:
+    """Return the ``RPCMethod`` values declared in the identifier owner."""
+    tree = ast.parse(
+        identifiers_module.read_text(encoding="utf-8"), filename=str(identifiers_module)
+    )
     values: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "RPCMethod":
@@ -100,7 +102,10 @@ def _is_client_rpc_call_annotation(node: ast.Name, parents: dict[ast.AST, ast.AS
 def _rpc_method_reference_offenders(path: Path) -> list[str]:
     """Find RPCMethod imports/runtime references outside the web owner."""
     relative = path.relative_to(SRC_ROOT)
-    if relative.parts[0] == "_web" or relative == Path("rpc/types.py"):
+    if relative.parts[0] == "_web" or relative in {
+        Path("rpc/_identifiers.py"),
+        Path("rpc/types.py"),
+    }:
         return []
 
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -211,7 +216,7 @@ def test_no_hardcoded_rpc_method_ids_outside_rpc_layer() -> None:
         )
 
     assert not offenders, (
-        "Batchexecute RPC method IDs must live only in src/notebooklm/rpc/types.py "
+        "Batchexecute RPC method IDs must live only in src/notebooklm/rpc/_identifiers.py "
         "(the source of truth per CLAUDE.md). Reference them via the RPCMethod enum "
         "instead of hardcoding the obfuscated string; the only runtime escape hatch "
         "is _web/wire/overrides.py.\n\n" + "\n".join(offenders)
@@ -219,14 +224,14 @@ def test_no_hardcoded_rpc_method_ids_outside_rpc_layer() -> None:
 
 
 def test_rpc_method_references_stay_in_the_web_backend() -> None:
-    """Executable RPCMethod knowledge belongs to rpc/types.py and _web only."""
+    """Executable RPCMethod knowledge belongs to the identifier owner and _web."""
     offenders = [
         offender
         for path in sorted(SRC_ROOT.rglob("*.py"))
         for offender in _rpc_method_reference_offenders(path)
     ]
     assert offenders == [], (
-        "RPCMethod references outside rpc/types.py must live under _web; only the public "
+        "RPCMethod references outside rpc/_identifiers.py must live under _web; only the public "
         "rpc facade re-export and NotebookLMClient.rpc_call annotation are exempt:\n"
         + "\n".join(offenders)
     )

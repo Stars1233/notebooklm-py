@@ -2,7 +2,7 @@
 
 **Status:** Active
 **Last Updated:** 2026-09-02
-**Source of Truth:** `src/notebooklm/rpc/types.py` for method IDs; payload builders under `src/notebooklm/_web/` and golden tests under `tests/unit/`
+**Source of Truth:** `src/notebooklm/rpc/_identifiers.py` for method IDs; payload builders under `src/notebooklm/_web/` and golden tests under `tests/unit/`
 **Purpose:** Reference for the Web backend's batchexecute methods, UI selectors, and payload structures
 
 This reference is deliberately Web-specific: `RPCMethod` and
@@ -3364,7 +3364,7 @@ When automating, poll for completion rather than using fixed timeouts. Check art
 
 ## Legacy/Unused RPC Methods
 
-These RPC method IDs exist in `rpc/types.py` but are either legacy (superseded by other methods) or not currently used in the implementation. Documented here for completeness.
+These RPC method IDs exist in `rpc/_identifiers.py` but are either legacy (superseded by other methods) or not currently used in the implementation. Documented here for completeness.
 
 | RPC ID | Method | Status | Notes |
 |--------|--------|--------|-------|

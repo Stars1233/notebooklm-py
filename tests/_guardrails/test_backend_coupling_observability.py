@@ -165,6 +165,73 @@ def test_static_projection_excludes_generated_android_protobuf(tmp_path: Path) -
     assert projection["subsystems"] == {"web": {"lines": 1, "modules": 1}}
 
 
+def test_rpc_identifier_boundary_is_one_way_in_the_all_scope_graph() -> None:
+    """The compatibility lazy edge must never close a types/overrides SCC."""
+    projection = build_static_projection()
+    edges = projection["edges"]
+    assert isinstance(edges, list)
+
+    rpc_nodes = {
+        "notebooklm.rpc.types",
+        "notebooklm.rpc._identifiers",
+        "notebooklm._web.wire.overrides",
+    }
+    boundary_edges = [
+        (
+            edge["source"],
+            edge["target"],
+            edge["kind"],
+            edge["scope"],
+            edge["scope_kind"],
+            edge["type_only"],
+        )
+        for edge in edges
+        if edge["source"] in rpc_nodes and edge["target"] in rpc_nodes
+    ]
+    assert boundary_edges == [
+        (
+            "notebooklm._web.wire.overrides",
+            "notebooklm.rpc._identifiers",
+            "from",
+            None,
+            "module",
+            False,
+        ),
+        (
+            "notebooklm.rpc.types",
+            "notebooklm._web.wire.overrides",
+            "from",
+            "__getattr__",
+            "function",
+            False,
+        ),
+    ]
+
+    adjacency: dict[str, set[str]] = {}
+    for edge in edges:
+        source = edge["source"]
+        target = edge["target"]
+        assert isinstance(source, str)
+        assert isinstance(target, str)
+        adjacency.setdefault(source, set()).add(target)
+
+    def reachable(source: str, target: str) -> bool:
+        pending = [source]
+        seen: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current in seen:
+                continue
+            seen.add(current)
+            if current == target:
+                return True
+            pending.extend(adjacency.get(current, ()))
+        return False
+
+    assert reachable("notebooklm.rpc.types", "notebooklm._web.wire.overrides")
+    assert not reachable("notebooklm._web.wire.overrides", "notebooklm.rpc.types")
+
+
 def test_coupling_growth_policies_reject_replacement_and_count_growth() -> None:
     previous_runtime = {
         "public_entries": {

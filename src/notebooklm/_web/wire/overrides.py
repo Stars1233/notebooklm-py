@@ -7,7 +7,7 @@ import logging
 import os
 from functools import lru_cache
 
-from ...rpc.types import RPCMethod
+from ...rpc._identifiers import RPCMethod
 
 # Preserve the established logging category and its operator filters across
 # the private module move.

@@ -69,7 +69,8 @@ src/notebooklm/
 ├── _web/sharing.py      # WebSharingAPI + legacy ShareManager
 ├── rpc/                 # Public power-user and compatibility facade
 │   ├── __init__.py
-│   └── types.py         # RPCMethod enum, constants, and compatibility re-exports
+│   ├── _identifiers.py  # Dependency-bottom RPCMethod owner
+│   └── types.py         # Constants and exact-identity RPCMethod compatibility re-export
 ├── cli/                 # Click adapter (`*_cmd.py`) plus `cli/services/`
 ├── mcp/                 # FastMCP adapter (optional `mcp` extra)
 └── server/              # FastAPI REST adapter (optional `server` extra)
@@ -260,7 +261,7 @@ from those catalogues rather than introducing parallel patterns.
 
 **New RPC Method:**
 1. Capture traffic (see [RPC Development Guide](rpc-development.md))
-2. Add to `rpc/types.py`: `NEW_METHOD = "AbCdEf"`
+2. Add to `rpc/_identifiers.py`: `NEW_METHOD = "AbCdEf"`
 3. Implement in appropriate `_*.py` API class
 4. Add dataclass to `types.py` if needed
 5. Add CLI command if user-facing
@@ -953,7 +954,7 @@ A representative slice (run `ls tests/_guardrails/` for the full set):
 | Gate | Enforces |
 |---|---|
 | `test_no_raw_positional_rpc_indexing.py` | No chained positional indexing (`x[0][9][3]`) of `batchexecute` payloads outside the sanctioned `_web/rows/` — the project's #1 fragility class |
-| `test_rpc_method_ids_only_in_types.py` | Obfuscated RPC IDs live only in `rpc/types.py` (the source of truth) |
+| `test_rpc_method_ids_only_in_types.py` | Obfuscated RPC IDs live only in `rpc/_identifiers.py` (the source of truth) |
 | `test_no_forbidden_monkeypatches.py` | The forbidden monkeypatch shapes under `tests/` (ADR-0007) |
 | `test_no_inline_deprecation_warnings.py` | No inline `warnings.warn(..., DeprecationWarning)` outside `_deprecation.py` (ADR-0018) |
 | `test_cli_rpc_envelope.py` | Every *RPC-touching* Click leaf command (call graph reaches `NotebookLMClient`) routes its errors into the JSON envelope |

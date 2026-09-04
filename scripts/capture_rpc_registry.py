@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Capture NotebookLM's live RPC id registry from the web bundle and diff it
-against ``src/notebooklm/rpc/types.py``.
+against ``src/notebooklm/rpc/_identifiers.py``.
 
 NotebookLM declares every ``batchexecute`` RPC in its (public, gstatic-served) JS
 bundle as::
@@ -152,7 +152,10 @@ def _write_outcome(path: Path | None, outcome: str) -> None:
 
 # Resolved relative to this file (scripts/ -> repo root) so the script runs from
 # any working directory, not just the repo root.
-_DEFAULT_TYPES = Path(__file__).resolve().parent.parent / "src" / "notebooklm" / "rpc" / "types.py"
+_DEFAULT_TYPES = (
+    Path(__file__).resolve().parent.parent / "src" / "notebooklm" / "rpc" / "_identifiers.py"
+)
+_DEFAULT_ENUM_TYPES = _DEFAULT_TYPES.with_name("types.py")
 
 # --- Service-family classification: consumer backend vs enterprise (Discovery Engine) ---
 # "Current" (the consumer backend serving our cohort now) is detected *empirically*:
@@ -814,7 +817,7 @@ def _print_enum_report(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI entry point: load/fetch the bundle, diff vs rpc/types.py, report.
+    """CLI entry point: load/fetch the bundle, diff vs the RPC owners, report.
 
     Returns the process exit code: ``1`` when a drift gate fires — ``--check``
     with any ABSENT id (id rotation), and/or ``--check-enums`` with any
@@ -845,7 +848,12 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="fetch the live bundle, save it to this path, and analyse it",
     )
-    parser.add_argument("--types", type=Path, default=_DEFAULT_TYPES, help="path to rpc/types.py")
+    parser.add_argument(
+        "--types",
+        type=Path,
+        default=_DEFAULT_TYPES,
+        help="path to the RPC identifier owner (default: rpc/_identifiers.py)",
+    )
     parser.add_argument(
         "--outcome-file",
         type=Path,
@@ -859,6 +867,16 @@ def main(argv: list[str] | None = None) -> int:
         args.outcome_file.unlink(missing_ok=True)
 
     types_text = args.types.read_text(encoding="utf-8")
+    # ``--types`` historically accepted one synthetic file containing both
+    # RPCMethod and studio enums, which the offline tests and external scripts
+    # may still rely on. The repository default now splits those owners: IDs
+    # are dependency-bottom while the compatibility module still re-exports
+    # transport enums. Preserve custom-file behavior and split only our default.
+    enum_types_text = (
+        _DEFAULT_ENUM_TYPES.read_text(encoding="utf-8")
+        if args.types == _DEFAULT_TYPES
+        else types_text
+    )
     ours = parse_ids_from_text(types_text)
     try:
         bundle = (
@@ -914,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
     current_services = {_service_of(m) for m in buckets["confirmed"].values()}
 
     live_switch = extract_switch_enums(bundle)
-    enum_buckets = diff_enums(types_text, live_switch)
+    enum_buckets = diff_enums(enum_types_text, live_switch)
     quota = extract_quota_codes(bundle)
     proto = extract_proto_assertions(bundle)
 
