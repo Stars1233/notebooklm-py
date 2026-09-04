@@ -12,8 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Pre-merge live CI qualification.** The repository owner can dispatch RPC health or nightly
   E2E from the trusted `main` workflow against the immutable head SHA of an open, same-repository
   PR targeting `main`. Forks, non-owner dispatches, and direct feature-ref dispatches remain
-  blocked from protected credentials. Nightly dispatches can also select only the full Web,
-  Android, or read-only live lane.
+  blocked from protected credentials, while account selection and raw-token materialization remain
+  pinned to trusted `main` code. Nightly dispatches can also select only the full Web, Android, or
+  read-only live lane.
 
 ### Fixed
 

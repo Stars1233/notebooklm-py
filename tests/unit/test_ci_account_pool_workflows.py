@@ -87,7 +87,12 @@ def test_live_workflows_resolve_trusted_targets_before_planning_or_secrets() -> 
         assert "secrets." not in str(planner)
         assert "secrets[" not in str(planner)
         checkout = next(step for step in _steps(planner) if "checkout@" in str(step.get("uses")))
-        assert checkout["with"]["ref"] == "${{ needs.resolve-target.outputs.sha }}"
+        expected_ref = (
+            "${{ needs.resolve-target.outputs.sha }}"
+            if name == "verify-package.yml"
+            else "${{ needs.resolve-target.outputs.trusted_sha }}"
+        )
+        assert checkout["with"]["ref"] == expected_ref
 
 
 @pytest.mark.parametrize("name", LIVE_NAMES)
@@ -123,6 +128,7 @@ def test_trusted_target_shell_defaults_to_main_and_rejects_other_workflow_refs(
             "EVENT_NAME": event_name,
             "GITHUB_ACTOR_VALUE": "teng-lin",
             "GITHUB_REF_VALUE": ref,
+            "GITHUB_SHA_VALUE": "b" * 40,
             "GITHUB_OUTPUT": str(output),
             "QUALIFICATION_PR": "",
         },
@@ -159,6 +165,7 @@ def test_owner_can_pin_an_open_same_repo_main_pr_for_live_qualification(
             "EVENT_NAME": "workflow_dispatch",
             "GITHUB_ACTOR_VALUE": "teng-lin",
             "GITHUB_REF_VALUE": "refs/heads/main",
+            "GITHUB_SHA_VALUE": "b" * 40,
             "GITHUB_TRIGGERING_ACTOR_VALUE": "teng-lin",
             "GITHUB_OUTPUT": str(output),
             "GH_STUB_FIELDS": (
@@ -180,6 +187,7 @@ def test_owner_can_pin_an_open_same_repo_main_pr_for_live_qualification(
         "checkout_ref": sha,
         "expected_sha": sha,
         "is_standard": "true",
+        "trusted_sha": "b" * 40,
     }
 
 
@@ -250,6 +258,7 @@ def test_live_pr_qualification_rejects_untrusted_candidates(
             "EVENT_NAME": "workflow_dispatch",
             "GITHUB_ACTOR_VALUE": actor,
             "GITHUB_REF_VALUE": "refs/heads/main",
+            "GITHUB_SHA_VALUE": "b" * 40,
             "GITHUB_TRIGGERING_ACTOR_VALUE": triggering_actor,
             "GITHUB_OUTPUT": str(output),
             "GH_STUB_FIELDS": fields,
@@ -265,6 +274,42 @@ def test_live_pr_qualification_rejects_untrusted_candidates(
         if "=" in line
     )
     assert values["is_standard"] == "false"
+
+
+def test_pr_qualification_keeps_account_selection_and_raw_token_consumer_trusted() -> None:
+    workflows = (_load("nightly.yml"), _load("rpc-health.yml"))
+    for workflow in workflows:
+        planner = workflow["jobs"]["plan-live-lanes"]
+        planner_checkout = next(
+            step for step in _steps(planner) if "checkout@" in str(step.get("uses"))
+        )
+        assert planner_checkout["with"]["ref"] == (
+            "${{ needs.resolve-target.outputs.trusted_sha }}"
+        )
+
+    live_jobs = (
+        workflows[0]["jobs"]["e2e"],
+        workflows[1]["jobs"]["health-check"],
+        workflows[1]["jobs"]["android-grpc-health"],
+    )
+    for job in live_jobs:
+        trusted_checkout = next(
+            step for step in _steps(job) if step.get("name") == "Checkout trusted CI helpers"
+        )
+        assert trusted_checkout["with"] == {
+            "ref": "${{ needs.resolve-target.outputs.trusted_sha }}",
+            "path": "trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}",
+            "fetch-depth": 1,
+            "persist-credentials": False,
+        }
+        auth = next(
+            step for step in _steps(job) if step.get("name") == "Materialize selected account"
+        )
+        auth_run = str(auth["run"])
+        assert 'PYTHONPATH="$trusted_root/src"' in auth_run
+        assert "uv run --no-sync python" in auth_run
+        assert '"$trusted_root/scripts/materialize_ci_auth.py"' in auth_run
+        assert "uv run python scripts/materialize_ci_auth.py" not in auth_run
 
 
 def test_secret_bearing_jobs_have_both_literal_gates_and_exact_sha_checkout() -> None:

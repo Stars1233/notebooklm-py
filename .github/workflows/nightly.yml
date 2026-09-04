@@ -49,6 +49,7 @@ jobs:
       is_standard: ${{ steps.resolve.outputs.is_standard }}
       sha: ${{ steps.target.outputs.sha }}
       short_sha: ${{ steps.target.outputs.short_sha }}
+      trusted_sha: ${{ steps.resolve.outputs.trusted_sha }}
     steps:
     - name: Resolve trusted target
       id: resolve
@@ -57,6 +58,7 @@ jobs:
         EVENT_NAME: ${{ github.event_name }}
         GITHUB_ACTOR_VALUE: ${{ github.actor }}
         GITHUB_REF_VALUE: ${{ github.ref }}
+        GITHUB_SHA_VALUE: ${{ github.sha }}
         GITHUB_TRIGGERING_ACTOR_VALUE: ${{ github.triggering_actor }}
         GH_TOKEN: ${{ github.token }}
         QUALIFICATION_PR: ${{ inputs.qualification_pr }}
@@ -69,11 +71,17 @@ jobs:
           echo "::error::Dispatch the trusted nightly workflow on main"
           exit 1
         fi
+        if ! [[ "$GITHUB_SHA_VALUE" =~ ^[0-9a-f]{40}$ ]]; then
+          echo "is_standard=false" >> "$GITHUB_OUTPUT"
+          echo "::error::GitHub returned an invalid trusted workflow SHA"
+          exit 1
+        fi
+        echo "trusted_sha=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
 
         if [ -z "$QUALIFICATION_PR" ]; then
           echo "branch=main" >> "$GITHUB_OUTPUT"
-          echo "checkout_ref=refs/heads/main" >> "$GITHUB_OUTPUT"
-          echo "expected_sha=" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
+          echo "expected_sha=$GITHUB_SHA_VALUE" >> "$GITHUB_OUTPUT"
           echo "is_standard=true" >> "$GITHUB_OUTPUT"
           exit 0
         fi
@@ -143,7 +151,7 @@ jobs:
         printf '### Live target\n\nTarget: `%s@%s`\n' \
           "$TARGET_LABEL" "$actual_sha" >> "$GITHUB_STEP_SUMMARY"
 
-  # The reviewed selector runs from the resolved SHA without any secret. Its
+  # The account selector runs from the trusted workflow SHA without any secret. Its
   # matrix contains aliases and allowlisted secret names, never secret values.
   plan-live-lanes:
     needs: resolve-target
@@ -156,7 +164,7 @@ jobs:
     steps:
     - uses: actions/checkout@v7
       with:
-        ref: ${{ needs.resolve-target.outputs.sha }}
+        ref: ${{ needs.resolve-target.outputs.trusted_sha }}
         fetch-depth: 1
         persist-credentials: false
     - name: Select live account slots
@@ -415,6 +423,13 @@ jobs:
         ref: ${{ needs.resolve-target.outputs.sha }}
         fetch-depth: 1
         persist-credentials: false
+    - name: Checkout trusted CI helpers
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ needs.resolve-target.outputs.trusted_sha }}
+        path: trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}
+        fetch-depth: 1
+        persist-credentials: false
     - name: Configure runner-local paths
       run: |
         {
@@ -463,9 +478,11 @@ jobs:
       continue-on-error: true
       env:
         NOTEBOOKLM_MASTER_TOKEN_JSON: ${{ secrets[matrix.master_token_secret_name] }}
-      run: >-
-        uv run python scripts/materialize_ci_auth.py
-        --account-slot "${{ matrix.account_slot }}" --profile "$NOTEBOOKLM_PROFILE"
+      run: |
+        trusted_root="$GITHUB_WORKSPACE/trusted-ci-${{ github.run_id }}-${{ github.run_attempt }}"
+        PYTHONPATH="$trusted_root/src" uv run --no-sync python \
+          "$trusted_root/scripts/materialize_ci_auth.py" \
+          --account-slot "${{ matrix.account_slot }}" --profile "$NOTEBOOKLM_PROFILE"
     - name: Sweep stale managed copies
       id: sweep
       if: steps.auth.outcome == 'success'

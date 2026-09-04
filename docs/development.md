@@ -1633,6 +1633,12 @@ Before merging, compare the run summary's resolved SHA with
 `gh pr view 2353 --json headRefOid`. Pushes to the PR after dispatch are not included; dispatch
 again to qualify the new head.
 
+The account planner and raw master-token consumer always execute from the immutable `main` SHA
+that supplied the workflow, not from the candidate checkout. This keeps slot-to-secret mapping and
+credential materialization outside PR control. Candidate code receives only the selected account's
+materialized profile, which is still a privileged credential: review the exact pinned diff before
+authorizing the dispatch.
+
 #### Operations runbooks
 
 - Disable a failing slot by removing it from `NOTEBOOKLM_CI_ACCOUNT_SLOTS`;
