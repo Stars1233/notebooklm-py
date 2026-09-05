@@ -9599,6 +9599,15 @@
     },
     {
       "kind": "from",
+      "lineno": 146,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm.types",
+      "target": "notebooklm._types.usage",
+      "type_only": false
+    },
+    {
+      "kind": "from",
       "lineno": 22,
       "scope": null,
       "scope_kind": "module",
@@ -9629,8 +9638,8 @@
       "modules": 37
     },
     "root": {
-      "lines": 22504,
-      "modules": 75
+      "lines": 22743,
+      "modules": 76
     },
     "rpc": {
       "lines": 380,
@@ -9645,8 +9654,8 @@
       "modules": 19
     },
     "types": {
-      "lines": 5404,
-      "modules": 15
+      "lines": 5540,
+      "modules": 16
     },
     "web": {
       "lines": 32672,
@@ -9654,13 +9663,13 @@
     }
   },
   "summary": {
-    "authored_lines": 141878,
-    "authored_modules": 447,
+    "authored_lines": 142253,
+    "authored_modules": 449,
     "class_local_edges": 0,
-    "cross_subsystem_edges": 1056,
+    "cross_subsystem_edges": 1057,
     "dynamic_import_calls": 10,
     "function_local_edges": 70,
-    "module_level_edges": 986,
+    "module_level_edges": 987,
     "type_only_edges": 115
   },
   "version": 1
