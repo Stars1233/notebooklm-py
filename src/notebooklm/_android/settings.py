@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 from .._runtime.call_supervisor import OperationLease
 from .._settings import SettingsAPI
+from .._usage import RawUsageSummary, UsageAccount
 from ..exceptions import DecodingError
 from ..types import AccountLimits, UserSettings
 from .epoch import bind_workflow_epoch, reset_workflow_epoch
 from .session import AndroidSession
-
-if TYPE_CHECKING:
-    from .._usage import RawUsageSummary, UsageAccount
 
 _SERVICE = "google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService"
 GET_OR_CREATE_ACCOUNT_METHOD = f"/{_SERVICE}/GetOrCreateAccount"

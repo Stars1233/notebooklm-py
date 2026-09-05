@@ -10,7 +10,7 @@
     "UNMAPPED": 340
   },
   "tests/_guardrails/test_android_retry_manifest.py": {
-    "_WEB_CLASS_BY_ANDROID_NAME": 97
+    "_WEB_CLASS_BY_ANDROID_NAME": 99
   },
   "tests/_guardrails/test_asyncio_loop_affinity_guard.py": {
     "ALLOWLIST": 21
@@ -101,7 +101,7 @@
     "_EXECUTOR_RAW_ARGS": 32
   },
   "tests/_guardrails/test_golden_decode_coverage.py": {
-    "GOLDEN_COVERAGE": 50
+    "GOLDEN_COVERAGE": 54
   },
   "tests/_guardrails/test_login_package_dag.py": {
     "ALLOWED_EDGES": 43

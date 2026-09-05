@@ -46,9 +46,9 @@
           "module_counts": {
             "android": 47,
             "auth": 32,
-            "root": 56,
+            "root": 57,
             "runtime": 9,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -200,7 +200,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -264,9 +266,9 @@
           "module_counts": {
             "android": 47,
             "auth": 32,
-            "root": 56,
+            "root": 57,
             "runtime": 9,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -418,7 +420,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -499,11 +503,11 @@
           "module_counts": {
             "android": 72,
             "auth": 32,
-            "root": 56,
+            "root": 57,
             "rpc": 3,
             "runtime": 9,
-            "types": 15,
-            "web": 90
+            "types": 16,
+            "web": 91
           },
           "module_delta": [
             "notebooklm",
@@ -680,7 +684,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm._web",
             "notebooklm._web.artifact",
@@ -767,6 +773,7 @@
             "notebooklm._web.transport.seams",
             "notebooklm._web.transport.session_auth",
             "notebooklm._web.transport.streaming_post",
+            "notebooklm._web.usage",
             "notebooklm._web.wire",
             "notebooklm._web.wire.decoder",
             "notebooklm._web.wire.encoder",
@@ -863,9 +870,9 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "runtime": 8,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -968,7 +975,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -1027,9 +1036,9 @@
           "module_counts": {
             "android": 72,
             "auth": 32,
-            "root": 56,
+            "root": 57,
             "runtime": 9,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -1206,7 +1215,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -1326,9 +1337,9 @@
           "module_counts": {
             "android": 72,
             "auth": 32,
-            "root": 56,
+            "root": 57,
             "runtime": 9,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -1505,7 +1516,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -1652,11 +1665,11 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "rpc": 3,
             "runtime": 9,
-            "types": 15,
-            "web": 90
+            "types": 16,
+            "web": 91
           },
           "module_delta": [
             "notebooklm",
@@ -1760,7 +1773,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm._web",
             "notebooklm._web.artifact",
@@ -1847,6 +1862,7 @@
             "notebooklm._web.transport.seams",
             "notebooklm._web.transport.session_auth",
             "notebooklm._web.transport.streaming_post",
+            "notebooklm._web.usage",
             "notebooklm._web.wire",
             "notebooklm._web.wire.decoder",
             "notebooklm._web.wire.encoder",
@@ -1939,11 +1955,11 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "rpc": 3,
             "runtime": 9,
-            "types": 15,
-            "web": 90
+            "types": 16,
+            "web": 91
           },
           "module_delta": [
             "notebooklm",
@@ -2047,7 +2063,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm._web",
             "notebooklm._web.artifact",
@@ -2134,6 +2152,7 @@
             "notebooklm._web.transport.seams",
             "notebooklm._web.transport.session_auth",
             "notebooklm._web.transport.streaming_post",
+            "notebooklm._web.usage",
             "notebooklm._web.wire",
             "notebooklm._web.wire.decoder",
             "notebooklm._web.wire.encoder",
@@ -2164,9 +2183,9 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "runtime": 8,
-            "types": 15
+            "types": 16
           },
           "module_delta": [
             "notebooklm",
@@ -2269,7 +2288,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
@@ -2349,11 +2370,11 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "rpc": 3,
             "runtime": 9,
-            "types": 15,
-            "web": 90
+            "types": 16,
+            "web": 91
           },
           "module_delta": [
             "notebooklm",
@@ -2457,7 +2478,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm._web",
             "notebooklm._web.artifact",
@@ -2544,6 +2567,7 @@
             "notebooklm._web.transport.seams",
             "notebooklm._web.transport.session_auth",
             "notebooklm._web.transport.streaming_post",
+            "notebooklm._web.usage",
             "notebooklm._web.wire",
             "notebooklm._web.wire.decoder",
             "notebooklm._web.wire.encoder",
@@ -2638,11 +2662,11 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 55,
+            "root": 56,
             "rpc": 3,
             "runtime": 9,
-            "types": 15,
-            "web": 90
+            "types": 16,
+            "web": 91
           },
           "module_delta": [
             "notebooklm",
@@ -2746,7 +2770,9 @@
             "notebooklm._types.research",
             "notebooklm._types.sharing",
             "notebooklm._types.sources",
+            "notebooklm._types.usage",
             "notebooklm._url_utils",
+            "notebooklm._usage",
             "notebooklm._version_check",
             "notebooklm._web",
             "notebooklm._web.artifact",
@@ -2833,6 +2859,7 @@
             "notebooklm._web.transport.seams",
             "notebooklm._web.transport.session_auth",
             "notebooklm._web.transport.streaming_post",
+            "notebooklm._web.usage",
             "notebooklm._web.wire",
             "notebooklm._web.wire.decoder",
             "notebooklm._web.wire.encoder",
@@ -2872,9 +2899,9 @@
       "module_counts": {
         "android": 3,
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "runtime": 8,
-        "types": 15
+        "types": 16
       },
       "module_delta": [
         "notebooklm",
@@ -2980,7 +3007,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
@@ -2996,9 +3025,9 @@
     "client_reexport": {
       "module_counts": {
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "runtime": 8,
-        "types": 15
+        "types": 16
       },
       "module_delta": [
         "notebooklm",
@@ -3101,7 +3130,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
@@ -3117,9 +3148,9 @@
     "legacy_client_attribute": {
       "module_counts": {
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "runtime": 8,
-        "types": 15,
+        "types": 16,
         "web": 3
       },
       "module_delta": [
@@ -3223,7 +3254,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm._web",
         "notebooklm._web.transport",
@@ -3242,9 +3275,9 @@
     "package": {
       "module_counts": {
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "runtime": 8,
-        "types": 15
+        "types": 16
       },
       "module_delta": [
         "notebooklm",
@@ -3347,7 +3380,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
@@ -3363,9 +3398,9 @@
     "raw_module": {
       "module_counts": {
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "runtime": 8,
-        "types": 15
+        "types": 16
       },
       "module_delta": [
         "notebooklm",
@@ -3468,7 +3503,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
@@ -3484,10 +3521,10 @@
     "web_raw_api": {
       "module_counts": {
         "auth": 32,
-        "root": 55,
+        "root": 56,
         "rpc": 3,
         "runtime": 8,
-        "types": 15,
+        "types": 16,
         "web": 2
       },
       "module_delta": [
@@ -3591,7 +3628,9 @@
         "notebooklm._types.research",
         "notebooklm._types.sharing",
         "notebooklm._types.sources",
+        "notebooklm._types.usage",
         "notebooklm._url_utils",
+        "notebooklm._usage",
         "notebooklm._version_check",
         "notebooklm._web",
         "notebooklm._web.raw",
