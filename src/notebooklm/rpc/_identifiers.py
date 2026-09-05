@@ -165,6 +165,11 @@ class RPCMethod(str, Enum):
     # -> MutateAccount (generic account mutator; we only set the output language)
     SET_USER_SETTINGS = "hT54vc"
 
+    # Live compute-meter usage.  These are separate from GetOrCreateAccount and
+    # the legacy GetQuota feature-limit RPC; both reads are account-scoped.
+    GET_ACCOUNT = "SatQRc"  # -> GetAccount
+    LIST_QUOTA_SUMMARY = "EylDcb"  # -> ListQuotaSummary
+
 
 # ``RPCMethod`` historically lived in ``notebooklm.rpc.types``. Keep its
 # public provenance so repr/pickle/import behavior remains byte-for-byte
