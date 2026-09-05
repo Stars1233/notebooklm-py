@@ -923,9 +923,12 @@ def pytest_runtest_teardown(item, nextitem):
 @pytest.fixture(scope="session")
 def auth_tokens() -> AuthTokens:
     """Load domain-preserving auth tokens from storage (session-scoped)."""
-    import asyncio
 
-    tokens = asyncio.run(AuthTokens.from_storage())
+    async def load() -> AuthTokens:
+        async with NotebookLMClient.from_storage() as loaded_client:
+            return loaded_client.auth
+
+    tokens = asyncio.run(load())
     _emit_auth_route_diagnostic(tokens)
     return tokens
 

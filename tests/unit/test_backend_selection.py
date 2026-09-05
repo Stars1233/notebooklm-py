@@ -418,7 +418,7 @@ def test_default_and_explicit_web_keep_every_namespace_on_web(backend: str | Non
     assert client._android_runtime is None
 
 
-def test_web_construction_resolves_relative_imports_without_optional_runtime() -> None:
+def test_web_construction_avoids_android_and_optional_runtime_imports() -> None:
     script = """
 import sys
 
@@ -431,9 +431,7 @@ client = NotebookLMClient(
 )
 assert set(client.backends.values()) == {"web"}
 delta = set(sys.modules) - before
-# The former __import__ hook saw the unresolved relative name
-# ``_android.runtime`` and missed this eager import entirely.
-assert "notebooklm._android.runtime" in delta
+assert not any(name.startswith("notebooklm._android") for name in delta)
 assert not any(
     name == "grpc"
     or name.startswith("grpc.")

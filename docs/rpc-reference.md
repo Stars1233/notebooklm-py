@@ -395,6 +395,13 @@ The live web UI also sends a sixth filter/tail slot:
 refresh used slot `[4] == 1`. The client builder currently omits that sixth
 slot because the backend accepts the compact form.
 
+In the response notebook row, chat settings live at `[7]` as
+`[[goal_code, custom_prompt?], [response_length_code]]`. A default-valued
+component may be elided as an empty child list: `[[], []]` means
+DEFAULT/DEFAULT, while `[[2, "persona"], []]` means a custom goal with the
+default response length. Older never-configured rows may instead carry `null`
+for the whole slot.
+
 ### RPC: REMOVE_RECENTLY_VIEWED (fejl7e)
 
 **Source:** `_web/notebooks.py::WebNotebooksAPI.remove_from_recent()`

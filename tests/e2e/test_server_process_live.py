@@ -41,7 +41,7 @@ pytest.importorskip("fastapi")
 pytest.importorskip("uvicorn")
 pytest.importorskip("multipart")
 
-from notebooklm.auth import AuthTokens  # noqa: E402 - after importorskip
+from notebooklm import NotebookLMClient  # noqa: E402 - after importorskip
 from notebooklm.paths import list_profiles, resolve_profile  # noqa: E402 - after importorskip
 from notebooklm.server.__main__ import SERVER_TOKEN_FILE_ENV  # noqa: E402
 from notebooklm.server._auth import (  # noqa: E402 - after importorskip
@@ -190,8 +190,12 @@ def _child_env(*, profile: str | None) -> dict[str, str]:
 
 
 def _profile_auth_error(profile: str) -> str | None:
+    async def validate() -> None:
+        async with NotebookLMClient.from_storage(profile=profile):
+            pass
+
     try:
-        asyncio.run(AuthTokens.from_storage(profile=profile))
+        asyncio.run(validate())
     except (FileNotFoundError, ValueError) as exc:
         return f"{type(exc).__name__}: {exc}"
     return None

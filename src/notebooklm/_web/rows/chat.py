@@ -130,9 +130,10 @@ _GET_NOTEBOOK_METHOD_ID = RPCMethod.GET_NOTEBOOK.value
 _CHAT_SETTINGS_POS = 7
 
 # Enum codes a never-configured notebook decodes to (GET_NOTEBOOK returns
-# ``null`` at the chat-settings slot). ``1`` == ``ChatGoal.DEFAULT`` ==
-# ``ChatResponseLength.DEFAULT``; kept as bare ints so this positional layer
-# stays enum-free — the code→enum mapping lives in ``ChatAPI.get_settings``.
+# ``null`` at the chat-settings slot or elides default components as empty
+# child lists). ``1`` == ``ChatGoal.DEFAULT`` == ``ChatResponseLength.DEFAULT``;
+# kept as bare ints so this positional layer stays enum-free — the code→enum
+# mapping lives in ``ChatAPI.get_settings``.
 _DEFAULT_GOAL_CODE = 1
 _DEFAULT_LENGTH_CODE = 1
 
@@ -315,17 +316,20 @@ def unwrap_chat_settings(nb_info: Any, *, source: str) -> ChatSettingsRow:
 
     Wire shape (live-verified #1751): ``nb_info[7] = [[goal_code, custom_prompt?],
     [length_code]]`` — e.g. ``[[2, "persona"], [4]]`` = CUSTOM persona + LONGER,
-    ``[[1], [1]]`` = DEFAULT/DEFAULT. Mirrors the write shape ``ChatAPI.configure``
-    sends at ``params[1][0][7]``.
+    ``[[1], [1]]`` = DEFAULT/DEFAULT. The Web backend may elide either default
+    component as an empty child list, so ``[[], []]`` is also DEFAULT/DEFAULT
+    and ``[[2, "persona"], []]`` is CUSTOM persona + DEFAULT length. This mirrors
+    the write shape ``ChatAPI.configure`` sends at ``params[1][0][7]``.
 
     Absence-vs-malformed policy (ADR-0011 / #1485):
 
-    * **Never-configured stays soft** — an explicit ``null`` at the slot maps to
-      the DEFAULT/DEFAULT codes with no prompt (there is genuinely nothing to
-      preserve).
+    * **Never-configured/default-elided stays soft** — an explicit ``null`` at
+      the slot or an empty goal/length child maps that component to its DEFAULT
+      code (there is genuinely nothing else to preserve).
     * **Present-but-malformed RAISES** — a too-short ``nb_info``, a truthy
-      non-list block, or a block whose goal/length arrays are missing/empty/
-      non-int is genuine drift and raises :class:`UnknownRPCMethodError`, NOT a
+      non-list block, or a block whose goal/length children are missing,
+      non-list, or contain a non-int code is genuine drift and raises
+      :class:`UnknownRPCMethodError`, NOT a
       silent default. On the read-modify-write ``configure`` path a silent
       default would clobber the field the caller meant to preserve — the exact
       #1751 footgun — so the read fails loud instead.
@@ -357,26 +361,37 @@ def unwrap_chat_settings(nb_info: Any, *, source: str) -> ChatSettingsRow:
         )
     goal_array = safe_index(block, 0, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
     length_array = safe_index(block, 1, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
-    if not isinstance(goal_array, list) or not goal_array:
+    if not isinstance(goal_array, list):
         raise UnknownRPCMethodError(
             f"chat-settings goal array holds {type(goal_array).__name__} "
-            "(expected [goal_code, custom_prompt?])",
+            "(expected [goal_code, custom_prompt?] or [])",
             method_id=_GET_NOTEBOOK_METHOD_ID,
             path=(_CHAT_SETTINGS_POS, 0),
             source=source,
             data_at_failure=reprlib.repr(block),
         )
-    if not isinstance(length_array, list) or not length_array:
+    if not isinstance(length_array, list):
         raise UnknownRPCMethodError(
             f"chat-settings length array holds {type(length_array).__name__} "
-            "(expected [length_code])",
+            "(expected [length_code] or [])",
             method_id=_GET_NOTEBOOK_METHOD_ID,
             path=(_CHAT_SETTINGS_POS, 1),
             source=source,
             data_at_failure=reprlib.repr(block),
         )
-    goal_code = safe_index(goal_array, 0, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
-    length_code = safe_index(length_array, 0, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
+    # Current Web rows omit a component's default-valued leaf by returning an
+    # empty child list. Decode the two components independently: a notebook can
+    # retain a custom goal while eliding only its default response length.
+    goal_code = (
+        safe_index(goal_array, 0, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
+        if goal_array
+        else _DEFAULT_GOAL_CODE
+    )
+    length_code = (
+        safe_index(length_array, 0, method_id=_GET_NOTEBOOK_METHOD_ID, source=source)
+        if length_array
+        else _DEFAULT_LENGTH_CODE
+    )
     # ``type(...) is int`` (not ``isinstance``) so a drifted bool code — ``bool``
     # is an ``int`` subclass — is rejected as malformed, not silently decoded to
     # DEFAULT/DEFAULT.
