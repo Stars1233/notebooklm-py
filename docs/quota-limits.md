@@ -7,7 +7,7 @@ notebooks, sources, chats, and studio artifacts each subscription level allows.
 plan limits, but an enabled account now receives live per-account percentages and reset timestamps
 from `ListQuotaSummary`. That meter is a separate system from the published per-feature limits in
 this document; see [ADR-0037](adr/0037-live-usage-and-quota-api.md) for the live wire evidence and
-proposed API. The historical investigation is in
+implemented API. The historical investigation is in
 [#1825](https://github.com/teng-lin/notebooklm-py/issues/1825) and
 [#2283](https://github.com/teng-lin/notebooklm-py/issues/2283). This document remains **prose
 reference, not shipped code** (see [Why this lives in docs](#why-this-lives-in-docs-not-code)).
