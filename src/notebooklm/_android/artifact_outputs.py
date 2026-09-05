@@ -29,7 +29,7 @@ def matches_artifact_type(artifact: Artifact, requested: ArtifactType | None) ->
     if requested is None:
         return True
     if artifact.is_unclassified_type4:
-        return False
+        return requested == ArtifactType.UNKNOWN
     if requested == ArtifactType.MIND_MAP:
         return artifact._artifact_type == ArtifactTypeCode.MIND_MAP.value or (
             artifact._artifact_type == ArtifactTypeCode.QUIZ.value

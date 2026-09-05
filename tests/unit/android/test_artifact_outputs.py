@@ -100,6 +100,7 @@ def test_artifact_type_filter_ignores_unclassified_type4_without_warning() -> No
     with warnings.catch_warnings():
         warnings.simplefilter("error", UnknownTypeWarning)
         assert matches_artifact_type(artifact, ArtifactType.QUIZ) is False
+        assert matches_artifact_type(artifact, ArtifactType.UNKNOWN) is True
 
 
 # ---------------------------------------------------------------------------
