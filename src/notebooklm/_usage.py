@@ -18,7 +18,7 @@ from .types import (
     UsageWindowKind,
 )
 
-LIST_QUOTA_SUMMARY_METHOD_ID = "EylDcb"
+DEFAULT_USAGE_METHOD = "ListQuotaSummary"
 
 
 @dataclass(frozen=True)
@@ -56,12 +56,12 @@ class RawUsageSummary:
     status_code: int | None
     windows: tuple[RawUsageWindow, ...] = ()
     actions: tuple[RawUsageAction, ...] = ()
-    method_id: str = LIST_QUOTA_SUMMARY_METHOD_ID
+    method_id: str = DEFAULT_USAGE_METHOD
 
 
 def decode_usage_summary(raw: RawUsageSummary) -> UsageSummary:
     """Validate a decoded quota response and project it to public models."""
-    method_id = raw.method_id or LIST_QUOTA_SUMMARY_METHOD_ID
+    method_id = raw.method_id or DEFAULT_USAGE_METHOD
     status = _integer(raw.status_code)
     if status == 2:
         return UsageSummary(status=UsageSummaryStatus.SKIPPED)
@@ -175,7 +175,7 @@ def _drift(message: str, method_id: str) -> NoReturn:
 
 
 __all__ = [
-    "LIST_QUOTA_SUMMARY_METHOD_ID",
+    "DEFAULT_USAGE_METHOD",
     "RawUsageAction",
     "RawUsageSummary",
     "RawUsageWindow",

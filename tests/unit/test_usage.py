@@ -117,7 +117,7 @@ def test_usage_summary_conveniences_follow_ui_window_selection():
 def test_decode_rejects_missing_zero_or_unknown_status(status):
     with pytest.raises(DecodingError, match="status") as error:
         decode_usage_summary(RawUsageSummary(status_code=status))
-    assert error.value.method_id == "EylDcb"
+    assert error.value.method_id == "ListQuotaSummary"
 
 
 def test_decode_skipped_ignores_any_payload_and_failed_is_server_error():

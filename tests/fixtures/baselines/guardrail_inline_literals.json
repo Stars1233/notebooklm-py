@@ -5,9 +5,9 @@
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,
     "ENUM_GAPS": 34,
-    "MAPPINGS": 751,
+    "MAPPINGS": 811,
     "PINNED": 174,
-    "UNMAPPED": 340
+    "UNMAPPED": 359
   },
   "tests/_guardrails/test_android_retry_manifest.py": {
     "_WEB_CLASS_BY_ANDROID_NAME": 99

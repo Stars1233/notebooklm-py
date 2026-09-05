@@ -65,6 +65,9 @@ DOC = "orchestration.v1/tailwind_doc.pb.dart"
 # copy numbers it 3, so a missing section hint would assert against the wrong
 # tags and pass for the wrong reason.
 DOC_COMMON = "orchestration.v1/tailwind_doc_common.pb.dart"
+#: Usage-meter messages live in a separate exact mobile package from the
+#: orchestration account envelope.
+METERING = "tailwind.metering.v1"
 
 
 @dataclass(frozen=True)
@@ -944,6 +947,101 @@ MAPPINGS: tuple[Mapping, ...] = (
         "TailoredReportTypeOption",
         "reportDirective",
     ),
+    # ---- Live usage meter (SatQRc / EylDcb) -------------------------------
+    Mapping(
+        "usage",
+        "UsageAccountEnvelopeRow",
+        "_PREMIUM_USER_INFO_POS",
+        "Account",
+        "premiumUserInfo",
+    ),
+    Mapping(
+        "usage",
+        "UsageAccountEnvelopeRow",
+        "_COMPUTE_METERING_ENABLED_POS",
+        "PremiumUserInfo",
+        "computeMeteringEnabled",
+    ),
+    Mapping(
+        "usage",
+        "UsageSummaryRow",
+        "_STATUS_POS",
+        "ListQuotaSummaryResponse",
+        "status",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageSummaryRow",
+        "_WINDOWS_POS",
+        "ListQuotaSummaryResponse",
+        "summaries",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageSummaryRow",
+        "_ACTIONS_POS",
+        "ListQuotaSummaryResponse",
+        "actionQuotaSummaries",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageWindowRow",
+        "_WINDOW_POS",
+        "QuotaSummaryEntry",
+        "window",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageWindowRow",
+        "_RESET_POS",
+        "QuotaSummaryEntry",
+        "nextRefreshTime",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageWindowRow",
+        "_USED_PERCENT_POS",
+        "QuotaSummaryEntry",
+        "usedMicrosPercent",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageActionRow",
+        "_ACTION_POS",
+        "UserActionQuotaSummary",
+        "action",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageActionRow",
+        "_HAS_QUOTA_POS",
+        "UserActionQuotaSummary",
+        "hasSufficientQuota",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageActionRow",
+        "_COST_TIER_POS",
+        "UserActionQuotaSummary",
+        "costTier",
+        section=METERING,
+    ),
+    Mapping(
+        "usage",
+        "UsageActionRow",
+        "_ESTIMATED_COST_POS",
+        "UserActionQuotaSummary",
+        "estimatedCostPctOfBudget",
+        section=METERING,
+    ),
 )
 
 
@@ -1148,6 +1246,39 @@ UNMAPPED: tuple[Unmapped, ...] = (
     Unmapped("research", "ResearchStartRow", "_TASK_ID_POS", _SHAPE_UNKNOWN),
     Unmapped("research", "ResearchStartRow", "_REPORT_ID_POS", _SHAPE_UNKNOWN),
     Unmapped("research", "ImportedSourceRow", "_ID_POS", _NESTED_LOCAL),
+    # usage.py — the envelope and public Timestamp slots are outside the
+    # recovered Tailwind schema. Two newer response fields are first-party and
+    # live-proven but absent from the inspected APK descriptor, so they remain
+    # explicit evidence-backed gaps rather than guessed schema mappings.
+    Unmapped("usage", "UsageAccountEnvelopeRow", "_ENVELOPE_POS", _ENVELOPE),
+    Unmapped(
+        "usage",
+        "UsageTimestampRow",
+        "_SECONDS_POS",
+        "google.protobuf.Timestamp.seconds (tag 1), outside docs/android/schema.proto",
+    ),
+    Unmapped(
+        "usage",
+        "UsageTimestampRow",
+        "_NANOS_POS",
+        "google.protobuf.Timestamp.nanos (tag 2), outside docs/android/schema.proto",
+    ),
+    Unmapped(
+        "usage",
+        "UsageWindowRow",
+        "_REMAINING_PERCENT_POS",
+        "first-party protobuf JSON and live Web/Android equality establish "
+        "QuotaSummaryEntry.remainingMicrosPercent at tag 8; the inspected APK "
+        "descriptor does not declare that tag (ADR-0037)",
+    ),
+    Unmapped(
+        "usage",
+        "UsageActionRow",
+        "_DEFERRED_GENERATIONS_POS",
+        "first-party protobuf JSON and live cross-tier responses establish "
+        "UserActionQuotaSummary.remainingDeferredArtifactGenerations at tag 3; "
+        "the inspected APK descriptor does not declare that tag (ADR-0037)",
+    ),
     # ---- module-scope envelope constants ----------------------------------
     # These index batchexecute *envelopes* (the outer wrapper the transport adds),
     # not fields of a Tailwind message, so there is no tag to check them against.

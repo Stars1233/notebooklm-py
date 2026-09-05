@@ -673,6 +673,12 @@ def get_test_params(method: RPCMethod, notebook_id: str | None) -> list[Any] | N
     if method == RPCMethod.LIST_NOTEBOOKS:
         return []
 
+    if method == RPCMethod.GET_ACCOUNT:
+        return []
+
+    if method == RPCMethod.LIST_QUOTA_SUMMARY:
+        return [None]
+
     # Global settings (no notebook required)
     if method == RPCMethod.GET_USER_SETTINGS:
         # Params to read current settings

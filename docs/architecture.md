@@ -1129,6 +1129,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/codecs/sharing.py` | Sharing-status projection for collaborator rows, permissions, public settings, limits, and policy flags from exact and repository-local wire overlays. |
 | `_android/codecs/organization.py` | Strict heterogeneous organization decoder: wrapped exact `SourceId` members for labels and bare UTF-8 notebook UUID members for collections. |
 | `_android/codecs/research.py` | Strict research discovery job/result projection with exact mode/status mapping and bounded drift errors. |
+| `_android/codecs/usage.py` | Presence-preserving account eligibility and usage-quota projection shared by the native settings adapter and neutral usage validator. |
 | `_android/errors.py` | Sanitized gRPC-status projection plus the pre-I/O unsupported-operation helper; raw transport exceptions and details never cross this boundary. |
 | `_android/notebooks.py` | Selected Android notebook adapter: reads and evidence-admitted notebook create/delete/title-and-emoji update/copy/guide operations. Copy implements the neutral `_send_copy` boundary while retaining native decode validation and chat-session hints. Recent-removal uses the native route; its `INTERNAL` response for owned notebooks is folded into the same already-absent no-op the Web frontend exposes, while genuinely shared notebooks are removed natively. |
 | `_android/session.py` | Lazy Google-TLS gRPC transport participating in root loop/lifecycle supervision, aggregate deadlines, per-call bearer metadata, status mapping, safe-read replay, and full stream leases. |
@@ -1154,6 +1155,10 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/chat.py` | Selected Android chat adapter over typed settings/turn-role reads, settings mutation, sessions, raw turns, history deletion, the cumulative server stream, and citation-rich saved-response notes. Base `ChatAPI` owns locks/cache/follow-up orchestration, configure/settings result construction, and exhaustion-aware prior-turn counting. |
 | `_android/notes.py` | Selected implementation of the eight-method Notes manifest: exact note CRUD write/read-back checks, bounded idempotent deletion polling, exact-kind note-backed mind-map list/delete, and rich saved-response creation with current-server citation fields. Unknown creation time remains `None`, raw map rows preserve the supported ID/content prefix, and genuine post-delete absence remains `None`. |
 | `_android/settings.py` | Native output-language and account-limit adapter over exact `GetOrCreateAccount` and `MutateAccount`; temporary live mutation/read-back was restored in `finally`. |
+| `_usage.py` | Transport-neutral usage bridge, status/window/action validation, percentage derivation, and public model projection. |
+| `_types/usage.py` | Immutable public usage status, window, action, and cost-tier models plus UI-oriented convenience accessors. |
+| `_web/usage.py` | Replay-safe Web `GetAccount` / `ListQuotaSummary` dispatch and strict translation from typed positional views into the neutral usage bridge. |
+| `_web/rows/usage.py` | Sole owner of the recovered positional field map for Web account and usage-meter responses. |
 | `_android/sharing.py` | Native `GetProjectDetails`/`ShareProject` adapter for status, public links, collaborator grants/updates/removals, and read-back. `set_view_level` uses the native `MutateProject` tag-9 branch and folds the written level into the fresh sharing projection. |
 | `_android/mind_maps.py` | Publicly selected Android mind-map composition over base-typed artifact/note collaborators. Interactive generation/tree reads and note-backed rename/delete/tree/prefetch compose through live typed operations; note-backed generation uses Android `ActOnSources` plus native `CreateNote`. |
 | `_android/organization.py` | Shared lazy-protobuf transport/building seam for exact `GetLabels` plus generated web-derived manual organization writes; every write is non-replayed and epoch-fenced by its adapter workflow. |
@@ -1164,6 +1169,10 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/proto/` | Checked-in generated Python protobuf package. Files are regenerated only by `scripts/regenerate_android_protos.py` with the pinned toolchain and are never generated during installation. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/account_pb2.py` | Exact-package account `UserInfo`, `PremiumUserInfo`, `Account`, and GetOrCreateAccount request/response descriptors. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/account_pb2_grpc.py` | Deterministic service-free companion for the exact account message overlay. |
+| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2.py` | Exact APK quota window/action enums and per-window summary messages used by live metering responses. |
+| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2_grpc.py` | Deterministic service-free companion for the exact quota message overlay. |
+| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2.py` | Exact APK `ListQuotaSummary` request, response, status, and action-quota descriptors. |
+| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2_grpc.py` | Generated metering service stub exposing the live `ListQuotaSummary` unary call. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/read_pb2.py` | Exact-package read messages and descriptors for `GetProject` and `ListRecentlyViewedProjects`. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/read_pb2_grpc.py` | Deterministic service-free companion for the read message overlay. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/notebooks_pb2.py` | Durable exact-package notebook mutation/guide messages imported by the cumulative service; local parser overrides remain only for live-only fields. |
@@ -1196,6 +1205,8 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/proto/notebooklm/internal/android/wire/v1/artifacts_pb2_grpc.py` | Deterministic service-free companion for the artifact local artifact wire overlay. |
 | `_android/proto/notebooklm/internal/android/wire/v1/source_content_pb2.py` | Repository-local `LoadSource` response overlay admitting the live exact `TailwindDoc #4` branch without a Google-package import cycle. |
 | `_android/proto/notebooklm/internal/android/wire/v1/source_content_pb2_grpc.py` | Deterministic service-free companion for the local source-content wire overlay. |
+| `_android/proto/notebooklm/internal/android/wire/v1/usage_pb2.py` | Repository-local presence overlay for proto3 scalar fields in Android quota responses. |
+| `_android/proto/notebooklm/internal/android/wire/v1/usage_pb2_grpc.py` | Deterministic service-free companion for the local usage presence overlay. |
 | `_android/proto_src/` | Minimal compile-ready cumulative Android `.proto` closure. The evidence ledger is `docs/android/proto-evidence-ledger.md`; flattened `docs/android/schema.proto` is never a compile input. |
 | `_runtime/init.py` | Backend-neutral RPC-admission validation and `SharedRuntime` construction. Web transport validation lives in `_web/transport/config.py`; Android settings are validated by `_android/assembly.py`. |
 | `_runtime/error_injection.py` | Backend-neutral synthetic-error injection configuration and startup guard consumed by shared runtime construction and Web transport wiring. |
@@ -1393,6 +1404,7 @@ src/notebooklm/
 ├── _deprecation.py              # Immutable auth/raw-call specs + gated deprecation emitters
 ├── _env.py                      # Runtime environment/default endpoint helpers
 ├── _idempotency.py              # Transport-neutral create probe/retry helpers
+├── _usage.py                    # Neutral live-usage bridge, validation, and projection
 ├── _logging.py                  # Redaction + correlation logging internals
 ├── _secrets.py                  # Canonical runtime secret registry (cookie names + secure/host umbrellas + token/API-key shapes) the redaction patterns derive from
 ├── _lookup.py                   # unwrap_or_raise — shared single-row-lookup helper for get/get_or_none
@@ -1470,7 +1482,8 @@ src/notebooklm/
 │   │   ├── sources.py           # Source projection and enum mapping
 │   │   ├── artifacts.py         # Ledgered artifact/representation projection
 │   │   ├── organization.py      # Heterogeneous organization member decoding
-│   │   └── research.py          # Strict Research job/result projection
+│   │   ├── research.py          # Strict Research job/result projection
+│   │   └── usage.py             # Presence-preserving account/quota projection
 │   ├── errors.py                # Sanitized gRPC status/error mapping
 │   ├── notebooks.py             # Selected Android notebook reads/mutations, incl. native recent-removal
 │   ├── session.py               # Supervised lazy gRPC transport
@@ -1506,6 +1519,12 @@ src/notebooklm/
 │   └── proto/                   # Checked-in generated pb2/pb2_grpc modules
 │       ├── __init__.py          # Dependency-free generated-package marker
 │       ├── google/internal/labs/tailwind/
+│           ├── api/v1/
+│           │   ├── quota_pb2.py              # Exact quota enums/window messages
+│           │   └── quota_pb2_grpc.py         # Service-free quota companion
+│           ├── metering/v1/
+│           │   ├── metering_pb2.py           # Exact usage request/response descriptors
+│           │   └── metering_pb2_grpc.py      # ListQuotaSummary service stub
 │           ├── orchestration/v1/
 │           │   ├── account_pb2.py           # Exact account messages/descriptors
 │           │   ├── account_pb2_grpc.py      # Deterministic service-free companion
@@ -1547,7 +1566,9 @@ src/notebooklm/
 │           ├── artifacts_pb2.py       # Repository-local artifact wire messages
 │           ├── artifacts_pb2_grpc.py  # Deterministic service-free companion
 │           ├── source_content_pb2.py       # Local LoadSource TailwindDoc overlay
-│           └── source_content_pb2_grpc.py  # Deterministic service-free companion
+│           ├── source_content_pb2_grpc.py  # Deterministic service-free companion
+│           ├── usage_pb2.py             # Local quota scalar-presence overlay
+│           └── usage_pb2_grpc.py        # Deterministic service-free companion
 │       └── labs/language/tailwind/
 │           ├── common/protos/
 │           │   ├── common_pb2.py          # Shared chat/sharing exact common messages
@@ -1650,7 +1671,8 @@ src/notebooklm/
 │   ├── sources.py               # Source row adapter
 │   ├── source_models.py         # Web-owned public Source construction
 │   ├── play_books.py            # ListExpertIntelligenceContent row adapter (#2292): decode_play_books_response → PlayBook list
-│   └── transfers.py             # CopySourcesAsync / CopyArtifactsAsync / AddSourcesAsync mapping-row adapters (#2283)
+│   ├── transfers.py             # CopySourcesAsync / CopyArtifactsAsync / AddSourcesAsync mapping-row adapters (#2283)
+│   └── usage.py                 # GetAccount/ListQuotaSummary positional views
 ├── _chat.py                     # Abstract ChatAPI + shared ask/configure/settings/turn-count orchestration over typed hooks
 ├── _auth/                       # Auth subpackage (forwarded through auth.py facade)
 │   ├── __init__.py
@@ -1707,10 +1729,12 @@ src/notebooklm/
 │   ├── notes.py
 │   ├── research.py              # ResearchStatus enum + ResearchTask/ResearchSource/ResearchStart/MindMapResult/SourceGuide typed returns (#1209)
 │   ├── sharing.py
-│   └── sources.py
+│   ├── sources.py
+│   └── usage.py                 # Live usage status/window/action/cost models
 ├── _web/                        # Web batchexecute backend implementations
 │   ├── chat.py                  # WebChatAPI streamed-query/RPC adapter
 │   ├── notebooks.py             # WebNotebooksAPI
+│   ├── usage.py                 # Live account/quota dispatch and strict decode
 │   ├── labels.py                # WebLabelsAPI (historical logger preserved)
 │   ├── collections.py           # WebCollectionsAPI (historical logger preserved)
 │   ├── research.py              # WebResearchAPI (historical logger preserved)

@@ -6476,7 +6476,7 @@
     },
     {
       "kind": "from",
-      "lineno": 19,
+      "lineno": 26,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.usage",
@@ -6485,7 +6485,7 @@
     },
     {
       "kind": "from",
-      "lineno": 20,
+      "lineno": 27,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.usage",
@@ -6494,7 +6494,7 @@
     },
     {
       "kind": "from",
-      "lineno": 35,
+      "lineno": 42,
       "scope": "_bridge_types",
       "scope_kind": "function",
       "source": "notebooklm._web.usage",
@@ -9717,7 +9717,7 @@
   ],
   "subsystems": {
     "android": {
-      "lines": 15448,
+      "lines": 15449,
       "modules": 51
     },
     "app": {
@@ -9757,13 +9757,13 @@
       "modules": 16
     },
     "web": {
-      "lines": 32941,
-      "modules": 94
+      "lines": 33109,
+      "modules": 95
     }
   },
   "summary": {
-    "authored_lines": 142674,
-    "authored_modules": 451,
+    "authored_lines": 142843,
+    "authored_modules": 452,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1068,
     "dynamic_import_calls": 10,

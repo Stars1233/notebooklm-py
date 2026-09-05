@@ -507,7 +507,7 @@
             "rpc": 3,
             "runtime": 9,
             "types": 16,
-            "web": 91
+            "web": 92
           },
           "module_delta": [
             "notebooklm",
@@ -734,6 +734,7 @@
             "notebooklm._web.rows.source_models",
             "notebooklm._web.rows.sources",
             "notebooklm._web.rows.transfers",
+            "notebooklm._web.rows.usage",
             "notebooklm._web.settings",
             "notebooklm._web.sharing",
             "notebooklm._web.sources",
@@ -1669,7 +1670,7 @@
             "rpc": 3,
             "runtime": 9,
             "types": 16,
-            "web": 91
+            "web": 92
           },
           "module_delta": [
             "notebooklm",
@@ -1823,6 +1824,7 @@
             "notebooklm._web.rows.source_models",
             "notebooklm._web.rows.sources",
             "notebooklm._web.rows.transfers",
+            "notebooklm._web.rows.usage",
             "notebooklm._web.settings",
             "notebooklm._web.sharing",
             "notebooklm._web.sources",
@@ -1959,7 +1961,7 @@
             "rpc": 3,
             "runtime": 9,
             "types": 16,
-            "web": 91
+            "web": 92
           },
           "module_delta": [
             "notebooklm",
@@ -2113,6 +2115,7 @@
             "notebooklm._web.rows.source_models",
             "notebooklm._web.rows.sources",
             "notebooklm._web.rows.transfers",
+            "notebooklm._web.rows.usage",
             "notebooklm._web.settings",
             "notebooklm._web.sharing",
             "notebooklm._web.sources",
@@ -2374,7 +2377,7 @@
             "rpc": 3,
             "runtime": 9,
             "types": 16,
-            "web": 91
+            "web": 92
           },
           "module_delta": [
             "notebooklm",
@@ -2528,6 +2531,7 @@
             "notebooklm._web.rows.source_models",
             "notebooklm._web.rows.sources",
             "notebooklm._web.rows.transfers",
+            "notebooklm._web.rows.usage",
             "notebooklm._web.settings",
             "notebooklm._web.sharing",
             "notebooklm._web.sources",
@@ -2666,7 +2670,7 @@
             "rpc": 3,
             "runtime": 9,
             "types": 16,
-            "web": 91
+            "web": 92
           },
           "module_delta": [
             "notebooklm",
@@ -2820,6 +2824,7 @@
             "notebooklm._web.rows.source_models",
             "notebooklm._web.rows.sources",
             "notebooklm._web.rows.transfers",
+            "notebooklm._web.rows.usage",
             "notebooklm._web.settings",
             "notebooklm._web.sharing",
             "notebooklm._web.sources",

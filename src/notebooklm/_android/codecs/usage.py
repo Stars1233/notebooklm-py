@@ -91,6 +91,7 @@ def decode_quota_summary(response: Any, *, method_id: str) -> RawUsageSummary:
         status_code=response.status if response.HasField("status") else None,
         windows=tuple(windows),
         actions=tuple(actions),
+        method_id=method_id,
     )
 
 

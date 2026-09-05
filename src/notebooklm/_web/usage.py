@@ -14,6 +14,13 @@ from typing import TYPE_CHECKING, Any
 
 from ..exceptions import DecodingError
 from ..rpc import RPCMethod
+from .rows.usage import (
+    UsageAccountEnvelopeRow,
+    UsageActionRow,
+    UsageSummaryRow,
+    UsageTimestampRow,
+    UsageWindowRow,
+)
 
 if TYPE_CHECKING:
     from .._runtime.call_supervisor import OperationLease
@@ -62,12 +69,6 @@ def _error(message: str, *, method_id: str) -> DecodingError:
     return DecodingError(message, method_id=method_id)
 
 
-def _slot(value: Any, index: int) -> Any:
-    """Return an array slot, preserving protobuf-style elision as ``None``."""
-
-    return value[index] if isinstance(value, list) and 0 <= index < len(value) else None
-
-
 def _optional_number(value: Any, *, method_id: str, label: str) -> float | None:
     if value is None:
         return None
@@ -98,10 +99,11 @@ def _timestamp(value: Any, *, method_id: str) -> datetime | None:
 
     if value is None:
         return None
-    if not isinstance(value, list) or not value:
+    row = UsageTimestampRow(value)
+    if not row.is_well_formed_container:
         raise _error("invalid quota reset timestamp", method_id=method_id)
-    seconds = value[0]
-    nanos = value[1] if len(value) > 1 and value[1] is not None else 0
+    seconds = row.seconds
+    nanos = row.nanos if row.nanos is not None else 0
     if isinstance(seconds, bool) or not isinstance(seconds, int):
         raise _error("quota reset timestamp seconds is not integral", method_id=method_id)
     if isinstance(nanos, bool) or not isinstance(nanos, int):
@@ -127,55 +129,48 @@ def decode_account(data: Any) -> UsageAccount:
     """
 
     UsageAccount, _, _, _, _ = _bridge_types()
-    candidates: list[Any] = [data]
-    if isinstance(data, list) and data:
-        candidates.append(data[0])
-        if isinstance(data[0], list) and data[0]:
-            candidates.append(data[0][0])
-    enabled = False
-    for account in candidates:
-        premium = _slot(account, 4)
-        value = _slot(premium, 6)
-        if isinstance(value, bool):
-            enabled = value
-            break
-    return UsageAccount(compute_metering_enabled=enabled)
+    row = UsageAccountEnvelopeRow(data)
+    return UsageAccount(compute_metering_enabled=row.compute_metering_enabled)
 
 
 def _decode_window(row: Any) -> RawUsageWindow:
     _, _, RawUsageWindow, _, _ = _bridge_types()
-    if not isinstance(row, list):
+    view = UsageWindowRow(row)
+    if not view.is_array:
         raise _error("quota window row is not an array", method_id=_QUOTA_METHOD_ID)
     return RawUsageWindow(
         window_code=_optional_int(
-            _slot(row, 4), method_id=_QUOTA_METHOD_ID, label="quota window code"
+            view.window_code, method_id=_QUOTA_METHOD_ID, label="quota window code"
         ),
-        resets_at=_timestamp(_slot(row, 5), method_id=_QUOTA_METHOD_ID),
+        resets_at=_timestamp(view.reset_timestamp, method_id=_QUOTA_METHOD_ID),
         used_percent=_optional_number(
-            _slot(row, 6), method_id=_QUOTA_METHOD_ID, label="quota used percentage"
+            view.used_percent, method_id=_QUOTA_METHOD_ID, label="quota used percentage"
         ),
         remaining_percent=_optional_number(
-            _slot(row, 7), method_id=_QUOTA_METHOD_ID, label="quota remaining percentage"
+            view.remaining_percent,
+            method_id=_QUOTA_METHOD_ID,
+            label="quota remaining percentage",
         ),
     )
 
 
 def _decode_action(row: Any) -> RawUsageAction:
     _, _, _, RawUsageAction, _ = _bridge_types()
-    if not isinstance(row, list):
+    view = UsageActionRow(row)
+    if not view.is_array:
         raise _error("quota action row is not an array", method_id=_QUOTA_METHOD_ID)
     action_code = _optional_int(
-        _slot(row, 0), method_id=_QUOTA_METHOD_ID, label="quota action code"
+        view.action_code, method_id=_QUOTA_METHOD_ID, label="quota action code"
     )
-    has_quota = _slot(row, 1)
+    has_quota = view.has_sufficient_quota
     if has_quota is not None and not isinstance(has_quota, bool):
         raise _error("quota availability is not boolean", method_id=_QUOTA_METHOD_ID)
-    deferred = _slot(row, 2)
+    deferred = view.remaining_deferred_artifact_generations
     if deferred is not None and (
         isinstance(deferred, bool) or not isinstance(deferred, int) or deferred < 0
     ):
         raise _error("remaining deferred generations is invalid", method_id=_QUOTA_METHOD_ID)
-    cost_tier = _slot(row, 3)
+    cost_tier = view.cost_tier_code
     if cost_tier is not None and (isinstance(cost_tier, bool) or not isinstance(cost_tier, int)):
         raise _error("quota cost tier is not integral", method_id=_QUOTA_METHOD_ID)
     return RawUsageAction(
@@ -184,7 +179,9 @@ def _decode_action(row: Any) -> RawUsageAction:
         cost_tier_code=cost_tier,
         remaining_deferred_artifact_generations=deferred,
         estimated_cost_percent=_optional_number(
-            _slot(row, 5), method_id=_QUOTA_METHOD_ID, label="estimated quota cost"
+            view.estimated_cost_percent,
+            method_id=_QUOTA_METHOD_ID,
+            label="estimated quota cost",
         ),
     )
 
@@ -193,10 +190,11 @@ def decode_quota_summary(data: Any) -> RawUsageSummary:
     """Decode ``ListQuotaSummary`` response fields f1, f2, and f4."""
 
     _, RawUsageSummary, _, _, _ = _bridge_types()
-    if not isinstance(data, list):
+    view = UsageSummaryRow(data)
+    if not view.is_array:
         raise _error("quota summary response is not an array", method_id=_QUOTA_METHOD_ID)
-    windows_data = _slot(data, 1)
-    actions_data = _slot(data, 3)
+    windows_data = view.windows
+    actions_data = view.actions
     if windows_data is None:
         windows: tuple[Any, ...] = ()
     elif isinstance(windows_data, list):
@@ -209,7 +207,7 @@ def decode_quota_summary(data: Any) -> RawUsageSummary:
         actions = tuple(_decode_action(row) for row in actions_data)
     else:
         raise _error("quota actions field is not an array", method_id=_QUOTA_METHOD_ID)
-    status = _optional_int(_slot(data, 0), method_id=_QUOTA_METHOD_ID, label="quota status")
+    status = _optional_int(view.status_code, method_id=_QUOTA_METHOD_ID, label="quota status")
     return RawUsageSummary(
         status_code=status,
         windows=windows,
