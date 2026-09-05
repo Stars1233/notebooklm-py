@@ -1,6 +1,6 @@
 # Live usage-meter evidence
 
-**Status:** bounded live observations supporting ADR-0037; no public implementation admitted yet
+**Status:** bounded live observations supporting the admitted ADR-0037 implementation
 
 **Snapshot date:** 2026-09-04
 
@@ -188,8 +188,8 @@ namespace, not the usage meter's action namespace.
 
 ## Evidence boundary for implementation
 
-This document is durable research evidence, not a replay fixture. Before the Android adapter is
-admitted, each recovered or wire-equivalent artifact has a distinct governance owner:
+This document is durable research evidence, not a replay fixture. The admitted Android adapter
+gives each recovered or wire-equivalent artifact a distinct governance owner:
 
 - the exact `ListQuotaSummary` message subset enters the protobuf evidence ledger and generated
   exact-package sources; its live-field response overlay enters

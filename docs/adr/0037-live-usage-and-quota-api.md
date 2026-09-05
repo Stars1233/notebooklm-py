@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed — wire behavior observed on both transports; the Android quota binding and stable message
-subset are recovered; design review converged and implementation is pending.
+Accepted — implemented for the public settings API and both Web and Android transports, with
+recorded read-only cross-tier coverage.
 
 ## Context
 
@@ -168,8 +168,8 @@ The backend-neutral model is:
 ```python
 class UsageSummaryStatus(str, Enum):
     DISABLED = "disabled"  # account compute-meter bit is false; summary RPC not called
-    READY = "ready"        # ListQuotaSummary status SUCCESS
-    SKIPPED = "skipped"    # ListQuotaSummary status SKIPPED
+    READY = "ready"  # ListQuotaSummary status SUCCESS
+    SKIPPED = "skipped"  # ListQuotaSummary status SKIPPED
 
 
 class UsageWindowKind(int, Enum):
