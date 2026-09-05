@@ -16,12 +16,14 @@ import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
+import pytest
 from fastmcp import Client
 
 from notebooklm import NotebookLMClient
 from notebooklm.mcp.server import create_server
 
 from ._artifact_helpers import studio_item_may_have_download_payload
+from ._generation_helpers import _TYPED_RATE_LIMIT_ATTR
 
 #: Merged ``studio_list`` item ``type`` values (hyphenated, the shared Studio
 #: vocabulary) whose download is wired through ``studio_download``. An item's
@@ -38,6 +40,27 @@ DOWNLOADABLE_ARTIFACT_TYPES = {
     "quiz",
     "flashcards",
 }
+
+
+def _only_typed_rate_limit_skip(error: BaseException) -> BaseException | None:
+    """Unwrap FastMCP task groups only when every leaf is our quota skip."""
+
+    pending = [error]
+    leaves: list[BaseException] = []
+    while pending:
+        current = pending.pop()
+        children = getattr(current, "exceptions", None)
+        if isinstance(children, tuple) and children:
+            pending.extend(children)
+        else:
+            leaves.append(current)
+    if leaves and all(
+        isinstance(leaf, pytest.skip.Exception)
+        and getattr(leaf, _TYPED_RATE_LIMIT_ATTR, False) is True
+        for leaf in leaves
+    ):
+        return leaves[0]
+    return None
 
 
 def pick_downloadable_artifact(
@@ -93,8 +116,18 @@ async def call_tool(
     real_client: NotebookLMClient, name: str, args: dict[str, Any] | None = None
 ) -> Any:
     """Call one MCP tool over the in-memory transport and return its structured content."""
-    async with mcp_client(real_client) as client:
-        result = await client.call_tool(name, args or {})
+    try:
+        async with mcp_client(real_client) as client:
+            result = await client.call_tool(name, args or {})
+    except BaseException as error:
+        # pytest's skip signal intentionally derives from BaseException. FastMCP's
+        # in-memory task groups preserve it, but nest it in BaseExceptionGroup
+        # layers while unwinding. Recover only our machine-marked quota signal;
+        # mixed groups and every unrelated base exception still fail loudly.
+        rate_limit_skip = _only_typed_rate_limit_skip(error)
+        if rate_limit_skip is None:
+            raise
+        raise rate_limit_skip from None
     # Every tool in this suite returns a structured dict on success. Assert it here
     # so a caller subscripting the result fails LOUDLY (with the tool name) instead
     # of with an opaque ``NoneType`` subscript error — and so the assertion can't

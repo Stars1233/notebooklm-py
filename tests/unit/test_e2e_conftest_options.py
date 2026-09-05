@@ -19,7 +19,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from notebooklm.exceptions import ChatError, RateLimitError
+from notebooklm._android.artifact_creation import CREATE_ARTIFACT_METHOD
+from notebooklm._idempotency import mark_unconfirmed
+from notebooklm.exceptions import ChatError, RateLimitError, RPCError
+from notebooklm.types import GrpcStatusCode
 
 CONFTEST_PATH = Path(__file__).resolve().parents[1] / "e2e" / "conftest.py"
 pytest_plugins = ["pytester"]
@@ -666,12 +669,14 @@ class TestAndroidArtifactOptionReadBack:
 
 
 class TestGenerationRateLimitSkip:
-    """_install_generation_rate_limit_skip turns typed RateLimitError into skips.
+    """_install_generation_rate_limit_skip turns exact quota evidence into skips.
 
     The RPC layer raises RateLimitError from generate_* before any
     GenerationStatus exists, so assert_generation_started's is_rate_limited
-    path never runs. Only the typed RateLimitError may skip; every other
-    exception must propagate (no-xfail-live-service-errors policy).
+    path never runs. Android's non-replay-safe CreateArtifact path preserves
+    status 8 on a marked generic RPCError instead. Only those exact shapes may
+    skip; every other exception must propagate (no-xfail-live-service-errors
+    policy).
     """
 
     @staticmethod
@@ -716,6 +721,107 @@ class TestGenerationRateLimitSkip:
         reason = str(excinfo.value).lower()
         assert any(phrase in reason for phrase in conftest._RATE_LIMIT_PHRASES)
         assert getattr(excinfo.value, conftest._TYPED_RATE_LIMIT_ATTR) is True
+
+    async def test_unconfirmed_android_create_artifact_status_8_becomes_skip(self):
+        conftest = _load_e2e_conftest()
+        client = self._make_client()
+        error = mark_unconfirmed(
+            RPCError(
+                "UNRESOLVED — CreateArtifact outcome is unknown",
+                method_id=CREATE_ARTIFACT_METHOD,
+                rpc_code=GrpcStatusCode.RESOURCE_EXHAUSTED.value,
+            )
+        )
+
+        async def android_quota(notebook_id):
+            del notebook_id
+            raise error
+
+        client.artifacts.generate_audio = android_quota
+        conftest._install_generation_rate_limit_skip(client)
+
+        with pytest.raises(pytest.skip.Exception, match="Rate limit") as excinfo:
+            await client.artifacts.generate_audio("nb-1")
+
+        assert getattr(excinfo.value, conftest._RATE_LIMIT_METHOD_ATTR) == CREATE_ARTIFACT_METHOD
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            pytest.param(
+                RPCError(
+                    "unmarked quota",
+                    method_id=CREATE_ARTIFACT_METHOD,
+                    rpc_code=GrpcStatusCode.RESOURCE_EXHAUSTED.value,
+                ),
+                id="unmarked-status-8",
+            ),
+            pytest.param(
+                mark_unconfirmed(
+                    RPCError(
+                        "different method",
+                        method_id="/example.Service/OtherCreate",
+                        rpc_code=GrpcStatusCode.RESOURCE_EXHAUSTED.value,
+                    )
+                ),
+                id="different-method",
+            ),
+            pytest.param(
+                mark_unconfirmed(
+                    RPCError(
+                        "server unavailable",
+                        method_id=CREATE_ARTIFACT_METHOD,
+                        rpc_code=GrpcStatusCode.UNAVAILABLE.value,
+                    )
+                ),
+                id="different-status",
+            ),
+        ],
+    )
+    async def test_other_generic_rpc_errors_propagate(self, error: RPCError):
+        conftest = _load_e2e_conftest()
+        client = self._make_client()
+
+        async def failed_create(notebook_id):
+            del notebook_id
+            raise error
+
+        client.artifacts.generate_audio = failed_create
+        conftest._install_generation_rate_limit_skip(client)
+
+        with pytest.raises(RPCError) as excinfo:
+            await client.artifacts.generate_audio("nb-1")
+        assert excinfo.value is error
+
+    async def test_mcp_generation_restores_the_machine_marked_quota_skip(self):
+        pytest.importorskip("fastmcp")
+        from tests.e2e._mcp_live_helpers import call_tool
+
+        conftest = _load_e2e_conftest()
+
+        class FakeArtifacts:
+            async def generate_report(self, *args, **kwargs):
+                del args, kwargs
+                raise mark_unconfirmed(
+                    RPCError(
+                        "UNRESOLVED — CreateArtifact outcome is unknown",
+                        method_id=CREATE_ARTIFACT_METHOD,
+                        rpc_code=GrpcStatusCode.RESOURCE_EXHAUSTED.value,
+                    )
+                )
+
+        client = SimpleNamespace(artifacts=FakeArtifacts())
+        conftest._install_generation_rate_limit_skip(client)
+
+        with pytest.raises(pytest.skip.Exception, match="Rate limit"):
+            await call_tool(
+                client,
+                "studio_generate",
+                {
+                    "notebook": "11111111-1111-1111-1111-111111111111",
+                    "artifact_type": "report",
+                },
+            )
 
     async def test_other_exceptions_propagate(self):
         conftest = _load_e2e_conftest()
