@@ -143,6 +143,15 @@ from ._types.sources import (
     SourceFulltext,
     SourceType,
 )
+from ._types.usage import (
+    UsageAction,
+    UsageActionCostTier,
+    UsageActionKind,
+    UsageSummary,
+    UsageSummaryStatus,
+    UsageWindow,
+    UsageWindowKind,
+)
 
 # Import exceptions from centralized module (re-export for backward compatibility)
 from .exceptions import (
@@ -213,6 +222,9 @@ __all__ = [
     # Dataclasses
     "AccountLimits",
     "UserSettings",
+    "UsageSummary",
+    "UsageWindow",
+    "UsageAction",
     "CitedSourceSelection",
     "ConnectionLimits",
     "ClientMetricsSnapshot",
@@ -331,6 +343,10 @@ __all__ = [
     "ShareAccess",
     "ShareViewLevel",
     "SharePermission",
+    "UsageSummaryStatus",
+    "UsageWindowKind",
+    "UsageActionKind",
+    "UsageActionCostTier",
     # Helper functions
     "artifact_status_to_str",
     "discovery_mode_to_str",
@@ -349,6 +365,9 @@ for _public_common_type in (
     RpcTelemetryEvent,
     UnknownTypeWarning,
     UserSettings,
+    UsageAction,
+    UsageSummary,
+    UsageWindow,
 ):
     _public_common_type.__module__ = __name__
 del _public_common_type
