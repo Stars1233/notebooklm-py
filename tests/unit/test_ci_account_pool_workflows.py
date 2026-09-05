@@ -506,7 +506,9 @@ def test_safe_summaries_cover_selection_and_lifecycle_counts() -> None:
     nightly = _load("nightly.yml")["jobs"]["e2e"]
     nightly_provision = str(_step(nightly, "provision")["run"])
     assert "Template contract: version=1 fingerprint=" in nightly_provision
-    assert '"readonly": ("reference",)' in nightly_provision
+    assert '"readonly": {("reference",)}' in nightly_provision
+    assert '("reference", "generation")' in nightly_provision
+    assert '("reference", "generation", "multi-source")' in nightly_provision
     assert "Copy outcomes: total={len(roles)}" in nightly_provision
     assert "Clean-role residuals: generation=0 multi-source=0" in nightly_provision
     assert 'row["notebook_id"]' not in nightly_provision
@@ -520,7 +522,9 @@ def test_safe_summaries_cover_selection_and_lifecycle_counts() -> None:
 
     package = _load("verify-package.yml")["jobs"]["verify"]
     package_provision = str(_step(package, "provision")["run"])
-    assert "Copy outcomes: total=3" in package_provision
+    assert '("reference", "generation")' in package_provision
+    assert '("reference", "generation", "multi-source")' in package_provision
+    assert "Copy outcomes: total={len(roles)}" in package_provision
     assert "Clean-role residuals: generation=0 multi-source=0" in package_provision
     assert 'row["notebook_id"]' not in package_provision
 
