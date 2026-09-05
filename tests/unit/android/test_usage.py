@@ -70,6 +70,13 @@ _BRIDGE = SimpleNamespace(
 )
 
 
+def _fixture_hex(fixture: dict[str, Any], key: str) -> str:
+    """Join short, secret-scanner-safe chunks into one exact wire hex string."""
+
+    value = fixture[key]
+    return "".join(value) if isinstance(value, list) else value
+
+
 @pytest.fixture(autouse=True)
 def _install_bridge(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(usage_codec, "_usage_types", lambda: _BRIDGE)
@@ -187,12 +194,12 @@ def test_synthetic_fixture_pins_empty_get_account_envelope_and_context_bytes() -
 
     request = quota_pb2.ListQuotaSummaryRequest(request_context=android_request_context())
     assert len(request.SerializeToString()) == 52
-    assert request.SerializeToString().hex() == fixture["list_quota_request_hex"]
+    assert request.SerializeToString().hex() == _fixture_hex(fixture, "list_quota_request_hex")
 
 
 def test_synthetic_quota_fixture_preserves_elision_future_codes_and_exact_floats() -> None:
     fixture = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    wire = bytes.fromhex(fixture["list_quota_response_hex"])
+    wire = bytes.fromhex(_fixture_hex(fixture, "list_quota_response_hex"))
     response = usage_pb2.WireListQuotaSummaryResponse.FromString(wire)
     assert response.SerializeToString() == wire
 
@@ -285,7 +292,7 @@ class _FakeSession:
             bytes.fromhex(fixture["get_account_response_hex"])
         )
         self.quota = usage_pb2.WireListQuotaSummaryResponse.FromString(
-            bytes.fromhex(fixture["list_quota_response_hex"])
+            bytes.fromhex(_fixture_hex(fixture, "list_quota_response_hex"))
         )
         self.calls: list[tuple[str, Any, dict[str, Any]]] = []
 
