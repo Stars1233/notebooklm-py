@@ -90,37 +90,27 @@ def _optional_int(value: Any, *, method_id: str, label: str) -> int | None:
 def _timestamp(value: Any, *, method_id: str) -> datetime | None:
     """Decode a JSPB Timestamp represented as ``[seconds, nanos]``.
 
-    A few Web decoder versions have emitted an RFC3339 string while the
-    current array codec emits the protobuf pair.  Accept both wire-equivalent
-    representations, but reject malformed present values so drift is not
-    mistaken for a missing reset time.
+    The Web array codec uses the protobuf pair representation.  Reject
+    malformed present values so drift is not mistaken for a missing reset
+    time; in particular, protobuf ``int64`` seconds and ``int32`` nanos must
+    not be accepted as fractional JSON numbers.
     """
 
     if value is None:
         return None
-    if isinstance(value, str):
-        try:
-            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-        except ValueError as exc:
-            raise _error("invalid quota reset timestamp", method_id=method_id) from exc
-        if parsed.tzinfo is None:
-            raise _error("quota reset timestamp is naive", method_id=method_id)
-        return parsed.astimezone(timezone.utc)
     if not isinstance(value, list) or not value:
         raise _error("invalid quota reset timestamp", method_id=method_id)
     seconds = value[0]
     nanos = value[1] if len(value) > 1 and value[1] is not None else 0
-    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
-        raise _error("quota reset timestamp seconds is not numeric", method_id=method_id)
-    if isinstance(nanos, bool) or not isinstance(nanos, (int, float)):
-        raise _error("quota reset timestamp nanos is not numeric", method_id=method_id)
-    if not math.isfinite(float(seconds)) or not math.isfinite(float(nanos)):
-        raise _error("quota reset timestamp is non-finite", method_id=method_id)
-    if not float(nanos).is_integer() or not 0 <= int(nanos) < 1_000_000_000:
+    if isinstance(seconds, bool) or not isinstance(seconds, int):
+        raise _error("quota reset timestamp seconds is not integral", method_id=method_id)
+    if isinstance(nanos, bool) or not isinstance(nanos, int):
+        raise _error("quota reset timestamp nanos is not integral", method_id=method_id)
+    if not 0 <= nanos < 1_000_000_000:
         raise _error("quota reset timestamp nanos is invalid", method_id=method_id)
     try:
-        return datetime.fromtimestamp(float(seconds), tz=timezone.utc) + timedelta(
-            microseconds=int(nanos) / 1_000
+        return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
+            microseconds=nanos / 1_000
         )
     except (OverflowError, OSError, ValueError) as exc:
         raise _error("quota reset timestamp is out of range", method_id=method_id) from exc

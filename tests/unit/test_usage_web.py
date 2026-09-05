@@ -1,5 +1,6 @@
 """Focused Web transport tests for the live usage-meter RPCs."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -59,21 +60,32 @@ def test_decode_quota_summary_rejects_non_finite_percentages() -> None:
     assert raised.value.method_id == RPCMethod.LIST_QUOTA_SUMMARY.value
 
 
+@pytest.mark.parametrize(
+    "timestamp",
+    [[1.5, 0], [1, 1.5], ["1", 0], [1, -1], [1, 1_000_000_000]],
+)
+def test_decode_quota_summary_rejects_malformed_timestamps(timestamp) -> None:
+    with pytest.raises(DecodingError, match="timestamp") as raised:
+        decode_quota_summary([1, [[None, None, None, None, 1, timestamp, 0.0, 100.0]], None, []])
+    assert raised.value.method_id == RPCMethod.LIST_QUOTA_SUMMARY.value
+
+
 @pytest.mark.asyncio
 async def test_usage_calls_are_live_rpc_reads() -> None:
-    rpc = AsyncMock(
+    rpc_call = AsyncMock(
         side_effect=[
             [[None, None, None, None, [None, None, None, None, None, None, True]]],
             [2, [], None, []],
         ]
     )
+    rpc = SimpleNamespace(rpc_call=rpc_call)
 
     account = await get_usage_account(rpc)
     summary = await list_quota_summary(rpc)
 
     assert account.compute_metering_enabled is True
     assert summary.status_code == 2
-    assert [call.args[:2] for call in rpc.call_args_list] == [
+    assert [call.args[:2] for call in rpc_call.call_args_list] == [
         (RPCMethod.GET_ACCOUNT, []),
         (RPCMethod.LIST_QUOTA_SUMMARY, [None]),
     ]
