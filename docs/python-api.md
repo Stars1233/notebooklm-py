@@ -2177,6 +2177,7 @@ await client.notes.delete_mind_map(nb_id, mind_map_id)
 |--------|------------|---------|-------------|
 | `get_output_language()` | none | `Optional[str]` | Get current output language setting |
 | `get_account_limits()` | none | `AccountLimits` | Get account-level limits such as max notebooks and sources per notebook |
+| `get_usage()` | none | `UsageSummary` | Get the current live compute-meter snapshot when the account is eligible |
 | `get_user_settings()` | none | `UserSettings` | Get account limits **and** output language in a single request (both share one server call) |
 | `set_output_language(language)` | `str` | `Optional[str]` | Set output language for artifact generation |
 
@@ -2194,12 +2195,17 @@ print(f"Notebook limit: {limits.notebook_limit}")
 settings = await client.settings.get_user_settings()
 print(settings.limits.notebook_limit, settings.output_language)
 
+# Live compute usage is distinct from static account limits.
+usage = await client.settings.get_usage()
+if usage.available:
+    print(usage.active_window, usage.is_exhausted)
+
 # Set language for artifact generation
 result = await client.settings.set_output_language("ja")  # Japanese
 print(f"Language set to: {result}")
 ```
 
-**Important:** Language is a **GLOBAL setting** that affects all notebooks in your account. Use `get_account_limits()` for quota decisions. Supported languages include:
+**Important:** Language is a **GLOBAL setting** that affects all notebooks in your account. Use `get_account_limits()` for static notebook/source limits and `get_usage()` for the live compute meter. Supported languages include:
 - `en` (English), `ja` (日本語), `zh_Hans` (中文简体), `zh_Hant` (中文繁體)
 - `ko` (한국어), `es` (Español), `fr` (Français), `de` (Deutsch), `pt_BR` (Português)
 - And [over 70 other languages](cli-reference.md#language-commands-notebooklm-language-cmd)
@@ -3219,6 +3225,33 @@ the value is absent/non-positive. (The pre-v0.8.0 promotions-based tier / `plan_
 label is **not** back — it could not distinguish free from paid; this reads the real
 quota block instead.) The full per-tier notebook/source/studio limits keyed to these
 ints are in [quota-limits.md](quota-limits.md).
+
+### UsageSummary
+
+Returned by `client.settings.get_usage()`. This is the server's live unified
+compute meter, distinct from published notebook/source limits. It reports
+percentages and authoritative reset timestamps, not a balance or a
+client-computed quota. `status` is `DISABLED` when the account does not enable
+the meter (the summary request is not made), `SKIPPED` when the server declines
+to provide a snapshot, or `READY` when windows and actions are available.
+
+```python
+@dataclass(frozen=True)
+class UsageSummary:
+    status: UsageSummaryStatus
+    windows: tuple[UsageWindow, ...] = ()
+    actions: tuple[UsageAction, ...] = ()
+
+    enabled: bool  # False only for DISABLED
+    available: bool  # True only for READY
+    active_window: UsageWindow | None
+    is_exhausted: bool | None
+```
+
+`window(UsageWindowKind.FIVE_HOUR)` and `action(UsageActionKind.DEEP_RESEARCH)`
+look up individual rows. Unknown future action codes remain visible with
+`UsageAction.kind is None`; callers should not infer a local debit from an
+action's estimated cost.
 
 ### UserSettings
 

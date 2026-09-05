@@ -234,6 +234,8 @@ BASE_ABSTRACT_CONTRACTS: tuple[_AbstractContract, ...] = (
         implementation_class_name="WebSettingsAPI",
         abstract_methods=frozenset(
             {
+                "_get_usage_account",
+                "_list_quota_summary",
                 "get_account_limits",
                 "get_output_language",
                 "get_user_settings",
@@ -389,7 +391,7 @@ _ANDROID_INHERITED_WORKFLOWS = {
         }
     ),
     "NotesAPI": frozenset(),
-    "SettingsAPI": frozenset(),
+    "SettingsAPI": frozenset({"get_usage"}),
     "SharingAPI": frozenset({"add_user", "update_user"}),
     "SourcesAPI": frozenset(
         {
