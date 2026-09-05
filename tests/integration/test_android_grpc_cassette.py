@@ -12,6 +12,8 @@ sanitized placeholders while replaying. Re-record with::
 from __future__ import annotations
 
 import asyncio
+import os
+from pathlib import Path
 from typing import Any, Protocol
 
 import grpc
@@ -40,6 +42,8 @@ class CassetteBinder(Protocol):
 replay_only = pytest.mark.skipif(
     is_record_mode(), reason="the unbound-channel guards are lifted while recording"
 )
+
+ANDROID_CASSETTES = Path(__file__).resolve().parents[1] / "cassettes" / "android"
 
 
 @replay_only
@@ -76,6 +80,39 @@ async def test_settings_get_user_settings_over_get_or_create_account(
     # replay but its presence must survive decoding.
     assert settings.output_language
     assert settings.limits.notebook_limit is not None and settings.limits.notebook_limit >= 1
+
+
+@pytest.mark.parametrize(
+    ("cassette_name", "profile_env"),
+    [
+        ("usage_standard", "NOTEBOOKLM_USAGE_STANDARD_PROFILE"),
+        ("usage_pro", "NOTEBOOKLM_USAGE_PRO_PROFILE"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_settings_usage_over_get_account_and_list_quota_summary(
+    android_usage_grpc_cassette: CassetteBinder,
+    cassette_name: str,
+    profile_env: str,
+) -> None:
+    if is_record_mode():
+        expected_profile = os.environ.get(profile_env)
+        if not expected_profile:
+            pytest.skip(f"set {profile_env} to the reviewed local recording profile")
+        if os.environ.get("NOTEBOOKLM_PROFILE") != expected_profile:
+            pytest.skip(f"record {cassette_name} with NOTEBOOKLM_PROFILE matching {profile_env}")
+    cassette_path = ANDROID_CASSETTES / f"{cassette_name}_recorded.grpc.json"
+    if not is_record_mode() and not cassette_path.is_file():
+        pytest.skip(f"{cassette_path.name} has not been recorded yet")
+
+    async with android_usage_grpc_cassette(cassette_name) as (client, _values):
+        usage = await client.settings.get_usage()
+
+    assert usage.enabled is True
+    assert usage.available is True
+    assert [int(window.kind) for window in usage.windows] == [1, 2]
+    assert usage.actions
+    assert all(action.code > 0 for action in usage.actions)
 
 
 # --- 2. rich GetProject project/source response ------------------------------

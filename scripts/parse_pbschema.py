@@ -65,6 +65,7 @@ PACKAGE_OBJECT_RE = re.compile(
 DEFAULT_PATTERNS = (
     "google.internal.labs.tailwind.api.v1",
     "google.internal.labs.tailwind.discovery.v1",
+    "google.internal.labs.tailwind.metering.v1",
     "google.internal.labs.tailwind.orchestration.v1",
     "google.internal.labs.tailwind.v1",
     "googledata.experiments.mobile.tailwind",

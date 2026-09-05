@@ -153,6 +153,29 @@ message SourceId {
   string id = 1;
 }
 
+// ===== google.internal.labs.tailwind.metering.v1/metering.pb.dart =====
+// Dart library: package:google.internal.labs.tailwind.metering.v1/metering.pb.dart
+// Protobuf FQN: google.internal.labs.tailwind.metering.v1.ListQuotaSummaryResponse
+message ListQuotaSummaryResponse {
+  ListQuotaSummaryResponse_Status status = 1;
+  repeated QuotaSummaryEntry summaries = 2;
+  repeated UserAction outOfQuotaActions = 3;
+  repeated UserActionQuotaSummary actionQuotaSummaries = 4;
+}
+// Protobuf FQN: google.internal.labs.tailwind.metering.v1.UserActionQuotaSummary
+message UserActionQuotaSummary {
+  UserAction action = 1;
+  bool hasSufficientQuota = 2;
+  ActionCostTier costTier = 4;
+  double estimatedCostPctOfBudget = 6;
+}
+// Protobuf FQN: google.internal.labs.tailwind.metering.v1.QuotaSummaryEntry
+message QuotaSummaryEntry {
+  QuotaSummaryEntry_QuotaRefreshWindow window = 5;
+  Timestamp nextRefreshTime = 6;
+  double usedMicrosPercent = 7;
+}
+
 // ===== google.internal.labs.tailwind.orchestration.v1.agency/function_call.pb.dart =====
 // Dart library: package:google.internal.labs.tailwind.orchestration.v1.agency/function_call.pb.dart
 // Protobuf FQN: google.internal.labs.tailwind.orchestration.v1.FunctionResponse

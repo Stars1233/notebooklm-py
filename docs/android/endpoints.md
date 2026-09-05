@@ -11,7 +11,7 @@ and cross-referenced to the 48-method Web registry used for that audit. The newe
 The original traffic capture exercised 21 methods and decoded their wire shapes here; later direct
 bearer/gRPC probes also exercised APK-unwired methods and destructive APK-present methods on
 disposable copies. The
-**complete protobuf schema** — 323 messages / 868 fields with real field names, tags, types, and
+**complete protobuf schema** — 326 messages / 879 fields with real field names, tags, types, and
 cardinality — was recovered by decompiling the Flutter binary with a Dart-ported blutter (3.13 for the
 `1.46.7` snapshot, 3.14 for the current `1.55.10` regeneration), and
 is checked in at **[android/schema.proto](schema.proto)**. The inline shapes below keep their
@@ -938,7 +938,7 @@ probes, and one routed-but-rejected `RefreshSource` result. A later stale-Google
 also live-verified on a rich disposable copy. These later results supplement the 21 captured
 shapes; they do not change the capture count.
 
-**Field names/tags/types — recovered:** the full protobuf schema (323 messages, 868 fields) is in
+**Field names/tags/types — recovered:** the full protobuf schema (326 messages, 879 fields) is in
 [android/schema.proto](schema.proto), decompiled from the binary. This supersedes the
 `(inferred)` names in the inline shapes — including every message not reachable from the mobile UI
 (`CreateNote`/`MutateNote`/`DeleteNotes`, `ActOnSources`, artifact ops, the WebRTC Live messages).

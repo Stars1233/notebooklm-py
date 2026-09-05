@@ -92,10 +92,10 @@ consolidated document rather than encoded in filenames.
 |---|---|
 | [`endpoints.md`](endpoints.md) | gRPC method surface and mobile ⇄ Web cross-reference |
 | [`proto-evidence-ledger.md`](proto-evidence-ledger.md) | exact/local compile closure, replay policy, hashes, and admission decisions |
-| [`schema.proto`](schema.proto) | generated 323-message / 868-field Dart-AOT recovery parsed by CI |
+| [`schema.proto`](schema.proto) | generated 326-message / 879-field Dart-AOT recovery parsed by CI |
 | [`enums.txt`](enums.txt) | generated 104-block (94 enum names) integer inventory parsed by CI |
-| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | seventeen Web-derived signatures with conventional request/response type names |
-| [`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) | empty implemented-path exception manifest |
+| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | seventeen Web-derived signatures plus the live-validated quota cross-service alias |
+| [`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) | schema-v2 path-only exceptions with importable codecs and replay policy |
 | [`grpc-runtime-parser-overrides.json`](grpc-runtime-parser-overrides.json) | exact paths intentionally decoded through local live-field overlays |
 
 ### Consolidated evidence
@@ -114,6 +114,7 @@ consolidated document rather than encoded in filenames.
 | [`auth-research.md`](auth-research.md) | Android OAuth identity, scopes, and bearer validation |
 | [`blutter-grpc-signature-evidence.md`](blutter-grpc-signature-evidence.md) | exact generated-client bindings for formerly unresolved response FQNs |
 | [`chat-session-control-evidence.md`](chat-session-control-evidence.md) | live Web/Android session-status and cancellation semantics for #2303 |
+| [`usage-quota-evidence.md`](usage-quota-evidence.md) | live compute-meter accounting plus Android quota-message and route recovery for #2283 / ADR-0037 |
 
 ### Capture and tooling
 
@@ -134,8 +135,8 @@ uv run python scripts/parse_pbenums.py /path/to/blutter/out/<build> \
   > docs/android/enums.txt
 ```
 
-The default package-directory selectors preserve the complete historical evidence scope (66 files
-in the current dump). The schema generator reports `323 messages, 868 fields` and resolves package
+The default package-directory selectors preserve the complete historical evidence scope (67 files
+in the current dump). The schema generator reports `326 messages, 879 fields` and resolves package
 identity through the sibling `objs.txt`; an unresolved package remains explicit rather than being
 inferred from its directory. In particular `FunctionCall`, `FunctionResponse`, `TailwindStruct`,
 and `TailwindValue` sit in Dart libraries under an `orchestration.v1.agency` directory but are
@@ -163,7 +164,7 @@ Both artifacts were regenerated from this build (verified from the binary, not a
 | AOT library | `lib/arm64-v8a/libNotebookLM_prod_android_library_flutter_artifacts.so` |
 | AOT library SHA-256 | `77bff7507e393c092b78ff1756bb3d726881050b22728dcc8c46cf0fecd7cda7` |
 | Dart SDK | `3.14.0-166.0.dev` (dev channel), snapshot hash `8c325a9e3a1c32ffd39325f735c49133` |
-| Regenerated | 2026-09-01 |
+| Regenerated | 2026-09-04 |
 
 The `1.46.7` snapshot (`082d75e3…`, Dart `3.13.0-256.0.dev`) remains the basis for the dated
 capture reports, the version-scoped method manifest, and
@@ -174,12 +175,13 @@ this regeneration is not yet captured as a patch.
 The reduced compile inputs used by the internal Android adapters live under
 `src/notebooklm/_android/proto_src/`. Regenerate their checked-in Python modules and the full
 descriptor fixture with `python scripts/regenerate_android_protos.py --write`; use `--check` in CI.
-The cumulative `orchestration_service.proto` owns the 57-method orchestration service;
+The cumulative `orchestration_service.proto` owns the 58-method orchestration service;
 `sharing.proto` owns the separately proven two-method exact sharing service, and individual
 orchestration message overlays remain service-free. Seventeen orchestration signatures are explicitly
-marked as web-derived conventional-name inferences; all other generated signatures are exact.
-The 59 generated methods exhaustively equal the 59 implemented adapter paths, and the signature
-exception manifest is empty. Generated descriptors, adapter paths, inference provenance, and the
+marked as web-derived conventional-name inferences, and `ListQuotaSummary` is separately marked as
+an exact-message, cross-service binding inferred from the live orchestration alias.
+The 60 generated methods plus the single path-only `GetAccount` exception exhaustively equal the 61
+implemented adapter paths. Generated descriptors, adapter paths, inference provenance, and the
 hash-pinned external method manifest are checked in both
 directions, so a locally repeated claim cannot admit a normalized or unresolved response type.
 The package and generated protos remain private implementation details. Explicit
@@ -243,7 +245,7 @@ deletion returns `None`. The Web soft-delete tombstone is a storage leak rather 
 
 **`fieldType` in `schema.proto` is a parse failure, not a field name.** The
 extractor emits that placeholder where it could not recover a real name — 11 of
-868 fields. Do not treat it as real.
+879 fields. Do not treat it as real.
 
 **Several messages appear twice with *different* tags.** One copy is the wire
 schema (`…orchestration.v1`, `…tailwind.v1`), the other is the app's local

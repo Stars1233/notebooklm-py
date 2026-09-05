@@ -65,6 +65,7 @@ records and replays (`tests/_helpers/android_grpc_harness.py`):
 | Cassette | Public calls | Wire RPCs |
 |---|---|---|
 | `get_or_create_account` | `settings.get_user_settings()` | `GetOrCreateAccount` |
+| `usage_standard`, `usage_pro` | `settings.get_usage()` (separate explicit profiles; no scratch resource) | `GetAccount`, `ListQuotaSummary` |
 | `get_project_rich` | `notebooks.get()`, `sources.list()` | `GetProject` ×2 |
 | `load_source` | `sources.get_fulltext()` | `GetProject` ×2, `LoadSource` |
 | `retrieve_relevant_chunks` | `sources.search()`, `sources.search(..., source_ids=...)` | `GetProject`, `RetrieveRelevantChunks` ×2 |
@@ -98,13 +99,18 @@ records and replays (`tests/_helpers/android_grpc_harness.py`):
 | `generate_flashcards` | `artifacts.generate_flashcards/poll_status/get/delete/get_or_none()` | `GetProject`, `CreateArtifact`, `ListArtifacts` ×6, `GetArtifact` ×3, `GetNotes` ×2, `DeleteArtifact` |
 | `generate_audio` | `artifacts.generate_audio/poll_status/get/delete/get_or_none()` | `GetProject`, `CreateArtifact`, `ListArtifacts` ×23, `GetArtifact` ×20, `GetNotes` ×2, `DeleteArtifact` |
 
-33 families, 281 interactions. Re-record everything (creates one disposable scratch notebook with a text
+35 families, 285 interactions. Re-record everything (creates one disposable scratch notebook with a text
 source and a note through an *unrecorded* client, records, then deletes it):
 
 ```bash
 NOTEBOOKLM_ANDROID_GRPC_RECORD=1 NOTEBOOKLM_PROFILE=<profile> \
     uv run pytest tests/integration/test_android_grpc_cassette.py -p no:randomly
 ```
+
+The account-scoped usage recordings additionally require
+`NOTEBOOKLM_USAGE_STANDARD_PROFILE` or `NOTEBOOKLM_USAGE_PRO_PROFILE` to contain the same local
+profile name selected by `NOTEBOOKLM_PROFILE`. These selector variables keep the required tier
+separation explicit without committing operator profile identifiers.
 
 Some families are *account*-scoped rather than scratch-scoped:
 `get_or_create_account` and `mutate_account` keep the recorder's real account

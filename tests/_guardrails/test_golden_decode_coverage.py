@@ -96,6 +96,7 @@ _DISCOVER_VCR = "tests/integration/test_research_discover_vcr.py"
 _PLAY_BOOKS_VCR = "tests/integration/test_play_books_vcr.py"
 _CHAT_SESSION_CONTROL_VCR = "tests/integration/test_chat_session_control_vcr.py"
 _SOURCE_SEARCH_VCR = "tests/integration/test_source_search_vcr.py"
+_USAGE_VCR = "tests/integration/test_usage_vcr.py"
 
 GoldenPointer = tuple[str, str]
 
@@ -219,6 +220,17 @@ GOLDEN_COVERAGE: dict[RPCMethod, tuple[GoldenPointer, ...]] = {
     ),
     RPCMethod.SET_USER_SETTINGS: (
         (_GOLDEN_EXPANSION, "TestSettingsGoldenDecoded::test_set_output_language_decoded_golden"),
+    ),
+    # Usage is recorded separately per account tier because reset timestamps
+    # and numeric meter values are profile-specific. The replay tests pin the
+    # stable status/window/action kinds while tolerating sanitized numbers.
+    RPCMethod.GET_ACCOUNT: (
+        (_USAGE_VCR, "TestUsageVCR::test_standard_usage"),
+        (_USAGE_VCR, "TestUsageVCR::test_pro_usage"),
+    ),
+    RPCMethod.LIST_QUOTA_SUMMARY: (
+        (_USAGE_VCR, "TestUsageVCR::test_standard_usage"),
+        (_USAGE_VCR, "TestUsageVCR::test_pro_usage"),
     ),
     # --- artifacts ---
     RPCMethod.CREATE_ARTIFACT: (

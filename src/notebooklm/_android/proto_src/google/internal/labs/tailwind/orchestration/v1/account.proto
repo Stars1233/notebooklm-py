@@ -22,6 +22,9 @@ message UserInfo {
 
 message PremiumUserInfo {
   bool is_premium_user = 1;
+  // Live GetAccount/GetOrCreateAccount parity plus current Web decoding;
+  // see docs/android/proto-evidence-ledger.md#usage-meter-recovery.
+  optional bool compute_metering_enabled = 7;
 }
 
 message TierLimits {

@@ -8,6 +8,7 @@ from typing import Any, cast
 
 from .._runtime.call_supervisor import OperationLease
 from .._settings import SettingsAPI
+from .._usage import RawUsageSummary, UsageAccount
 from ..exceptions import DecodingError
 from ..types import AccountLimits, UserSettings
 from .epoch import bind_workflow_epoch, reset_workflow_epoch
@@ -15,6 +16,8 @@ from .session import AndroidSession
 
 _SERVICE = "google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService"
 GET_OR_CREATE_ACCOUNT_METHOD = f"/{_SERVICE}/GetOrCreateAccount"
+GET_ACCOUNT_METHOD = f"/{_SERVICE}/GetAccount"
+LIST_QUOTA_SUMMARY_METHOD = f"/{_SERVICE}/ListQuotaSummary"
 MUTATE_ACCOUNT_METHOD = f"/{_SERVICE}/MutateAccount"
 
 
@@ -22,6 +25,19 @@ def _proto() -> Any:
     from .proto.google.internal.labs.tailwind.orchestration.v1 import account_pb2
 
     return cast(Any, account_pb2)
+
+
+def _quota_proto() -> tuple[Any, Any]:
+    from .proto.google.internal.labs.tailwind.api.v1 import quota_pb2
+    from .proto.notebooklm.internal.android.wire.v1 import usage_pb2
+
+    return cast(Any, quota_pb2), cast(Any, usage_pb2)
+
+
+def _empty_request() -> Any:
+    from google.protobuf.empty_pb2 import Empty
+
+    return Empty()
 
 
 def _request_context() -> Any:
@@ -93,6 +109,36 @@ class AndroidSettingsAPI(SettingsAPI):
     def __init__(self, session: AndroidSession) -> None:
         self._transport = session
 
+    async def _get_usage_account(self, *, lease: OperationLease | None) -> UsageAccount:
+        """Fetch meter eligibility through the path-only GetAccount contract."""
+
+        from .codecs.usage import decode_usage_account
+
+        proto = _proto()
+        response = await self._transport.unary(
+            GET_ACCOUNT_METHOD,
+            _empty_request(),
+            replay_safe=True,
+            response_type=proto.GetOrCreateAccountResponse,
+            expected_epoch=None if lease is None else lease.epoch,
+        )
+        return decode_usage_account(response)
+
+    async def _list_quota_summary(self, *, lease: OperationLease | None) -> RawUsageSummary:
+        """Fetch one uncached usage snapshot through the inferred native alias."""
+
+        from .codecs.usage import decode_quota_summary
+
+        quota_proto, wire_proto = _quota_proto()
+        response = await self._transport.unary(
+            LIST_QUOTA_SUMMARY_METHOD,
+            quota_proto.ListQuotaSummaryRequest(request_context=_request_context()),
+            replay_safe=True,
+            response_type=wire_proto.WireListQuotaSummaryResponse,
+            expected_epoch=None if lease is None else lease.epoch,
+        )
+        return decode_quota_summary(response, method_id=LIST_QUOTA_SUMMARY_METHOD)
+
     async def _get_user_settings(self, *, expected_epoch: int) -> UserSettings:
         proto = _proto()
         response = await self._transport.unary(
@@ -150,6 +196,8 @@ class AndroidSettingsAPI(SettingsAPI):
 
 __all__ = [
     "AndroidSettingsAPI",
+    "GET_ACCOUNT_METHOD",
     "GET_OR_CREATE_ACCOUNT_METHOD",
+    "LIST_QUOTA_SUMMARY_METHOD",
     "MUTATE_ACCOUNT_METHOD",
 ]

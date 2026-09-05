@@ -215,6 +215,13 @@ from .types import (
     UnknownArtifactUserState,
     # Warnings
     UnknownTypeWarning,
+    UsageAction,
+    UsageActionCostTier,
+    UsageActionKind,
+    UsageSummary,
+    UsageSummaryStatus,
+    UsageWindow,
+    UsageWindowKind,
     UserSettings,
     VideoFormat,
     VideoStyle,
@@ -238,6 +245,9 @@ __all__ = [
     # Types
     "AccountLimits",
     "UserSettings",
+    "UsageSummary",
+    "UsageWindow",
+    "UsageAction",
     "ConnectionLimits",
     "ClientMetricsSnapshot",
     "RpcTelemetryEvent",
@@ -367,6 +377,10 @@ __all__ = [
     # User-facing type enums (str enums for .kind property)
     "SourceType",
     "ArtifactType",
+    "UsageSummaryStatus",
+    "UsageWindowKind",
+    "UsageActionKind",
+    "UsageActionCostTier",
     # Configuration enums
     "AudioFormat",
     "AudioLength",

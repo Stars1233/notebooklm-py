@@ -49,6 +49,14 @@
       "adapter_parser": "notebooklm.android.wire.v1.GetProjectDetailsResponse",
       "reason_code": "presence_semantics",
       "evidence": "docs/android/proto-evidence-ledger.md#notes-and-sharing-service-ledger"
+    },
+    {
+      "path": "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/ListQuotaSummary",
+      "side": "response",
+      "remote_type": "google.internal.labs.tailwind.metering.v1.ListQuotaSummaryResponse",
+      "adapter_parser": "notebooklm.internal.android.wire.v1.WireListQuotaSummaryResponse",
+      "reason_code": "presence_semantics",
+      "evidence": "docs/android/proto-evidence-ledger.md#usage-meter-recovery"
     }
   ]
 }

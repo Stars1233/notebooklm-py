@@ -572,7 +572,7 @@ over the disassembled `BuilderInfo._i()` methods to produce
 [docs/android/blutter-dart3.13.patch](blutter-dart3.13.patch), and
 [docs/android/endpoints.md](endpoints.md#recovering-the-remaining-field-names-reversing-the-binary)
 documents its exact changes and build steps (it reproduces the historical 295-message / 767-field
-recovery). The **current** checked-in schema (323 messages, 868 fields) is the `1.55.10`
+recovery). The **current** checked-in schema (326 messages, 879 fields) is the `1.55.10`
 regeneration, which needed a Dart `3.14.0-166.0.dev` port that is not yet captured as a patch —
 see the regeneration identity table in [docs/android/README.md](README.md).
 

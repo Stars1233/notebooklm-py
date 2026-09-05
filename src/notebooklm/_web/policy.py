@@ -814,6 +814,8 @@ def register_default_policies(registry: IdempotencyRegistry) -> None:
         RPCMethod.GET_USER_SETTINGS: (
             "GetOrCreateAccount settings fetch; replay converges to the same account state"
         ),
+        RPCMethod.GET_ACCOUNT: "read-only account eligibility fetch; replay does not mutate account state",
+        RPCMethod.LIST_QUOTA_SUMMARY: "read-only live usage snapshot; replay does not mutate meter state",
         # Live method MutateAccount (generic account mutator; we use it only for
         # the output-language setting).
         RPCMethod.SET_USER_SETTINGS: (

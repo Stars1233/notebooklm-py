@@ -1,13 +1,18 @@
 """Concrete batchexecute user-settings backend."""
 
+from __future__ import annotations
+
 import logging
 from collections.abc import Sequence
 from typing import Any
 
+from .._runtime.call_supervisor import OperationLease
 from .._settings import SettingsAPI
+from .._usage import RawUsageSummary, UsageAccount
 from ..rpc import RPCMethod, safe_index
 from ..types import AccountLimits, UserSettings
 from .contracts import RpcCaller
+from .usage import get_usage_account, list_quota_summary
 
 logger = logging.getLogger("notebooklm._settings")
 
@@ -165,6 +170,16 @@ class WebSettingsAPI(SettingsAPI):
             rpc: RPC dispatch surface (typically the shared client session).
         """
         self._rpc = rpc
+
+    async def _get_usage_account(self, *, lease: OperationLease | None) -> UsageAccount:
+        """Fetch the account's server-owned compute-meter eligibility bit."""
+
+        return await get_usage_account(self._rpc, lease=lease)
+
+    async def _list_quota_summary(self, *, lease: OperationLease | None) -> RawUsageSummary:
+        """Fetch a live, uncached compute-meter snapshot from the Web RPC."""
+
+        return await list_quota_summary(self._rpc, lease=lease)
 
     async def set_output_language(self, language: str) -> str | None:
         """Set the output language for artifact generation.

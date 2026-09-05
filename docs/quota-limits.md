@@ -3,11 +3,14 @@
 A human-reference table of NotebookLM's **static, published plan limits** per tier — how many
 notebooks, sources, chats, and studio artifacts each subscription level allows.
 
-**What this is NOT:** live per-account *remaining* counts or *reset* timestamps. NotebookLM does
-**not** expose those through any known RPC — `GET_USER_SETTINGS` carries only the static plan
-limits, not usage counters. See [#1825](https://github.com/teng-lin/notebooklm-py/issues/1825) for
-the research trail. This document is therefore **prose reference, not shipped code** (see
-[Why this lives in docs](#why-this-lives-in-docs-not-code)).
+**What this is NOT:** the newer unified compute meter. `GET_USER_SETTINGS` still carries only static
+plan limits, but an enabled account now receives live per-account percentages and reset timestamps
+from `ListQuotaSummary`. That meter is a separate system from the published per-feature limits in
+this document; see [ADR-0037](adr/0037-live-usage-and-quota-api.md) for the live wire evidence and
+implemented API. The historical investigation is in
+[#1825](https://github.com/teng-lin/notebooklm-py/issues/1825) and
+[#2283](https://github.com/teng-lin/notebooklm-py/issues/2283). This document remains **prose
+reference, not shipped code** (see [Why this lives in docs](#why-this-lives-in-docs-not-code)).
 
 The rotating CI account pool proposed in
 [#2331](https://github.com/teng-lin/notebooklm-py/issues/2331) is load distribution across
@@ -149,6 +152,12 @@ in-app error text, no official figure · *unknown* = acknowledged-to-exist but u
 
 ## Reset & counting semantics
 
+- **Unified compute usage has separate five-hour and weekly windows.** On the enabled Standard
+  account probed for ADR-0037, the first reservation anchored both server reset timestamps; a second
+  reservation did not move them. For the probed Flashcards and Quiz actions, the server reserved
+  the advertised action price at submission and reconciled it to a lower debit at completion.
+  Artifact deletion did not refund those debits. These percentages do not replace the published
+  feature limits below.
 - **Daily quotas reset after 24 hours; monthly quotas after 30 days.** Rolling windows (from first
   use), not calendar-midnight.
 - **Notebook** caps are **per-user**; **source** caps are **per-notebook**; all chat/generation

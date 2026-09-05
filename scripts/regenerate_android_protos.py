@@ -38,6 +38,8 @@ READ_PROTO_FILES = (
     Path("google/internal/labs/tailwind/v1/source_settings.proto"),
 )
 PROTO_FILES = (
+    Path("google/internal/labs/tailwind/api/v1/quota.proto"),
+    Path("google/internal/labs/tailwind/metering/v1/metering.proto"),
     Path("google/internal/labs/tailwind/orchestration/v1/account.proto"),
     Path("google/internal/labs/tailwind/orchestration/v1/agency/supported.proto"),
     Path("google/internal/labs/tailwind/orchestration/v1/read.proto"),
@@ -60,9 +62,14 @@ PROTO_FILES = (
     Path("notebooklm/internal/android/wire/v1/artifacts.proto"),
     Path("notebooklm/internal/android/wire/v1/notebooks.proto"),
     Path("notebooklm/internal/android/wire/v1/source_content.proto"),
+    Path("notebooklm/internal/android/wire/v1/usage.proto"),
 )
 EXPECTED_GENERATED = frozenset(
     {
+        Path("google/internal/labs/tailwind/api/v1/quota_pb2.py"),
+        Path("google/internal/labs/tailwind/api/v1/quota_pb2_grpc.py"),
+        Path("google/internal/labs/tailwind/metering/v1/metering_pb2.py"),
+        Path("google/internal/labs/tailwind/metering/v1/metering_pb2_grpc.py"),
         Path("google/internal/labs/tailwind/orchestration/v1/account_pb2.py"),
         Path("google/internal/labs/tailwind/orchestration/v1/account_pb2_grpc.py"),
         Path("google/internal/labs/tailwind/orchestration/v1/agency/supported_pb2.py"),
@@ -107,6 +114,8 @@ EXPECTED_GENERATED = frozenset(
         Path("notebooklm/internal/android/wire/v1/notebooks_pb2_grpc.py"),
         Path("notebooklm/internal/android/wire/v1/source_content_pb2.py"),
         Path("notebooklm/internal/android/wire/v1/source_content_pb2_grpc.py"),
+        Path("notebooklm/internal/android/wire/v1/usage_pb2.py"),
+        Path("notebooklm/internal/android/wire/v1/usage_pb2_grpc.py"),
     }
 )
 EXPECTED_PROTO_SOURCES = frozenset(PROTO_FILES)

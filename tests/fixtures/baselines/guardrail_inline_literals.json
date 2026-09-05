@@ -5,12 +5,12 @@
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,
     "ENUM_GAPS": 34,
-    "MAPPINGS": 751,
+    "MAPPINGS": 811,
     "PINNED": 174,
-    "UNMAPPED": 340
+    "UNMAPPED": 359
   },
   "tests/_guardrails/test_android_retry_manifest.py": {
-    "_WEB_CLASS_BY_ANDROID_NAME": 97
+    "_WEB_CLASS_BY_ANDROID_NAME": 99
   },
   "tests/_guardrails/test_asyncio_loop_affinity_guard.py": {
     "ALLOWLIST": 21
@@ -71,9 +71,9 @@
     "_NON_AUTHTOKENS_CANDIDATES": 30
   },
   "tests/_guardrails/test_backend_abstract_contracts.py": {
-    "BASE_ABSTRACT_CONTRACTS": 171,
+    "BASE_ABSTRACT_CONTRACTS": 173,
     "_ANDROID_IMPLEMENTATIONS": 33,
-    "_ANDROID_INHERITED_WORKFLOWS": 102
+    "_ANDROID_INHERITED_WORKFLOWS": 103
   },
   "tests/_guardrails/test_backend_boundaries.py": {
     "LAZY_WEB_IMPORT_ALLOWLIST": 34
@@ -101,7 +101,7 @@
     "_EXECUTOR_RAW_ARGS": 32
   },
   "tests/_guardrails/test_golden_decode_coverage.py": {
-    "GOLDEN_COVERAGE": 50
+    "GOLDEN_COVERAGE": 54
   },
   "tests/_guardrails/test_login_package_dag.py": {
     "ALLOWED_EDGES": 43
