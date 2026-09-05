@@ -1086,7 +1086,7 @@ class NotebookLifecycleManager:
                 mask(notebook_id)
             await self._validate_copy_shape(
                 notebook_id,
-                require_artifacts=True,
+                require_artifacts=role == "reference",
             )
             if role == "reference":
                 await self.prepare_reference(notebook_id)

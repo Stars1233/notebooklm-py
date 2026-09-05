@@ -1570,7 +1570,7 @@ async def test_clean_copy_shape_requires_sources_but_not_inherited_artifact_comp
 
 
 @pytest.mark.asyncio
-async def test_provision_waits_for_artifacts_before_preparing_every_clean_role(
+async def test_provision_requires_artifacts_only_for_reference_role(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
@@ -1588,7 +1588,7 @@ async def test_provision_waits_for_artifacts_before_preparing_every_clean_role(
 
     await _provision(manager, tmp_path, mode="full")
 
-    assert observed_require_artifacts == [True, True, True]
+    assert observed_require_artifacts == [True, False, False]
 
 
 @pytest.mark.asyncio
