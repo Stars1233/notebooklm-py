@@ -539,7 +539,7 @@ jobs:
             raise RuntimeError("manifest summary metadata mismatch")
         copies = manifest.get("copies")
         roles = {
-            "full": ("reference", "generation", "multi-source"),
+            "full": ("reference", "generation"),
             "readonly": ("reference",),
         }[expected["mode"]]
         if not isinstance(copies, list) or len(copies) != len(roles):
@@ -563,7 +563,7 @@ jobs:
             "- Reference checks: seeded_notes=1 history=passed",
         ]
         if expected["mode"] == "full":
-            lines.append("- Clean-role residuals: generation=0 multi-source=0")
+            lines.append("- Clean workspace residuals: generation/multi-source=0")
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
         PY

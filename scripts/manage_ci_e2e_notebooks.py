@@ -313,9 +313,9 @@ def load_prepared_contract(path: Path) -> dict[str, Any]:
             or reference["require_conversation_id"] is not True
             or reference["require_nonempty_history_pair"] is not True
             or reference["conversation_turn_limit"] != 2
-            or tuple(clean["roles"]) != ("generation", "multi-source", "rpc")
+            or tuple(clean["roles"]) != ("generation", "rpc")
             or tuple(clean["disallowed"]) != ("artifacts", "notes", "mind_maps")
-            or tuple(clean["empty_chat_roles"]) != ("multi-source", "rpc")
+            or tuple(clean["empty_chat_roles"]) != ("generation", "rpc")
             or clean["minimum_ready_sources"] < 3
             or clean["poll_interval_seconds"] != 30
             or clean["quiet_period_seconds"] != 90
@@ -1079,14 +1079,21 @@ class NotebookLifecycleManager:
             template_fingerprint=template_fingerprint,
         )
         self._persist_manifest(manifest)
+        role_ids: dict[str, str] = {}
         for role in MODE_ROLES[mode]:
             row = await self.copy_one(manifest, role)
             notebook_id = str(row["notebook_id"])
+            role_ids[role] = notebook_id
             if mask is not None:
                 mask(notebook_id)
+
+        # CopyProject returns before its asynchronous source/artifact propagation
+        # completes. Dispatch every exactly-once copy first so that propagation
+        # overlaps while the roles remain durably tracked and immediately masked.
+        for role, notebook_id in role_ids.items():
             await self._validate_copy_shape(
                 notebook_id,
-                require_artifacts=role == "reference",
+                require_artifacts=True,
             )
             if role == "reference":
                 await self.prepare_reference(notebook_id)
@@ -1401,7 +1408,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--contract", type=Path, default=DEFAULT_TEMPLATE_CONTRACT)
     validate.add_argument("--prepared-contract", type=Path, default=DEFAULT_PREPARED_CONTRACT)
     validate.add_argument("--manifest", type=Path)
-    validate.add_argument("--role", choices=("reference", "generation", "multi-source", "rpc"))
+    validate.add_argument("--role", choices=("reference", "generation", "rpc"))
 
     common("cleanup")
 

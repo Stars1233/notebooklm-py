@@ -401,8 +401,15 @@ def _managed_bindings() -> dict[str, str] | None:
     missing = [name for name, value in bindings.items() if not value]
     if missing:
         raise ValueError(f"managed {mode} mode is missing role bindings: " + ", ".join(missing))
-    if len(set(bindings.values())) != len(bindings):
-        raise ValueError(f"managed {mode}-mode role bindings must be distinct")
+    if mode == "full":
+        reference = bindings["NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"]
+        generation = bindings["NOTEBOOKLM_GENERATION_NOTEBOOK_ID"]
+        multi_source = bindings["NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID"]
+        if reference == generation or multi_source != generation:
+            raise ValueError(
+                "managed full-mode bindings require one distinct reference and one shared "
+                "generation/multi-source workspace"
+            )
     if os.environ.get(_MANAGED_REFERENCE_READY_ENV) != "1":
         raise ValueError("managed reference preparation marker is missing")
     return bindings

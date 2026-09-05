@@ -18,7 +18,7 @@ MANAGED = {
     "NOTEBOOKLM_E2E_REFERENCE_PREPARED": "1",
     "NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "reference-role",
     "NOTEBOOKLM_GENERATION_NOTEBOOK_ID": "generation-role",
-    "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role",
+    "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role",
 }
 
 
@@ -30,19 +30,20 @@ def install(monkeypatch, **overrides: str | None) -> None:
             monkeypatch.setenv(name, value)
 
 
-def test_managed_full_requires_activation_mode_preparation_and_distinct_roles(monkeypatch) -> None:
+def test_managed_full_requires_reference_and_shared_mutable_workspace(monkeypatch) -> None:
     install(monkeypatch)
     assert e2e._managed_bindings() == {
         "NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "reference-role",
         "NOTEBOOKLM_GENERATION_NOTEBOOK_ID": "generation-role",
-        "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role",
+        "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role",
     }
     for overrides in (
         {"NOTEBOOKLM_E2E_MANAGED_COPIES": "true"},
         {"NOTEBOOKLM_E2E_MANAGED_MODE": "rpc"},
         {"NOTEBOOKLM_E2E_REFERENCE_PREPARED": None},
         {"NOTEBOOKLM_GENERATION_NOTEBOOK_ID": None},
-        {"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role"},
+        {"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role"},
+        {"NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "generation-role"},
     ):
         install(monkeypatch, **overrides)
         with pytest.raises(ValueError):
@@ -65,7 +66,7 @@ async def test_managed_role_fixtures_do_not_touch_cache_create_cleanup_or_client
         await anext(generation)
 
     multi_source = e2e.multi_source_notebook_id.__wrapped__(ExplodingClient())
-    assert await anext(multi_source) == "multi-source-role"
+    assert await anext(multi_source) == "generation-role"
     with pytest.raises(StopAsyncIteration):
         await anext(multi_source)
 

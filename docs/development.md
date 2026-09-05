@@ -814,10 +814,12 @@ can identify consistently: ready sources plus completed audio, video, infographi
 artifacts. Legacy quiz and flashcard rows in this public notebook have no Web variant metadata;
 report, data-table, and interactive mind-map artifacts are absent. Those optional read-only checks
 skip when unavailable, while the full E2E lanes generate and exercise every family on disposable
-notebooks. Copying is asynchronous: provisioning polls the copied source and artifact states for up
-to ten minutes before treating a missing required family on the read-only reference copy as a
-contract failure. Generation, multi-source, and RPC copies wait only for ready sources because
-their inherited artifacts are immediately removed. The checked-in template shape is
+notebooks. Copying is asynchronous: provisioning dispatches every physical copy first, then polls
+each copied source and artifact state for up to ten minutes before preparation. Full lanes use a
+stable reference copy plus one clean mutable workspace shared by generation and multi-source
+tests; RPC health uses one clean fallback copy. Waiting for inherited artifacts before deletion is
+required because artifact propagation can lag behind the initial copy response. The checked-in
+template shape is
 `tests/fixtures/e2e_template_contract.json`. Notes and chat history are deliberately absent from
 that contract. Provisioning creates and validates those on the disposable `reference` copy using
 `tests/fixtures/e2e_prepared_role_contract.json`.
@@ -853,9 +855,10 @@ uv run python scripts/manage_ci_e2e_notebooks.py cleanup \
   --manifest "$RUNNER_TEMP/notebooklm-e2e.json"
 ```
 
-Cleanup is mandatory even when validation or pytest fails. Managed full mode publishes three
-distinct role IDs (`reference`, `generation`, and `multi-source`); managed read-only mode publishes
-only `reference`. Both publish the activation flag last. With that flag present, pytest never
+Cleanup is mandatory even when validation or pytest fails. Managed full mode publishes two
+physical IDs: a distinct `reference` ID and one mutable ID bound to both `generation` and
+`multi-source`; managed read-only mode publishes only `reference`. Both publish the activation flag
+last. With that flag present, pytest never
 consults profile cache files, creates a role notebook, cleans copied children on first use, or
 deletes a workflow-owned copy during teardown. `temp_notebook` and other function-level CRUD
 fixtures retain their existing lifecycle.
@@ -1533,16 +1536,17 @@ baseline by hand, not something the canary fixes.
 
 Canonical CI never points pytest or full RPC health at the immutable template.
 Each authenticated lane selects one opaque account slot, materializes only that
-slot's master token, and creates role-specific copies. Full lanes prepare
-separate `reference`, `generation`, and `multi-source` copies; Web RPC health
-uses one `rpc` fallback copy. The Android RPC canary is the only lane that reads
-the template directly, and it performs no notebook mutation.
+slot's master token, and creates workload-isolated copies. Full lanes prepare a
+stable `reference` copy plus one mutable copy shared by `generation` and
+`multi-source`; Web RPC health uses one `rpc` fallback copy. The Android RPC
+canary is the only lane that reads the template directly, and it performs no
+notebook mutation.
 
 The contracts are checked in at `tests/fixtures/e2e_template_contract.json` and
 `tests/fixtures/e2e_prepared_role_contract.json`. Provisioning seeds the
 reference copy's note and persisted Q&A, removes inherited writable children
-from the other roles, and publishes the managed fixture bindings only after all
-roles pass. Cleanup runs under `always()` after verification, while the next
+from the mutable workspace, and publishes the managed fixture bindings only
+after both workspaces pass. Cleanup runs under `always()` after verification, while the next
 selected run also sweeps owned, reserved-prefix copies older than 24 hours.
 
 For a local managed-copy run, use an isolated profile and runner-style scratch

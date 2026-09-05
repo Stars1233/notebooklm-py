@@ -250,10 +250,10 @@ jobs:
         if any(manifest.get(key) != value for key, value in expected.items()):
             raise RuntimeError("manifest summary metadata mismatch")
         copies = manifest.get("copies")
-        if not isinstance(copies, list) or len(copies) != 3:
+        if not isinstance(copies, list) or len(copies) != 2:
             raise RuntimeError("manifest summary role count mismatch")
         rows = {row.get("role"): row for row in copies if isinstance(row, dict)}
-        roles = ("reference", "generation", "multi-source")
+        roles = ("reference", "generation")
         if set(rows) != set(roles):
             raise RuntimeError("manifest summary roles mismatch")
         if any(row.get("status") not in {"confirmed", "reconciled"} for row in rows.values()):
@@ -268,9 +268,9 @@ jobs:
             "### Prepared package roles",
             f"- Lane/backend/slot: verify-package / web / {expected['account_slot']}",
             f"- Template contract: version=1 fingerprint={fingerprint}",
-            f"- Copy outcomes: total=3 confirmed={outcomes['confirmed']} reconciled={outcomes['reconciled']}",
+            f"- Copy outcomes: total=2 confirmed={outcomes['confirmed']} reconciled={outcomes['reconciled']}",
             "- Reference checks: seeded_notes=1 history=passed",
-            "- Clean-role residuals: generation=0 multi-source=0",
+            "- Clean workspace residuals: generation/multi-source=0",
         ]
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")

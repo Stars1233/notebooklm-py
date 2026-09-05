@@ -658,7 +658,7 @@ def test_posix_store_rejects_runner_escape_before_creating_parent(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_full_provision_creates_three_roles_and_publishes_activation_last(
+async def test_full_provision_creates_two_workspaces_and_publishes_activation_last(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
@@ -669,14 +669,16 @@ async def test_full_provision_creates_three_roles_and_publishes_activation_last(
     assert [row["role"] for row in manifest["copies"]] == [
         "reference",
         "generation",
-        "multi-source",
     ]
-    assert len(client.notebooks.copy_calls) == 3
-    assert len({row["notebook_id"] for row in manifest["copies"]}) == 3
+    assert len(client.notebooks.copy_calls) == 2
+    assert len({row["notebook_id"] for row in manifest["copies"]}) == 2
     assert all(row["prepared"] for row in manifest["copies"])
-    assert clock.value == 180
+    assert clock.value == 90
     assert set(masked) == {row["notebook_id"] for row in manifest["copies"]}
     lines = (tmp_path / "github-env").read_text().splitlines()
+    generation = next(line for line in lines if line.startswith("NOTEBOOKLM_GENERATION"))
+    multi_source = next(line for line in lines if line.startswith("NOTEBOOKLM_MULTI_SOURCE"))
+    assert generation.split("=", 1)[1] == multi_source.split("=", 1)[1]
     assert lines[-1] == "NOTEBOOKLM_E2E_MANAGED_COPIES=1"
     assert lines[-2] == "NOTEBOOKLM_E2E_REFERENCE_PREPARED=1"
     assert "NOTEBOOKLM_E2E_MANAGED_MODE=full" in lines
@@ -722,7 +724,7 @@ async def test_readonly_provision_creates_only_a_managed_reference_copy(
     [("web", "nightly-web-ubuntu"), ("android", "nightly-android-macos")],
 )
 @pytest.mark.asyncio
-async def test_full_mode_uses_three_distinct_roles_on_designated_os_lanes(
+async def test_full_mode_uses_two_distinct_workspaces_on_designated_os_lanes(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
     backend: str,
@@ -740,8 +742,8 @@ async def test_full_mode_uses_three_distinct_roles_on_designated_os_lanes(
         github_env=tmp_path / "github-env",
     )
     assert manifest["backend"] == backend
-    assert len(client.notebooks.copy_calls) == 3
-    assert len({row["notebook_id"] for row in manifest["copies"]}) == 3
+    assert len(client.notebooks.copy_calls) == 2
+    assert len({row["notebook_id"] for row in manifest["copies"]}) == 2
 
 
 @pytest.mark.asyncio
@@ -776,9 +778,9 @@ async def test_partial_preparation_never_publishes_managed_activation(
         await _provision(manager, tmp_path, mask=masked.append)
     assert not (tmp_path / "github-env").exists()
     manifest = store.read(template_id=TEMPLATE_ID)
-    assert len(manifest["copies"]) == 1
-    assert manifest["copies"][0]["prepared"] is False
-    assert masked == [manifest["copies"][0]["notebook_id"]]
+    assert len(manifest["copies"]) == 2
+    assert all(row["prepared"] is False for row in manifest["copies"])
+    assert masked == [row["notebook_id"] for row in manifest["copies"]]
 
 
 @pytest.mark.asyncio
@@ -1144,7 +1146,7 @@ async def test_cleanup_processes_roles_in_reverse_order(
     manifest = await _provision(manager, tmp_path)
     expected = [str(row["notebook_id"]) for row in reversed(manifest["copies"])]
     result = await manager.cleanup()
-    assert result == {"deleted": 3, "already_missing": 0, "failed": 0}
+    assert result == {"deleted": 2, "already_missing": 0, "failed": 0}
     assert client.notebooks.delete_calls == expected
     assert all(row["status"] == "deleted" for row in manager.store.read()["copies"])
 
@@ -1570,7 +1572,7 @@ async def test_clean_copy_shape_requires_sources_but_not_inherited_artifact_comp
 
 
 @pytest.mark.asyncio
-async def test_provision_requires_artifacts_only_for_reference_role(
+async def test_provision_waits_for_artifacts_before_preparing_every_workspace(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
@@ -1588,7 +1590,37 @@ async def test_provision_requires_artifacts_only_for_reference_role(
 
     await _provision(manager, tmp_path, mode="full")
 
-    assert observed_require_artifacts == [True, False, False]
+    assert observed_require_artifacts == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_provision_dispatches_all_copies_before_settling_any_role(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, _client, _store, _clock = _manager(tmp_path, contracts)
+    events: list[str] = []
+    copy_one = manager.copy_one
+    validate_copy_shape = manager._validate_copy_shape
+
+    async def recording_copy_one(manifest: dict[str, Any], role: str) -> dict[str, Any]:
+        row = await copy_one(manifest, role)
+        events.append(f"copied:{role}")
+        return row
+
+    async def recording_validate_copy_shape(
+        notebook_id: str, *, require_artifacts: bool = True
+    ) -> dict[str, int]:
+        events.append(f"settling:{notebook_id}")
+        return await validate_copy_shape(notebook_id, require_artifacts=require_artifacts)
+
+    manager.copy_one = recording_copy_one  # type: ignore[method-assign]
+    manager._validate_copy_shape = recording_validate_copy_shape  # type: ignore[method-assign]
+
+    await _provision(manager, tmp_path, mode="full")
+
+    assert events[:2] == ["copied:reference", "copied:generation"]
+    assert events[2] == "settling:copy-1"
 
 
 @pytest.mark.asyncio
