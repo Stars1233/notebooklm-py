@@ -59,7 +59,7 @@ def test_required_journal_appends_versioned_transitions_without_printing_ids(
 
 
 @pytest.mark.asyncio
-async def test_note_mind_map_typed_quota_closes_manual_operation() -> None:
+async def test_note_mind_map_typed_quota_records_unconfirmed_outcome() -> None:
     from tests.e2e._generation_helpers import generate_note_mind_map
 
     events: list[str] = []
@@ -71,12 +71,14 @@ async def test_note_mind_map_typed_quota_closes_manual_operation() -> None:
             skipped._notebooklm_typed_rate_limit = True
             raise skipped
 
-    operation = SimpleNamespace(rate_limited_rejected=lambda: events.append("rejected"))
+    operation = SimpleNamespace(
+        quota_response_unconfirmed=lambda: events.append("quota_unconfirmed")
+    )
     with pytest.raises(pytest.skip.Exception, match="typed quota"):
         await generate_note_mind_map(
             SimpleNamespace(artifacts=Artifacts()), "generation-role", operation
         )
-    assert events == ["rejected"]
+    assert events == ["quota_unconfirmed"]
 
 
 def test_primary_and_retry_processes_append_without_truncation(tmp_path) -> None:
@@ -103,6 +105,22 @@ def test_primary_and_retry_processes_append_without_truncation(tmp_path) -> None
     assert len(rows) == 4
     assert {row["node_id"] for row in rows} == {"first", "retry"}
     assert {row["surface"] for row in rows} == {"cli", "mcp"}
+
+
+def test_quota_response_records_commit_uncertainty(tmp_path) -> None:
+    path = _journal_file(tmp_path)
+    journal = journal_from_environment(env=_required_env(tmp_path, path), node_id="quota")
+    operation = journal.operation(
+        notebook_id="generation-role",
+        family="audio",
+        surface="client",
+        id_kind="studio_task",
+        lifecycle="settle",
+    )
+    operation.quota_response_unconfirmed()
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [row["event"] for row in rows] == ["started", "quota_response_unconfirmed"]
+    assert rows[-1]["reason"] == "server_commit_unknown"
 
 
 def test_retry_cleanup_resumes_prior_operation_uuid(tmp_path) -> None:

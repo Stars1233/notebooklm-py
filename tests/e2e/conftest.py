@@ -247,12 +247,12 @@ def _install_generation_journal(client: NotebookLMClient, journal) -> None:
                     result = await __original(*args, **kwargs)
                 except BaseException as exc:
                     if _typed_rate_limit_cause(exc) is not None:
-                        operation.rate_limited_rejected()
+                        operation.quota_response_unconfirmed()
                     raise
                 if result is not None and getattr(result, "task_id", None):
                     operation.accepted(result.task_id)
                 elif result is not None and bool(getattr(result, "is_rate_limited", False)):
-                    operation.rate_limited_rejected()
+                    operation.quota_response_unconfirmed()
                 return result
             finally:
                 journal_call_active.reset(journal_token)
@@ -446,7 +446,7 @@ def journal_generation_started(result, operation, artifact_type: str = "Artifact
     if result.task_id:
         operation.accepted(result.task_id)
     elif result.is_rate_limited:
-        operation.rate_limited_rejected()
+        operation.quota_response_unconfirmed()
         pytest.skip("Rate limited by API")
     assert_generation_started(result, artifact_type)
 
@@ -470,11 +470,10 @@ async def journal_studio_generation(
     try:
         result = await awaitable
     except BaseException as exc:
-        # Direct Studio generate methods only raise the typed quota skip before
-        # returning an accepted ID. Interactive generation, which has post-
-        # create reads, owns a stronger reconciliation fixture separately.
+        # A typed quota response can race with an asynchronous server-side
+        # commit, so the verifier must reconcile it against the quiet inventory.
         if _typed_rate_limit_cause(exc) is not None:
-            operation.rate_limited_rejected()
+            operation.quota_response_unconfirmed()
         raise
     journal_generation_started(result, operation)
     return result

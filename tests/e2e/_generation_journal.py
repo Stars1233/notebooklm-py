@@ -43,6 +43,7 @@ EVENTS = frozenset(
         "completed",
         "discovered_accepted",
         "rate_limited_rejected",
+        "quota_response_unconfirmed",
         "quota_no_commit_observed",
         "delete_confirmed",
     }
@@ -238,6 +239,7 @@ class JournalOperation:
                 "persisted",
                 "discovered_accepted",
                 "rate_limited_rejected",
+                "quota_response_unconfirmed",
                 "quota_no_commit_observed",
             },
             "accepted": {"completed", "delete_confirmed"},
@@ -245,6 +247,7 @@ class JournalOperation:
             "completed": {"delete_confirmed"},
             "discovered_accepted": {"delete_confirmed"},
             "rate_limited_rejected": set(),
+            "quota_response_unconfirmed": set(),
             "quota_no_commit_observed": set(),
             "delete_confirmed": set(),
         }
@@ -268,6 +271,7 @@ class JournalOperation:
         allowed_reasons = {
             "discovered_accepted": {"post_create_quota", "retry_preclean"},
             "rate_limited_rejected": {"typed_pre_acceptance"},
+            "quota_response_unconfirmed": {"server_commit_unknown"},
             "quota_no_commit_observed": {"post_create_reconciliation"},
             "delete_confirmed": {"test_teardown", "post_create_quota", "retry_preclean"},
         }.get(event)
@@ -277,6 +281,8 @@ class JournalOperation:
             raise ValueError("journal event reason is not allowlisted")
         if event == "discovered_accepted" and self._envelope.lifecycle != "test_owned":
             raise ValueError("discovered acceptance must be test-owned")
+        if event == "quota_response_unconfirmed" and self._envelope.lifecycle != "settle":
+            raise ValueError("unconfirmed quota responses must settle")
         if event == "delete_confirmed":
             if self._envelope.lifecycle == "settle" and reason != "retry_preclean":
                 raise ValueError("settling resources may be deleted only during retry pre-clean")
@@ -326,6 +332,10 @@ class JournalOperation:
 
     def rate_limited_rejected(self) -> None:
         self._write("rate_limited_rejected", reason="typed_pre_acceptance")
+
+    def quota_response_unconfirmed(self) -> None:
+        """Record a quota response that may still have committed the mutation."""
+        self._write("quota_response_unconfirmed", reason="server_commit_unknown")
 
     def quota_no_commit_observed(self) -> None:
         self._write("quota_no_commit_observed", reason="post_create_reconciliation")
@@ -502,6 +512,9 @@ class DisabledOperation:
         pass
 
     def rate_limited_rejected(self) -> None:
+        pass
+
+    def quota_response_unconfirmed(self) -> None:
         pass
 
     def quota_no_commit_observed(self) -> None:

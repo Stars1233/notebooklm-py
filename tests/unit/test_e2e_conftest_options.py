@@ -738,7 +738,7 @@ class TestGenerationRateLimitSkip:
         with pytest.raises(RuntimeError, match="429"):
             await client.artifacts.generate_audio("nb-1")
 
-    async def test_journal_closes_only_on_typed_quota_evidence(self):
+    async def test_journal_records_only_typed_quota_uncertainty(self):
         conftest = _load_e2e_conftest()
         recorded: list[str] = []
 
@@ -748,6 +748,9 @@ class TestGenerationRateLimitSkip:
 
             def rate_limited_rejected(self):
                 recorded.append("rate_limited_rejected")
+
+            def quota_response_unconfirmed(self):
+                recorded.append("quota_response_unconfirmed")
 
         class Journal:
             notebook_id = "generation-role"
@@ -781,7 +784,7 @@ class TestGenerationRateLimitSkip:
         conftest._install_generation_journal(client, Journal())
         with pytest.raises(RateLimitError):
             await artifacts.generate_audio("generation-role")
-        assert recorded == ["started", "rate_limited_rejected"]
+        assert recorded == ["started", "quota_response_unconfirmed"]
 
     async def test_journal_records_delegated_generation_only_once(self):
         conftest = _load_e2e_conftest()
