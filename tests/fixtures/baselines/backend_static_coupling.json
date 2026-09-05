@@ -6494,7 +6494,7 @@
     },
     {
       "kind": "from",
-      "lineno": 42,
+      "lineno": 43,
       "scope": "_bridge_types",
       "scope_kind": "function",
       "source": "notebooklm._web.usage",
@@ -9737,7 +9737,7 @@
       "modules": 37
     },
     "root": {
-      "lines": 22743,
+      "lines": 22748,
       "modules": 76
     },
     "rpc": {
@@ -9757,12 +9757,12 @@
       "modules": 16
     },
     "web": {
-      "lines": 33109,
+      "lines": 33114,
       "modules": 95
     }
   },
   "summary": {
-    "authored_lines": 142843,
+    "authored_lines": 142853,
     "authored_modules": 452,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1068,

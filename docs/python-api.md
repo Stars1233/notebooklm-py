@@ -3242,10 +3242,17 @@ class UsageSummary:
     windows: tuple[UsageWindow, ...] = ()
     actions: tuple[UsageAction, ...] = ()
 
-    enabled: bool  # False only for DISABLED
-    available: bool  # True only for READY
-    active_window: UsageWindow | None
-    is_exhausted: bool | None
+    @property
+    def enabled(self) -> bool: ...  # False only for DISABLED
+
+    @property
+    def available(self) -> bool: ...  # True only for READY
+
+    @property
+    def active_window(self) -> UsageWindow | None: ...
+
+    @property
+    def is_exhausted(self) -> bool | None: ...
 ```
 
 `window(UsageWindowKind.FIVE_HOUR)` and `action(UsageActionKind.DEEP_RESEARCH)`

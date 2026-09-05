@@ -24,8 +24,8 @@ gate. It treats the server-owned account bit as meter eligibility: when the bit 
 not call `ListQuotaSummary`; when true it lets that RPC's status determine data availability.
 
 The initial #2283 cohort had the account bit false, and direct calls returned prices over empty,
-sliding windows. Standard/free profile `teng-lin-9420` entered the enabled cohort on 2026-09-04,
-allowing bounded submission/completion probes. Pro profile `peopleconf` was used only for
+sliding windows. An isolated Standard/free profile entered the enabled cohort on 2026-09-04,
+allowing bounded submission/completion probes. A separate isolated Pro profile was used only for
 read-only cross-tier comparison. The scrubbed observations and evidence boundaries are preserved
 in [the usage-meter evidence record](../android/usage-quota-evidence.md).
 
@@ -371,8 +371,9 @@ The first implementation includes:
 
 The Android cassette redactor replaces numeric values, so exact percentage parity belongs in
 synthetic protobuf fixtures rather than an ordinary cassette. Cross-tier recordings run as separate
-processes with `NOTEBOOKLM_PROFILE=teng-lin-9420` and `NOTEBOOKLM_PROFILE=peopleconf`; an operation
-never switches identity mid-run. Ordinary CI performs no generation and consumes no metered usage.
+processes with `NOTEBOOKLM_PROFILE=YOUR_STANDARD_PROFILE` and
+`NOTEBOOKLM_PROFILE=YOUR_PRO_PROFILE`; an operation never switches identity mid-run. Ordinary CI
+performs no generation and consumes no metered usage.
 
 CLI, MCP, and REST *usage projections* are additive follow-ups. If a top-level CLI command is added,
 it must be assigned to a `SectionedGroup` section and update CLI/docs/JSON datetime baselines.

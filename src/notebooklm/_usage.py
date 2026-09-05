@@ -164,7 +164,12 @@ def _finite_float(value: Any, method_id: str, label: str) -> float | None:
         return None
     if not isinstance(value, (int, float)) or isinstance(value, bool):
         _drift(f"ListQuotaSummary contained an invalid {label}", method_id)
-    result = float(value)
+    try:
+        result = float(value)
+    except OverflowError as exc:
+        raise DecodingError(
+            f"ListQuotaSummary contained an out-of-range {label}", method_id=method_id
+        ) from exc
     if not math.isfinite(result):
         _drift(f"ListQuotaSummary contained a non-finite {label}", method_id)
     return result

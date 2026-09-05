@@ -177,9 +177,16 @@ def test_decode_window_elision_non_complementary_values_and_utc_normalization():
         (_window(1, used=None, remaining=None), _window(2)),
         (_window(1, used=float("nan")), _window(2)),
         (_window(1), _window(2, remaining=float("inf"))),
+        (_window(1, used=10**400), _window(2)),
         (_window(1, resets_at=datetime(2026, 9, 5)), _window(2)),
     ],
-    ids=["both-percentages-absent", "nan-used", "infinite-remaining", "naive-timestamp"],
+    ids=[
+        "both-percentages-absent",
+        "nan-used",
+        "infinite-remaining",
+        "oversized-used",
+        "naive-timestamp",
+    ],
 )
 def test_decode_rejects_invalid_window_fields(windows):
     with pytest.raises(DecodingError):
@@ -215,8 +222,16 @@ def test_decode_actions_normalizes_optional_values_preserves_future_and_sorts():
         _action(deferred=-1),
         _action(cost=float("nan")),
         _action(cost=float("inf")),
+        _action(cost=10**400),
     ],
-    ids=["missing-code", "zero-code", "negative-deferred", "nan-cost", "infinite-cost"],
+    ids=[
+        "missing-code",
+        "zero-code",
+        "negative-deferred",
+        "nan-cost",
+        "infinite-cost",
+        "oversized-cost",
+    ],
 )
 def test_decode_rejects_invalid_action_fields(action):
     with pytest.raises(DecodingError):

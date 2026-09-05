@@ -3,9 +3,9 @@
 Recording instructions (run each process separately, never switch identity in
 one process)::
 
-    NOTEBOOKLM_PROFILE=teng-lin-9420 NOTEBOOKLM_VCR_RECORD=1 \
+    NOTEBOOKLM_PROFILE=YOUR_STANDARD_PROFILE NOTEBOOKLM_VCR_RECORD=1 \
       uv run pytest tests/integration/test_usage_vcr.py::TestUsageVCR::test_standard_usage -v
-    NOTEBOOKLM_PROFILE=peopleconf NOTEBOOKLM_VCR_RECORD=1 \
+    NOTEBOOKLM_PROFILE=YOUR_PRO_PROFILE NOTEBOOKLM_VCR_RECORD=1 \
       uv run pytest tests/integration/test_usage_vcr.py::TestUsageVCR::test_pro_usage -v
 
 Both tests are read-only and issue ``GetAccount`` followed by

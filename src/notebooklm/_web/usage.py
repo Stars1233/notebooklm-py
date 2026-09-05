@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
 _ACCOUNT_METHOD_ID = RPCMethod.GET_ACCOUNT.value
 _QUOTA_METHOD_ID = RPCMethod.LIST_QUOTA_SUMMARY.value
+_UNIX_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 def _bridge_types() -> tuple[type[Any], type[Any], type[Any], type[Any], type[Any]]:
@@ -74,7 +75,10 @@ def _optional_number(value: Any, *, method_id: str, label: str) -> float | None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise _error(f"{label} is not numeric", method_id=method_id)
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError as exc:
+        raise _error(f"{label} is out of range", method_id=method_id) from exc
     if not math.isfinite(number):
         raise _error(f"{label} is non-finite", method_id=method_id)
     return number
@@ -111,8 +115,9 @@ def _timestamp(value: Any, *, method_id: str) -> datetime | None:
     if not 0 <= nanos < 1_000_000_000:
         raise _error("quota reset timestamp nanos is invalid", method_id=method_id)
     try:
-        return datetime.fromtimestamp(seconds, tz=timezone.utc) + timedelta(
-            microseconds=nanos / 1_000
+        return _UNIX_EPOCH + timedelta(
+            seconds=seconds,
+            microseconds=nanos // 1_000,
         )
     except (OverflowError, OSError, ValueError) as exc:
         raise _error("quota reset timestamp is out of range", method_id=method_id) from exc

@@ -1,5 +1,6 @@
 """Focused Web transport tests for the live usage-meter RPCs."""
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -58,6 +59,33 @@ def test_decode_quota_summary_rejects_non_finite_percentages() -> None:
             [1, [[None, None, None, None, 1, [1700000000, 0], float("nan"), 100.0]], None, []]
         )
     assert raised.value.method_id == RPCMethod.LIST_QUOTA_SUMMARY.value
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [1, [[None, None, None, None, 1, [1700000000, 0], 10**400, 0.0]], None, []],
+        [1, [], None, [[9, True, None, 1, None, 10**400]]],
+    ],
+    ids=["window-percentage", "action-cost"],
+)
+def test_decode_quota_summary_rejects_oversized_numeric_fields(payload) -> None:
+    with pytest.raises(DecodingError, match="out of range") as raised:
+        decode_quota_summary(payload)
+    assert raised.value.method_id == RPCMethod.LIST_QUOTA_SUMMARY.value
+
+
+@pytest.mark.parametrize(("nanos", "microsecond"), [(999, 0), (999_999_999, 999_999)])
+def test_decode_quota_summary_truncates_submicrosecond_timestamp_precision(
+    nanos: int, microsecond: int
+) -> None:
+    result = decode_quota_summary(
+        [1, [[None, None, None, None, 1, [0, nanos], 0.0, 100.0]], None, []]
+    )
+
+    assert result.windows[0].resets_at == datetime(
+        1970, 1, 1, microsecond=microsecond, tzinfo=timezone.utc
+    )
 
 
 @pytest.mark.parametrize(

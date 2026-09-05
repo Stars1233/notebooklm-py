@@ -1169,16 +1169,16 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_android/proto/` | Checked-in generated Python protobuf package. Files are regenerated only by `scripts/regenerate_android_protos.py` with the pinned toolchain and are never generated during installation. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/account_pb2.py` | Exact-package account `UserInfo`, `PremiumUserInfo`, `Account`, and GetOrCreateAccount request/response descriptors. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/account_pb2_grpc.py` | Deterministic service-free companion for the exact account message overlay. |
-| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2.py` | Exact APK quota window/action enums and per-window summary messages used by live metering responses. |
-| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2_grpc.py` | Deterministic service-free companion for the exact quota message overlay. |
-| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2.py` | Exact APK `ListQuotaSummary` request, response, status, and action-quota descriptors. |
-| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2_grpc.py` | Generated metering service stub exposing the live `ListQuotaSummary` unary call. |
+| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2.py` | Exact APK `ListQuotaSummaryRequest` message and request-context field. |
+| `_android/proto/google/internal/labs/tailwind/api/v1/quota_pb2_grpc.py` | Deterministic service-free companion for the exact quota request message. |
+| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2.py` | Exact APK quota window/action enums and `ListQuotaSummaryResponse` messages used by live metering responses. |
+| `_android/proto/google/internal/labs/tailwind/metering/v1/metering_pb2_grpc.py` | Deterministic service-free companion for the exact metering response messages. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/read_pb2.py` | Exact-package read messages and descriptors for `GetProject` and `ListRecentlyViewedProjects`. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/read_pb2_grpc.py` | Deterministic service-free companion for the read message overlay. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/notebooks_pb2.py` | Durable exact-package notebook mutation/guide messages imported by the cumulative service; local parser overrides remain only for live-only fields. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/notebooks_pb2_grpc.py` | Deterministic service-free companion for the exact notebook message overlay. |
-| `_android/proto/google/internal/labs/tailwind/orchestration/v1/orchestration_service_pb2.py` | Sole exact-package cumulative orchestration descriptor: 57 implemented methods, including exact `RemoveRecentlyViewedProject`, live APK-exact `DeriveArtifact`, and seventeen conventional-name signatures explicitly tracked as Web-derived inferences; the separate sharing descriptor adds two exact paths and the exception manifest is empty. |
-| `_android/proto/google/internal/labs/tailwind/orchestration/v1/orchestration_service_pb2_grpc.py` | Generated `LabsTailwindOrchestrationServiceStub` exposing the cumulative exact unary and unary-stream methods. |
+| `_android/proto/google/internal/labs/tailwind/orchestration/v1/orchestration_service_pb2.py` | Sole exact-package cumulative orchestration descriptor: 58 implemented methods, including exact `RemoveRecentlyViewedProject`, live APK-exact `DeriveArtifact`, and eighteen conventional-name signatures explicitly tracked as Web-derived inferences; the separate sharing descriptor adds two exact paths, while one evidence-linked path-only `GetAccount` exception remains outside the descriptor. |
+| `_android/proto/google/internal/labs/tailwind/orchestration/v1/orchestration_service_pb2_grpc.py` | Generated `LabsTailwindOrchestrationServiceStub` exposing the cumulative unary and unary-stream methods, including the live-validated inferred `ListQuotaSummary` alias. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/sources_pb2.py` | Source-operation and `UploadFileRequest` descriptors plus the explicitly web-derived `MutateSource` request/response wrapper. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/artifacts_pb2.py` | Artifact request/response and projection overlay, including the explicitly web-derived report-suggestion closure. |
 | `_android/proto/google/internal/labs/tailwind/orchestration/v1/chat_pb2.py` | Service-free exact-package chat overlay for sessions, turns, delete, streamed answers, and the proven citation/document closure. |
@@ -1520,11 +1520,11 @@ src/notebooklm/
 │       ├── __init__.py          # Dependency-free generated-package marker
 │       ├── google/internal/labs/tailwind/
 │           ├── api/v1/
-│           │   ├── quota_pb2.py              # Exact quota enums/window messages
-│           │   └── quota_pb2_grpc.py         # Service-free quota companion
+│           │   ├── quota_pb2.py              # Exact ListQuotaSummary request
+│           │   └── quota_pb2_grpc.py         # Service-free request companion
 │           ├── metering/v1/
-│           │   ├── metering_pb2.py           # Exact usage request/response descriptors
-│           │   └── metering_pb2_grpc.py      # ListQuotaSummary service stub
+│           │   ├── metering_pb2.py           # Exact quota enums/response messages
+│           │   └── metering_pb2_grpc.py      # Service-free response companion
 │           ├── orchestration/v1/
 │           │   ├── account_pb2.py           # Exact account messages/descriptors
 │           │   ├── account_pb2_grpc.py      # Deterministic service-free companion
@@ -1533,7 +1533,7 @@ src/notebooklm/
 │           │   ├── notebooks_pb2.py         # Exact notebook messages/descriptors
 │           │   ├── notebooks_pb2_grpc.py    # Deterministic service-free companion
 │           │   ├── orchestration_service_pb2.py      # Cumulative exact service descriptor
-│           │   ├── orchestration_service_pb2_grpc.py # 57-method generated stub
+│           │   ├── orchestration_service_pb2_grpc.py # 58-method generated stub
 │           │   ├── sources_pb2.py               # Source and generic-upload descriptors
 │           │   ├── sources_pb2_grpc.py          # Deterministic service-free companion
 │           │   ├── artifacts_pb2.py         # Exact artifact message overlay

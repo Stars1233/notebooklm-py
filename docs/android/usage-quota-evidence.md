@@ -17,7 +17,7 @@ identity and the reproducible registry-capture command are retained instead.
 | Input | Identity or command | Role |
 | --- | --- | --- |
 | current authenticated Web bundle | SHA-256 `4069cbdb867f64b3e6a937bf97d38adcb9f0b9b428429895ab04d77265059521` | constructors, translators, frontend selection behavior |
-| bundle capture | `NOTEBOOKLM_PROFILE=teng-lin-9420 uv run python scripts/capture_rpc_registry.py --save-bundle /tmp/notebooklm-teng-lin-9420-2026-09-04.js --json` | reproducible current-bundle acquisition |
+| bundle capture | `NOTEBOOKLM_PROFILE=YOUR_STANDARD_PROFILE uv run python scripts/capture_rpc_registry.py --save-bundle /tmp/notebooklm-standard-profile-2026-09-04.js --json` | reproducible current-bundle acquisition with a local profile placeholder |
 | signed Android `1.55.10.971450265` AOT pool | `pp.txt` SHA-256 `c2b64fd7d08a64f833b343f54bc697520096dfaef10740ebcbcd66a5c8e24b9a` | exact quota RPC generic binding, route annotation, and message fields |
 | signed Android AOT symbol map | `ida_script/addNames.py` SHA-256 `b75adf9f8bb92085c853dd30d231d533aec987024cf0e442f7cafc03dab24518` | exact Dart library/package identity |
 | recovered Android schema | [`schema.proto`](schema.proto), evidence identity in [`proto-evidence-ledger.md`](proto-evidence-ledger.md#evidence-input-identities) | quota messages, request FQN, and account bit |
@@ -95,7 +95,8 @@ percentage ledger's normalized arithmetic units are provider credits.
 
 The official HTTP route is
 `https://labstailwind.pa.googleapis.com/v1/quota:listQuotaSummary`; a bearer-authenticated read-only
-GET returned protobuf JSON. Read-only native route probes used `NOTEBOOKLM_PROFILE=peopleconf` and
+GET returned protobuf JSON. Read-only native route probes used
+`NOTEBOOKLM_PROFILE=YOUR_PRO_PROFILE` and
 the exact 52-byte context request. The corresponding gRPC path
 `/google.internal.labs.tailwind.api.v1.QuotaService/ListQuotaSummary` returned `UNIMPLEMENTED`. The
 mobile-backend alias

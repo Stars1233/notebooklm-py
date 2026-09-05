@@ -3,9 +3,9 @@
 Run each tier in a separate process so ``NOTEBOOKLM_PROFILE`` never changes
 inside a test process::
 
-    NOTEBOOKLM_PROFILE=teng-lin-9420 NOTEBOOKLM_ANDROID_USAGE_CONFORMANCE=1 \
+    NOTEBOOKLM_PROFILE=YOUR_STANDARD_PROFILE NOTEBOOKLM_ANDROID_USAGE_CONFORMANCE=1 \
       uv run pytest tests/e2e/test_android_usage_conformance.py -v
-    NOTEBOOKLM_PROFILE=peopleconf NOTEBOOKLM_ANDROID_USAGE_CONFORMANCE=1 \
+    NOTEBOOKLM_PROFILE=YOUR_PRO_PROFILE NOTEBOOKLM_ANDROID_USAGE_CONFORMANCE=1 \
       uv run pytest tests/e2e/test_android_usage_conformance.py -v
 
 The test performs account/quota reads only and never generates an artifact.
