@@ -194,7 +194,9 @@ class TestMcpHttpFileRoutes:
                 listing = await mcp.call_tool("studio_list", {"notebook": read_only_notebook_id})
                 sc = listing.structured_content
                 assert sc is not None, "studio_list returned no structured content"
-                candidate = pick_downloadable_artifact(sc["items"])
+                candidate = pick_downloadable_artifact(
+                    sc["items"], backend=client.backends["artifacts"]
+                )
                 if candidate is None:
                     pytest.skip("no existing downloadable artifact on the reference notebook")
 
@@ -202,7 +204,11 @@ class TestMcpHttpFileRoutes:
                 dl_type = candidate["type"]
                 result = await mcp.call_tool(
                     "studio_download",
-                    {"notebook": read_only_notebook_id, "artifact_type": dl_type},
+                    {
+                        "notebook": read_only_notebook_id,
+                        "artifact_type": dl_type,
+                        "artifact_id": candidate["id"],
+                    },
                 )
             structured = result.structured_content
             assert structured["status"] == "download_ready"
@@ -210,6 +216,13 @@ class TestMcpHttpFileRoutes:
 
             async with im.raw_client() as raw:
                 resp = await raw.get(download_path)
+            if (
+                client.backends["artifacts"] == "android"
+                and dl_type == "slide-deck"
+                and resp.status_code == 409
+                and resp.text == "No completed slide-deck artifact is available yet."
+            ):
+                pytest.skip("Android hydration confirmed an inventory-only slide deck")
             assert resp.status_code == 200, resp.text
             assert len(resp.content) > 0
             assert "content-disposition" in {k.lower() for k in resp.headers}

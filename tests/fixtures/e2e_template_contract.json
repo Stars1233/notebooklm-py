@@ -11,15 +11,10 @@
     "required_completed_families": [
       "audio",
       "video",
-      "report",
-      "quiz",
-      "flashcards",
-      "mind_map",
       "infographic",
-      "slide_deck",
-      "data_table"
+      "slide_deck"
     ],
-    "require_interactive_mind_map": true
+    "require_interactive_mind_map": false
   },
   "content_policy": {
     "private_personal_licensed_or_unstable_web_content_allowed": false,

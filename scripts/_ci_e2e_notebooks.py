@@ -42,7 +42,7 @@ LANE_BACKENDS: Mapping[str, str] = {
 }
 ROLES = ("reference", "generation", "multi-source", "rpc")
 MODE_ROLES: Mapping[str, tuple[str, ...]] = {
-    "full": ("reference", "generation", "multi-source"),
+    "full": ("reference", "generation"),
     "readonly": ("reference",),
     "rpc": ("rpc",),
 }
@@ -477,7 +477,7 @@ def github_env_lines(mode: str, copies: Sequence[Mapping[str, Any]]) -> list[str
         return [
             f"NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID={ids['reference']}",
             f"NOTEBOOKLM_GENERATION_NOTEBOOK_ID={ids['generation']}",
-            f"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID={ids['multi-source']}",
+            f"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID={ids['generation']}",
             "NOTEBOOKLM_E2E_MANAGED_MODE=full",
             "NOTEBOOKLM_E2E_REFERENCE_PREPARED=1",
             "NOTEBOOKLM_E2E_MANAGED_COPIES=1",

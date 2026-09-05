@@ -15,6 +15,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -61,6 +62,12 @@ from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 im
 TEMPLATE_ID = "template-id"
 TEMPLATE_TITLE = "Make Your Writing More Powerful and Persuasive"
 FINGERPRINT = "a" * 64
+
+
+def _http_status_error(status_code: int) -> httpx.HTTPStatusError:
+    request = httpx.Request("GET", "https://notebooklm.google.com/")
+    response = httpx.Response(status_code, request=request)
+    return httpx.HTTPStatusError("sensitive response", request=request, response=response)
 
 
 @dataclass
@@ -376,6 +383,16 @@ def contracts() -> tuple[dict[str, Any], dict[str, Any]]:
     return template, prepared
 
 
+def test_template_contract_matches_public_cross_backend_inventory(
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    artifact_contract = contracts[0]["artifacts"]
+    assert artifact_contract == {
+        "required_completed_families": ["audio", "video", "infographic", "slide_deck"],
+        "require_interactive_mind_map": False,
+    }
+
+
 def _manager(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
@@ -641,7 +658,7 @@ def test_posix_store_rejects_runner_escape_before_creating_parent(tmp_path: Path
 
 
 @pytest.mark.asyncio
-async def test_full_provision_creates_three_roles_and_publishes_activation_last(
+async def test_full_provision_creates_two_workspaces_and_publishes_activation_last(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
 ) -> None:
@@ -652,14 +669,16 @@ async def test_full_provision_creates_three_roles_and_publishes_activation_last(
     assert [row["role"] for row in manifest["copies"]] == [
         "reference",
         "generation",
-        "multi-source",
     ]
-    assert len(client.notebooks.copy_calls) == 3
-    assert len({row["notebook_id"] for row in manifest["copies"]}) == 3
+    assert len(client.notebooks.copy_calls) == 2
+    assert len({row["notebook_id"] for row in manifest["copies"]}) == 2
     assert all(row["prepared"] for row in manifest["copies"])
-    assert clock.value == 180
+    assert clock.value == 90
     assert set(masked) == {row["notebook_id"] for row in manifest["copies"]}
     lines = (tmp_path / "github-env").read_text().splitlines()
+    generation = next(line for line in lines if line.startswith("NOTEBOOKLM_GENERATION"))
+    multi_source = next(line for line in lines if line.startswith("NOTEBOOKLM_MULTI_SOURCE"))
+    assert generation.split("=", 1)[1] == multi_source.split("=", 1)[1]
     assert lines[-1] == "NOTEBOOKLM_E2E_MANAGED_COPIES=1"
     assert lines[-2] == "NOTEBOOKLM_E2E_REFERENCE_PREPARED=1"
     assert "NOTEBOOKLM_E2E_MANAGED_MODE=full" in lines
@@ -705,7 +724,7 @@ async def test_readonly_provision_creates_only_a_managed_reference_copy(
     [("web", "nightly-web-ubuntu"), ("android", "nightly-android-macos")],
 )
 @pytest.mark.asyncio
-async def test_full_mode_uses_three_distinct_roles_on_designated_os_lanes(
+async def test_full_mode_uses_two_distinct_workspaces_on_designated_os_lanes(
     tmp_path: Path,
     contracts: tuple[dict[str, Any], dict[str, Any]],
     backend: str,
@@ -723,8 +742,8 @@ async def test_full_mode_uses_three_distinct_roles_on_designated_os_lanes(
         github_env=tmp_path / "github-env",
     )
     assert manifest["backend"] == backend
-    assert len(client.notebooks.copy_calls) == 3
-    assert len({row["notebook_id"] for row in manifest["copies"]}) == 3
+    assert len(client.notebooks.copy_calls) == 2
+    assert len({row["notebook_id"] for row in manifest["copies"]}) == 2
 
 
 @pytest.mark.asyncio
@@ -759,9 +778,9 @@ async def test_partial_preparation_never_publishes_managed_activation(
         await _provision(manager, tmp_path, mask=masked.append)
     assert not (tmp_path / "github-env").exists()
     manifest = store.read(template_id=TEMPLATE_ID)
-    assert len(manifest["copies"]) == 1
-    assert manifest["copies"][0]["prepared"] is False
-    assert masked == [manifest["copies"][0]["notebook_id"]]
+    assert len(manifest["copies"]) == 2
+    assert all(row["prepared"] is False for row in manifest["copies"])
+    assert masked == [row["notebook_id"] for row in manifest["copies"]]
 
 
 @pytest.mark.asyncio
@@ -1127,7 +1146,7 @@ async def test_cleanup_processes_roles_in_reverse_order(
     manifest = await _provision(manager, tmp_path)
     expected = [str(row["notebook_id"]) for row in reversed(manifest["copies"])]
     result = await manager.cleanup()
-    assert result == {"deleted": 3, "already_missing": 0, "failed": 0}
+    assert result == {"deleted": 2, "already_missing": 0, "failed": 0}
     assert client.notebooks.delete_calls == expected
     assert all(row["status"] == "deleted" for row in manager.store.read()["copies"])
 
@@ -1445,6 +1464,163 @@ async def test_template_contract_failure_names_family_but_never_ids(
     assert "audio" in message
     assert TEMPLATE_ID not in message
     assert "artifact-" not in message
+
+
+@pytest.mark.asyncio
+async def test_template_validation_allows_optional_interactive_mind_map(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, _clock = _manager(tmp_path, contracts)
+    client.artifacts.by_notebook[TEMPLATE_ID] = [
+        artifact for artifact in _artifacts() if not artifact.is_interactive_mind_map
+    ]
+
+    counts = await manager.validate_template()
+
+    assert counts["completed_artifacts"] == 8
+
+
+@pytest.mark.asyncio
+async def test_template_validation_enforces_interactive_mind_map_when_required(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    strict_contracts = deepcopy(contracts)
+    strict_contracts[0]["artifacts"]["require_interactive_mind_map"] = True
+    manager, client, _store, _clock = _manager(tmp_path, strict_contracts)
+    client.artifacts.by_notebook[TEMPLATE_ID] = [
+        artifact for artifact in _artifacts() if not artifact.is_interactive_mind_map
+    ]
+
+    with pytest.raises(ContractError, match="interactive mind map"):
+        await manager.validate_template()
+
+
+@pytest.mark.asyncio
+async def test_copy_shape_waits_for_processing_artifacts_to_settle(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.list_script.append(
+        [artifact for artifact in _artifacts() if artifact.kind not in {"audio", "video"}]
+    )
+
+    counts = await manager._validate_copy_shape(copied.id)
+
+    assert counts["completed_artifacts"] == 9
+    assert client.notebooks.get_calls == [copied.id]
+    assert clock.value == 30.0
+
+
+@pytest.mark.asyncio
+async def test_copy_shape_backs_off_after_content_read_quota(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.list_script.append(RateLimitError("quota", method_id="artifact-list"))
+
+    counts = await manager._validate_copy_shape(copied.id)
+
+    assert counts["completed_artifacts"] == 9
+    assert client.notebooks.get_calls == [copied.id]
+    assert clock.value == 60.0
+
+
+@pytest.mark.asyncio
+async def test_copy_shape_fails_closed_when_processing_never_settles(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.by_notebook[copied.id] = [
+        artifact for artifact in _artifacts() if artifact.kind != "audio"
+    ]
+
+    with pytest.raises(ContractError, match="did not settle within ten minutes"):
+        await manager._validate_copy_shape(copied.id)
+
+    assert clock.value == 600.0
+
+
+@pytest.mark.asyncio
+async def test_clean_copy_shape_requires_sources_but_not_inherited_artifact_completion(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, clock = _manager(tmp_path, contracts)
+    copied = client.notebooks._commit(
+        "notebooklm-py-ci/100/2/rpc-health-web/rpc/00000000000000000000000000000001"
+    )
+    client.artifacts.by_notebook[copied.id] = []
+
+    counts = await manager._validate_copy_shape(copied.id, require_artifacts=False)
+
+    assert counts == {"ready_sources": 3, "completed_artifacts": 0, "artifact_families": 0}
+    assert clock.value == 0.0
+
+
+@pytest.mark.asyncio
+async def test_provision_waits_for_artifacts_before_preparing_every_workspace(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, _client, _store, _clock = _manager(tmp_path, contracts)
+    observed_require_artifacts: list[bool] = []
+    validate_copy_shape = manager._validate_copy_shape
+
+    async def recording_validate_copy_shape(
+        notebook_id: str, *, require_artifacts: bool = True
+    ) -> dict[str, int]:
+        observed_require_artifacts.append(require_artifacts)
+        return await validate_copy_shape(notebook_id, require_artifacts=require_artifacts)
+
+    manager._validate_copy_shape = recording_validate_copy_shape  # type: ignore[method-assign]
+
+    await _provision(manager, tmp_path, mode="full")
+
+    assert observed_require_artifacts == [True, True]
+
+
+@pytest.mark.asyncio
+async def test_provision_dispatches_all_copies_before_settling_any_role(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, _client, _store, _clock = _manager(tmp_path, contracts)
+    events: list[str] = []
+    copy_one = manager.copy_one
+    validate_copy_shape = manager._validate_copy_shape
+
+    async def recording_copy_one(manifest: dict[str, Any], role: str) -> dict[str, Any]:
+        row = await copy_one(manifest, role)
+        events.append(f"copied:{role}")
+        return row
+
+    async def recording_validate_copy_shape(
+        notebook_id: str, *, require_artifacts: bool = True
+    ) -> dict[str, int]:
+        events.append(f"settling:{notebook_id}")
+        return await validate_copy_shape(notebook_id, require_artifacts=require_artifacts)
+
+    manager.copy_one = recording_copy_one  # type: ignore[method-assign]
+    manager._validate_copy_shape = recording_validate_copy_shape  # type: ignore[method-assign]
+
+    await _provision(manager, tmp_path, mode="full")
+
+    assert events[:2] == ["copied:reference", "copied:generation"]
+    assert events[2] == "settling:copy-1"
 
 
 @pytest.mark.asyncio
@@ -1824,6 +2000,99 @@ def test_cli_defaults_to_public_template_environment_name() -> None:
     args = lifecycle.build_parser().parse_args(["validate", "--backend", "web"])
 
     assert args.template_id_env == TEMPLATE_ID_ENV
+
+
+@pytest.mark.asyncio
+async def test_ci_client_demotes_close_failure_after_success(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise _http_status_error(502)
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    async with lifecycle._ci_client(backend="web"):
+        pass
+
+    captured = capsys.readouterr()
+    assert "::warning::client close failed" in captured.err
+    assert "HTTPStatusError" in captured.err
+    assert "sensitive response" not in captured.err
+
+
+@pytest.mark.asyncio
+async def test_ci_client_preserves_body_failure_when_close_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise _http_status_error(502)
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    with pytest.raises(ValueError, match="body failed"):
+        async with lifecycle._ci_client(backend="web"):
+            raise ValueError("body failed")
+
+
+@pytest.mark.asyncio
+async def test_ci_client_does_not_suppress_unknown_close_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FailingCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise RuntimeError("close invariant failed")
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: FailingCloseContext(),
+    )
+
+    with pytest.raises(RuntimeError, match="close invariant failed"):
+        async with lifecycle._ci_client(backend="web"):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_ci_client_does_not_suppress_close_cancellation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class CancelledCloseContext:
+        async def __aenter__(self) -> object:
+            return object()
+
+        async def __aexit__(self, *exc: object) -> None:
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(
+        lifecycle.NotebookLMClient,
+        "from_storage",
+        lambda **_kwargs: CancelledCloseContext(),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        async with lifecycle._ci_client(backend="web"):
+            pass
 
 
 def test_cli_cleanup_absent_manifest_never_opens_auth(

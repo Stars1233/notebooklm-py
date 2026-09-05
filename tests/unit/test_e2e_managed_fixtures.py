@@ -5,7 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from tests.e2e import conftest as e2e
-from tests.e2e._artifact_helpers import completed_interactive_mind_maps
+from tests.e2e._artifact_helpers import (
+    completed_download_candidates,
+    completed_interactive_mind_maps,
+    studio_item_may_have_download_payload,
+)
+from tests.e2e._mcp_live_helpers import pick_downloadable_artifact
 
 MANAGED = {
     "NOTEBOOKLM_E2E_MANAGED_COPIES": "1",
@@ -13,7 +18,7 @@ MANAGED = {
     "NOTEBOOKLM_E2E_REFERENCE_PREPARED": "1",
     "NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "reference-role",
     "NOTEBOOKLM_GENERATION_NOTEBOOK_ID": "generation-role",
-    "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role",
+    "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role",
 }
 
 
@@ -25,19 +30,20 @@ def install(monkeypatch, **overrides: str | None) -> None:
             monkeypatch.setenv(name, value)
 
 
-def test_managed_full_requires_activation_mode_preparation_and_distinct_roles(monkeypatch) -> None:
+def test_managed_full_requires_reference_and_shared_mutable_workspace(monkeypatch) -> None:
     install(monkeypatch)
     assert e2e._managed_bindings() == {
         "NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "reference-role",
         "NOTEBOOKLM_GENERATION_NOTEBOOK_ID": "generation-role",
-        "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role",
+        "NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role",
     }
     for overrides in (
         {"NOTEBOOKLM_E2E_MANAGED_COPIES": "true"},
         {"NOTEBOOKLM_E2E_MANAGED_MODE": "rpc"},
         {"NOTEBOOKLM_E2E_REFERENCE_PREPARED": None},
         {"NOTEBOOKLM_GENERATION_NOTEBOOK_ID": None},
-        {"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "generation-role"},
+        {"NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID": "multi-source-role"},
+        {"NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID": "generation-role"},
     ):
         install(monkeypatch, **overrides)
         with pytest.raises(ValueError):
@@ -60,7 +66,7 @@ async def test_managed_role_fixtures_do_not_touch_cache_create_cleanup_or_client
         await anext(generation)
 
     multi_source = e2e.multi_source_notebook_id.__wrapped__(ExplodingClient())
-    assert await anext(multi_source) == "multi-source-role"
+    assert await anext(multi_source) == "generation-role"
     with pytest.raises(StopAsyncIteration):
         await anext(multi_source)
 
@@ -89,6 +95,73 @@ def test_managed_mind_map_download_selects_only_completed_interactive_artifacts(
     assert completed_interactive_mind_maps([processing, completed, completed_other_kind]) == [
         completed
     ]
+
+
+def test_url_backed_download_selectors_reject_inventory_only_artifacts() -> None:
+    inventory_only = SimpleNamespace(kind="audio", is_completed=True, url=None, id="inventory-only")
+    processing = SimpleNamespace(kind="audio", is_completed=False, url="https://asset.test")
+    downloadable = SimpleNamespace(
+        kind="audio", is_completed=True, url="https://asset.test", id="downloadable"
+    )
+
+    assert completed_download_candidates(
+        [inventory_only, processing, downloadable], "audio", backend="web"
+    ) == [downloadable]
+    assert completed_download_candidates(
+        [inventory_only, processing, downloadable], "audio", backend="android"
+    ) == [downloadable]
+    assert (
+        studio_item_may_have_download_payload(
+            {"type": "audio", "status_label": "completed", "url": None}, backend="web"
+        )
+        is False
+    )
+    assert (
+        studio_item_may_have_download_payload(
+            {"type": "audio", "status_label": "completed", "url": "https://asset.test"},
+            backend="android",
+        )
+        is True
+    )
+    assert (
+        studio_item_may_have_download_payload(
+            {"type": "report", "status_label": "completed", "url": None}, backend="web"
+        )
+        is True
+    )
+
+
+def test_android_slide_deck_download_selectors_allow_backend_hydration() -> None:
+    inventory_only = SimpleNamespace(
+        kind="slide_deck", is_completed=True, url=None, id="inventory-only"
+    )
+    downloadable = SimpleNamespace(
+        kind="slide_deck", is_completed=True, url="https://asset.test", id="downloadable"
+    )
+
+    assert completed_download_candidates([inventory_only], "slide_deck", backend="web") == []
+    assert completed_download_candidates(
+        [inventory_only, downloadable], "slide_deck", backend="android"
+    ) == [
+        downloadable,
+        inventory_only,
+    ]
+    item = {"type": "slide-deck", "status_label": "completed", "url": None}
+    assert studio_item_may_have_download_payload(item, backend="web") is False
+    assert studio_item_may_have_download_payload(item, backend="android") is True
+
+
+def test_android_mcp_selector_prefers_confirmed_payload_before_slide_hydration() -> None:
+    fallback = {"id": "fallback", "type": "slide-deck", "status_label": "completed"}
+    confirmed = {
+        "id": "confirmed",
+        "type": "audio",
+        "status_label": "completed",
+        "url": "https://asset.test",
+    }
+
+    assert pick_downloadable_artifact([fallback, confirmed], backend="android") is confirmed
+    assert pick_downloadable_artifact([fallback], backend="android") is fallback
 
 
 def test_unmanaged_configuration_preserves_legacy_path(monkeypatch) -> None:

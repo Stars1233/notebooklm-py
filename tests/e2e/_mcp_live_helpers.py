@@ -21,6 +21,8 @@ from fastmcp import Client
 from notebooklm import NotebookLMClient
 from notebooklm.mcp.server import create_server
 
+from ._artifact_helpers import studio_item_may_have_download_payload
+
 #: Merged ``studio_list`` item ``type`` values (hyphenated, the shared Studio
 #: vocabulary) whose download is wired through ``studio_download``. An item's
 #: ``type`` doubles as the ``studio_download`` ``artifact_type`` key, so no
@@ -38,7 +40,9 @@ DOWNLOADABLE_ARTIFACT_TYPES = {
 }
 
 
-def pick_downloadable_artifact(items: list[dict[str, Any]]) -> dict[str, Any] | None:
+def pick_downloadable_artifact(
+    items: list[dict[str, Any]], *, backend: str
+) -> dict[str, Any] | None:
     """Return the first ready, downloadable artifact among merged studio ``items``.
 
     Operates on the unified ``studio_list`` item shape: a hyphenated ``type``
@@ -47,15 +51,24 @@ def pick_downloadable_artifact(items: list[dict[str, Any]]) -> dict[str, Any] | 
     as the terminal ``ready``/``completed`` states). Lets a test reuse whatever
     artifact a notebook already has and skip cleanly when none qualifies.
     """
-    return next(
+    candidates = [
+        item
+        for item in items
+        if item.get("type") in DOWNLOADABLE_ARTIFACT_TYPES
+        and item.get("status_label") in (None, "ready", "completed")
+        and studio_item_may_have_download_payload(item, backend=backend)
+    ]
+    confirmed = next(
         (
-            it
-            for it in items
-            if it.get("type") in DOWNLOADABLE_ARTIFACT_TYPES
-            and it.get("status_label") in (None, "ready", "completed")
+            item
+            for item in candidates
+            if not (
+                backend == "android" and item.get("type") == "slide-deck" and not item.get("url")
+            )
         ),
         None,
     )
+    return confirmed or (candidates[0] if candidates else None)
 
 
 @contextlib.asynccontextmanager

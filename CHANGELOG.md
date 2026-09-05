@@ -20,9 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Nightly E2E and RPC health template validation.** The disposable-copy contract now matches
-  the immutable public template title, allowing provisioning to proceed in the scheduled Web and
-  Android lanes. The lifecycle manager also uses the public notebook as its default when no
-  template override is configured.
+  the immutable public template title and its cross-backend copied artifact inventory, allowing
+  provisioning to proceed in the scheduled Web and Android lanes. Legacy quiz/flashcard rows that
+  Web cannot classify and absent optional artifact families no longer block provisioning; full E2E
+  still generates those families on disposable notebooks. Reference copies are polled for up to
+  ten minutes while inherited sources and artifacts finish processing; clean-role copies wait only
+  for ready sources before removing inherited artifacts. The lifecycle manager also uses the
+  public notebook as its default when no template override is configured. A close-time transport
+  failure after a one-shot lifecycle command has completed is now reported as a warning instead of
+  reversing the command's successful result. Read-only download checks now distinguish completed
+  artifact inventory from an actually downloadable asset, since public copies omit asset URLs.
 - **MCP server: `CONNECT_TIMEOUT` on connect.** The FastMCP lifespan opened the
   `NotebookLMClient` — cookie rotation, the CSRF fetch, and the cold-recovery
   ladder when those fail — *before* answering the MCP `initialize` handshake.

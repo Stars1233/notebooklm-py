@@ -538,17 +538,14 @@ jobs:
         if any(manifest.get(key) != value for key, value in expected.items()):
             raise RuntimeError("manifest summary metadata mismatch")
         copies = manifest.get("copies")
-        allowed_roles = {
-            "full": {
-                ("reference", "generation"),
-                ("reference", "generation", "multi-source"),
-            },
-            "readonly": {("reference",)},
+        roles = {
+            "full": ("reference", "generation"),
+            "readonly": ("reference",),
         }[expected["mode"]]
         if not isinstance(copies, list):
             raise RuntimeError("manifest summary role count mismatch")
-        roles = tuple(row.get("role") for row in copies if isinstance(row, dict))
-        if roles not in allowed_roles or len(roles) != len(copies):
+        manifest_roles = tuple(row.get("role") for row in copies if isinstance(row, dict))
+        if manifest_roles != roles or len(manifest_roles) != len(copies):
             raise RuntimeError("manifest summary role count mismatch")
         rows = {row.get("role"): row for row in copies if isinstance(row, dict)}
         if set(rows) != set(roles):
@@ -569,7 +566,7 @@ jobs:
             "- Reference checks: seeded_notes=1 history=passed",
         ]
         if expected["mode"] == "full":
-            lines.append("- Clean-role residuals: generation=0 multi-source=0")
+            lines.append("- Clean workspace residuals: generation/multi-source=0")
         with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as stream:
             stream.write("\n".join(lines) + "\n")
         PY

@@ -19,12 +19,14 @@ import secrets
 import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, TypeVar
 
+import httpx
 from _ci_e2e_notebooks import (
     ACCOUNT_SLOTS,
     BACKENDS,
@@ -65,6 +67,10 @@ DEFAULT_TEMPLATE_CONTRACT = (
 DEFAULT_PREPARED_CONTRACT = (
     Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "e2e_prepared_role_contract.json"
 )
+_COPIED_TEMPLATE_REQUIRED_FAMILIES = frozenset({"audio", "video", "infographic", "slide_deck"})
+_COPY_SETTLE_TIMEOUT_SECONDS = 600.0
+_COPY_SETTLE_POLL_SECONDS = 30.0
+_COPY_SETTLE_QUOTA_BACKOFF_SECONDS = 60.0
 
 T = TypeVar("T")
 
@@ -233,18 +239,8 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
         re.compile(contract["title_regex"])
         source = contract["sources"]
         artifacts = contract["artifacts"]
+        artifact_families = artifacts["required_completed_families"]
         content_policy = contract["content_policy"]
-        required_families = {
-            "audio",
-            "video",
-            "report",
-            "quiz",
-            "flashcards",
-            "mind_map",
-            "infographic",
-            "slide_deck",
-            "data_table",
-        }
         if (
             set(contract)
             != {
@@ -255,6 +251,7 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
                 "artifacts",
                 "content_policy",
             }
+            or contract["version"] != 1
             or set(source)
             != {"minimum_ready", "minimum_distinct_titles", "require_text_addressable"}
             or set(artifacts) != {"required_completed_families", "require_interactive_mind_map"}
@@ -264,9 +261,11 @@ def load_template_contract(path: Path) -> tuple[dict[str, Any], str]:
             or not isinstance(source["minimum_distinct_titles"], int)
             or source["minimum_distinct_titles"] < 3
             or source["require_text_addressable"] is not True
-            or artifacts["require_interactive_mind_map"] is not True
-            or not isinstance(artifacts["required_completed_families"], list)
-            or not required_families.issubset(artifacts["required_completed_families"])
+            or not isinstance(artifacts["require_interactive_mind_map"], bool)
+            or not isinstance(artifact_families, list)
+            or any(not isinstance(family, str) for family in artifact_families)
+            or len(set(artifact_families)) != len(artifact_families)
+            or not _COPIED_TEMPLATE_REQUIRED_FAMILIES.issubset(artifact_families)
             or content_policy
             != {
                 "private_personal_licensed_or_unstable_web_content_allowed": False,
@@ -314,9 +313,9 @@ def load_prepared_contract(path: Path) -> dict[str, Any]:
             or reference["require_conversation_id"] is not True
             or reference["require_nonempty_history_pair"] is not True
             or reference["conversation_turn_limit"] != 2
-            or tuple(clean["roles"]) != ("generation", "multi-source", "rpc")
+            or tuple(clean["roles"]) != ("generation", "rpc")
             or tuple(clean["disallowed"]) != ("artifacts", "notes", "mind_maps")
-            or tuple(clean["empty_chat_roles"]) != ("multi-source", "rpc")
+            or tuple(clean["empty_chat_roles"]) != ("generation", "rpc")
             or clean["minimum_ready_sources"] < 3
             or clean["poll_interval_seconds"] != 30
             or clean["quiet_period_seconds"] != 90
@@ -460,8 +459,20 @@ class NotebookLifecycleManager:
         if _turn_has_content(turns):
             raise ContractError("prepared clean role inherited conversation state")
 
-    async def validate_template(self, *, include_title: bool = True) -> dict[str, int]:
-        """Validate immutable copied state using public typed APIs only."""
+    async def validate_template(
+        self,
+        *,
+        include_title: bool = True,
+        tolerate_incomplete: bool = False,
+        require_artifacts: bool = True,
+    ) -> dict[str, int] | None:
+        """Validate immutable copied state using public typed APIs only.
+
+        A newly copied notebook exposes its sources and artifact rows before
+        their processing states settle. ``tolerate_incomplete`` turns only
+        those content deficiencies into ``None`` so the bounded copy poller
+        can retry them; identity and title violations still fail immediately.
+        """
 
         try:
             notebook = await self._read(lambda: self.client.notebooks.get(self.template_id))
@@ -479,9 +490,23 @@ class NotebookLifecycleManager:
                 raise ContractError("template title violates the immutable title contract")
             if re.fullmatch(str(self.template_contract["title_regex"]), title) is None:
                 raise ContractError("template title version does not match the contract")
+        return await self._validate_template_content(
+            tolerate_incomplete=tolerate_incomplete,
+            require_artifacts=require_artifacts,
+        )
+
+    async def _validate_template_content(
+        self,
+        *,
+        tolerate_incomplete: bool,
+        require_artifacts: bool,
+    ) -> dict[str, int] | None:
+        """Validate sources and artifacts without repeating notebook identity reads."""
+
         sources = await self._read(lambda: self.client.sources.list(self.template_id, strict=True))
         source_contract = self.template_contract["sources"]
         ready_sources = [source for source in sources if getattr(source, "is_ready", False)]
+        incomplete: list[str] = []
         if source_contract["require_text_addressable"] is True:
             non_text_kinds = {"image", "media", "unknown"}
             text_ready = [
@@ -490,37 +515,72 @@ class NotebookLifecycleManager:
                 if _kind_value(getattr(source, "kind", None)) not in non_text_kinds
             ]
             if len(text_ready) < source_contract["minimum_ready"]:
-                raise ContractError("template has too few text-addressable ready sources")
+                incomplete.append("template has too few text-addressable ready sources")
         distinct_titles = {
             str(getattr(source, "title", "")).strip().casefold()
             for source in ready_sources
             if str(getattr(source, "title", "")).strip()
         }
         if len(ready_sources) < source_contract["minimum_ready"]:
-            raise ContractError("template has too few ready sources")
+            incomplete.append("template has too few ready sources")
         if len(distinct_titles) < source_contract["minimum_distinct_titles"]:
-            raise ContractError("template source topics are not sufficiently distinct")
+            incomplete.append("template source topics are not sufficiently distinct")
 
-        artifacts = await self._read(lambda: self.client.artifacts.list(self.template_id))
-        completed = [artifact for artifact in artifacts if _artifact_completed(artifact)]
-        families = {_kind_value(getattr(artifact, "kind", None)) for artifact in completed}
-        required = set(self.template_contract["artifacts"]["required_completed_families"])
-        missing = sorted(required - families)
-        if missing:
-            raise ContractError("template is missing completed families: " + ",".join(missing))
-        if not any(getattr(artifact, "is_interactive_mind_map", False) for artifact in completed):
-            raise ContractError("template is missing a completed interactive mind map")
+        completed: list[Any] = []
+        families: set[str] = set()
+        if require_artifacts:
+            artifacts = await self._read(lambda: self.client.artifacts.list(self.template_id))
+            completed = [artifact for artifact in artifacts if _artifact_completed(artifact)]
+            families = {_kind_value(getattr(artifact, "kind", None)) for artifact in completed}
+            required = set(self.template_contract["artifacts"]["required_completed_families"])
+            missing = sorted(required - families)
+            if missing:
+                incomplete.append("template is missing completed families: " + ",".join(missing))
+            if self.template_contract["artifacts"]["require_interactive_mind_map"] and not any(
+                getattr(artifact, "is_interactive_mind_map", False) for artifact in completed
+            ):
+                incomplete.append("template is missing a completed interactive mind map")
+        if incomplete:
+            if tolerate_incomplete:
+                return None
+            raise ContractError(incomplete[0])
         return {
             "ready_sources": len(ready_sources),
             "completed_artifacts": len(completed),
             "artifact_families": len(families),
         }
 
-    async def _validate_copy_shape(self, notebook_id: str) -> dict[str, int]:
+    async def _validate_copy_shape(
+        self,
+        notebook_id: str,
+        *,
+        require_artifacts: bool = True,
+    ) -> dict[str, int]:
         original = self.template_id
         self.template_id = notebook_id
         try:
-            return await self.validate_template(include_title=False)
+            deadline = self.clock() + _COPY_SETTLE_TIMEOUT_SECONDS
+            notebook = await self._read(lambda: self.client.notebooks.get(notebook_id))
+            if getattr(notebook, "id", None) != notebook_id:
+                raise ContractError("template lookup returned the wrong notebook")
+            while True:
+                try:
+                    counts = await self._validate_template_content(
+                        tolerate_incomplete=True,
+                        require_artifacts=require_artifacts,
+                    )
+                except RateLimitError:
+                    now = self.clock()
+                    if now >= deadline:
+                        raise
+                    await self.sleep(min(_COPY_SETTLE_QUOTA_BACKOFF_SECONDS, deadline - now))
+                    continue
+                if counts is not None:
+                    return counts
+                now = self.clock()
+                if now >= deadline:
+                    raise ContractError("copied template state did not settle within ten minutes")
+                await self.sleep(min(_COPY_SETTLE_POLL_SECONDS, deadline - now))
         finally:
             self.template_id = original
 
@@ -590,7 +650,7 @@ class NotebookLifecycleManager:
             )
 
     async def prepare_clean_role(self, notebook_id: str, role: str) -> dict[str, int]:
-        """Remove inherited children and prove a 90-second stable empty inventory."""
+        """Remove settled inherited children and prove a stable empty inventory."""
 
         clean = self.prepared_contract["clean_roles"]
         if role not in clean["roles"]:
@@ -1019,12 +1079,22 @@ class NotebookLifecycleManager:
             template_fingerprint=template_fingerprint,
         )
         self._persist_manifest(manifest)
+        role_ids: dict[str, str] = {}
         for role in MODE_ROLES[mode]:
             row = await self.copy_one(manifest, role)
             notebook_id = str(row["notebook_id"])
+            role_ids[role] = notebook_id
             if mask is not None:
                 mask(notebook_id)
-            await self._validate_copy_shape(notebook_id)
+
+        # CopyProject returns before its asynchronous source/artifact propagation
+        # completes. Dispatch every exactly-once copy first so that propagation
+        # overlaps while the roles remain durably tracked and immediately masked.
+        for role, notebook_id in role_ids.items():
+            await self._validate_copy_shape(
+                notebook_id,
+                require_artifacts=True,
+            )
             if role == "reference":
                 await self.prepare_reference(notebook_id)
             else:
@@ -1241,6 +1311,56 @@ def _runner_temp() -> Path | None:
     return Path(value) if value else None
 
 
+def _is_transient_close_error(exc: Exception) -> bool:
+    """Identify close-only auth and transport failures safe to demote in CI."""
+
+    if isinstance(exc, (AuthError, NetworkError, RateLimitError, ServerError)):
+        return True
+    if isinstance(exc, httpx.TransportError):
+        return True
+    return isinstance(exc, httpx.HTTPStatusError) and (
+        exc.response.status_code in {408, 425, 429} or exc.response.status_code >= 500
+    )
+
+
+@asynccontextmanager
+async def _ci_client(*, backend: str) -> Any:
+    """Keep a completed one-shot lifecycle command successful if close is transient."""
+
+    context = NotebookLMClient.from_storage(
+        backend=backend,
+        rate_limit_max_retries=0,
+        server_error_max_retries=0,
+    )
+    client = await context.__aenter__()
+    body_error: BaseException | None = None
+    try:
+        yield client
+    except BaseException as exc:
+        body_error = exc
+        raise
+    finally:
+        try:
+            await context.__aexit__(
+                type(body_error) if body_error is not None else None,
+                body_error,
+                body_error.__traceback__ if body_error is not None else None,
+            )
+        except Exception as exc:
+            if not _is_transient_close_error(exc):
+                raise
+            # These commands run in short-lived CI processes.  Their durable
+            # work is already complete here, so a late transport/auth-refresh
+            # failure during teardown must not reverse that outcome. Unknown
+            # close bugs, process exits, and task cancellation remain fatal.
+            outcome = "completed" if body_error is None else "failed"
+            print(
+                f"::warning::client close failed after lifecycle command {outcome} "
+                f"({_safe_exception_name(exc)})",
+                file=sys.stderr,
+            )
+
+
 def _metadata() -> tuple[str, str, str]:
     """Read trusted lifecycle identity only from the GitHub runner environment."""
 
@@ -1288,7 +1408,7 @@ def build_parser() -> argparse.ArgumentParser:
     validate.add_argument("--contract", type=Path, default=DEFAULT_TEMPLATE_CONTRACT)
     validate.add_argument("--prepared-contract", type=Path, default=DEFAULT_PREPARED_CONTRACT)
     validate.add_argument("--manifest", type=Path)
-    validate.add_argument("--role", choices=("reference", "generation", "multi-source", "rpc"))
+    validate.add_argument("--role", choices=("reference", "generation", "rpc"))
 
     common("cleanup")
 
@@ -1322,11 +1442,7 @@ async def _run(args: argparse.Namespace) -> int:
     manifest_path = getattr(args, "manifest", None)
     store_path = manifest_path or Path(os.devnull)
     store = AtomicJSONStore(store_path, runner_temp=_runner_temp())
-    async with NotebookLMClient.from_storage(
-        backend=args.backend,
-        rate_limit_max_retries=0,
-        server_error_max_retries=0,
-    ) as client:
+    async with _ci_client(backend=args.backend) as client:
         manager = NotebookLifecycleManager(
             client,
             template_id=template_id,

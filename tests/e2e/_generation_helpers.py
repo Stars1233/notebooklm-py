@@ -8,10 +8,10 @@ _TYPED_RATE_LIMIT_ATTR = "_notebooklm_typed_rate_limit"
 
 
 async def generate_note_mind_map(client: Any, notebook_id: str, operation: Any) -> Any:
-    """Close the manual note-map journal operation when typed quota rejects creation."""
+    """Record an uncertain note-map outcome when creation returns typed quota."""
     try:
         return await client.artifacts.generate_mind_map(notebook_id)
     except BaseException as exc:
         if bool(getattr(exc, _TYPED_RATE_LIMIT_ATTR, False)):
-            operation.rate_limited_rejected()
+            operation.quota_response_unconfirmed()
         raise

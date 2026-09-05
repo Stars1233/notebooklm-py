@@ -19,7 +19,6 @@ import pytest
 from notebooklm.types import MindMapKind
 
 from ._generation_helpers import _TYPED_RATE_LIMIT_ATTR
-from .conftest import _RATE_LIMIT_METHOD_ATTR
 
 # Live CREATE_ARTIFACT coverage — monitored by the nightly generation coverage
 # floor so a fully-throttled run (every generation skipped) reds the nightly
@@ -42,10 +41,11 @@ async def swept_interactive_mind_maps(client, generation_notebook_id):
 
     This teardown runs regardless of test outcome (pass / fail / skip) and
     deletes every interactive mind map left in the generation notebook, so no
-    post-create skip location can leak one. A create-time skip raises before
-    any artifact exists, so the sweep simply finds nothing. Best-effort: a
-    throttled sweep can't clean up, but the next session's pre-test
-    ``_cleanup_generation_notebook`` deletes all artifacts anyway.
+    ambiguous quota response can leak one. Even a typed quota response from
+    CREATE_ARTIFACT can race with a server-side commit, so every quota path is
+    reconciled instead of trusting the method label as proof of rejection.
+    Best-effort: a throttled sweep can't clean up, but the next session's
+    pre-test ``_cleanup_generation_notebook`` deletes all artifacts anyway.
 
     Enumerates via the *unfiltered* ``client.artifacts.list`` and matches
     ``is_interactive_mind_map`` OR ``is_unclassified_type4`` — mirroring
@@ -64,11 +64,10 @@ async def swept_interactive_mind_maps(client, generation_notebook_id):
         "baseline": baseline,
         "operation": None,
         "typed_quota": False,
-        "pre_accept_rejected": False,
     }
     yield state
     operation = state["operation"]
-    attempts = 5 if state["typed_quota"] and not state["pre_accept_rejected"] else 1
+    attempts = 5 if state["typed_quota"] else 1
     current = []
     for attempt in range(attempts):
         current = [
@@ -116,8 +115,6 @@ async def swept_interactive_mind_maps(client, generation_notebook_id):
             )
     if multiple:
         pytest.fail("interactive mind-map reconciliation found multiple new rows")
-    if state["pre_accept_rejected"] and created:
-        pytest.fail("pre-acceptance quota rejection unexpectedly created an artifact")
 
 
 @pytest.mark.e2e
@@ -151,15 +148,7 @@ async def test_interactive_mind_map_full_lifecycle(
         )
     except BaseException as exc:
         typed_quota = bool(getattr(exc, _TYPED_RATE_LIMIT_ATTR, False))
-        method_id = getattr(exc, _RATE_LIMIT_METHOD_ATTR, None)
-        pre_accept_rejected = typed_quota and (
-            method_id == "R7cb6c"
-            or (isinstance(method_id, str) and method_id.endswith("/CreateArtifact"))
-        )
-        swept_interactive_mind_maps["typed_quota"] = typed_quota and not pre_accept_rejected
-        swept_interactive_mind_maps["pre_accept_rejected"] = pre_accept_rejected
-        if pre_accept_rejected:
-            operation.rate_limited_rejected()
+        swept_interactive_mind_maps["typed_quota"] = typed_quota
         raise
     operation.accepted(mind_map.id)
     try:

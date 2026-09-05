@@ -151,7 +151,7 @@ class TestCliLive:
             "--json",
         )
         if _is_typed_generation_rejection(proc):
-            operation.rate_limited_rejected()
+            operation.quota_response_unconfirmed()
             pytest.skip("generation rate-limited (typed CLI rejection)")
         assert proc.returncode == 0, "CLI generation failed before returning a typed task ID"
         payload = json.loads(proc.stdout)

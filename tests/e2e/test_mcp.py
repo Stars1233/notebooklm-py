@@ -456,7 +456,9 @@ class TestMcpArtifacts:
         cleanly when none is present, so this never depends on cross-file ordering.
         """
         listing = await _call(client, "studio_list", {"notebook": read_only_notebook_id})
-        candidate = _pick_downloadable_artifact(listing["items"])
+        candidate = _pick_downloadable_artifact(
+            listing["items"], backend=client.backends["artifacts"]
+        )
         if candidate is None:
             pytest.skip("no existing downloadable artifact on the reference notebook")
 
@@ -469,10 +471,18 @@ class TestMcpArtifacts:
             {
                 "notebook": read_only_notebook_id,
                 "artifact_type": dl_type,
+                "artifact_id": candidate["id"],
                 "path": str(out_path),
             },
         )
         assert isinstance(result, dict)
+        if (
+            client.backends["artifacts"] == "android"
+            and dl_type == "slide-deck"
+            and result.get("outcome") == "error"
+            and "PDF URL not available in artifact data" in str(result.get("error"))
+        ):
+            pytest.skip("Android hydration confirmed an inventory-only slide deck")
         # The stdio download core writes the file and reports its path; assert
         # bytes landed on disk.
         written = Path(result.get("output_path") or out_path)

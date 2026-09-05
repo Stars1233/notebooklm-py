@@ -247,12 +247,12 @@ def _install_generation_journal(client: NotebookLMClient, journal) -> None:
                     result = await __original(*args, **kwargs)
                 except BaseException as exc:
                     if _typed_rate_limit_cause(exc) is not None:
-                        operation.rate_limited_rejected()
+                        operation.quota_response_unconfirmed()
                     raise
                 if result is not None and getattr(result, "task_id", None):
                     operation.accepted(result.task_id)
                 elif result is not None and bool(getattr(result, "is_rate_limited", False)):
-                    operation.rate_limited_rejected()
+                    operation.quota_response_unconfirmed()
                 return result
             finally:
                 journal_call_active.reset(journal_token)
@@ -401,8 +401,15 @@ def _managed_bindings() -> dict[str, str] | None:
     missing = [name for name, value in bindings.items() if not value]
     if missing:
         raise ValueError(f"managed {mode} mode is missing role bindings: " + ", ".join(missing))
-    if len(set(bindings.values())) != len(bindings):
-        raise ValueError(f"managed {mode}-mode role bindings must be distinct")
+    if mode == "full":
+        reference = bindings["NOTEBOOKLM_READ_ONLY_NOTEBOOK_ID"]
+        generation = bindings["NOTEBOOKLM_GENERATION_NOTEBOOK_ID"]
+        multi_source = bindings["NOTEBOOKLM_MULTI_SOURCE_NOTEBOOK_ID"]
+        if reference == generation or multi_source != generation:
+            raise ValueError(
+                "managed full-mode bindings require one distinct reference and one shared "
+                "generation/multi-source workspace"
+            )
     if os.environ.get(_MANAGED_REFERENCE_READY_ENV) != "1":
         raise ValueError("managed reference preparation marker is missing")
     return bindings
@@ -446,7 +453,7 @@ def journal_generation_started(result, operation, artifact_type: str = "Artifact
     if result.task_id:
         operation.accepted(result.task_id)
     elif result.is_rate_limited:
-        operation.rate_limited_rejected()
+        operation.quota_response_unconfirmed()
         pytest.skip("Rate limited by API")
     assert_generation_started(result, artifact_type)
 
@@ -470,11 +477,10 @@ async def journal_studio_generation(
     try:
         result = await awaitable
     except BaseException as exc:
-        # Direct Studio generate methods only raise the typed quota skip before
-        # returning an accepted ID. Interactive generation, which has post-
-        # create reads, owns a stronger reconciliation fixture separately.
+        # A typed quota response can race with an asynchronous server-side
+        # commit, so the verifier must reconcile it against the quiet inventory.
         if _typed_rate_limit_cause(exc) is not None:
-            operation.rate_limited_rejected()
+            operation.quota_response_unconfirmed()
         raise
     journal_generation_started(result, operation)
     return result
