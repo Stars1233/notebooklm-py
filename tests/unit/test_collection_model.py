@@ -7,6 +7,8 @@ import pytest
 from notebooklm._types.collections import Collection
 from notebooklm.exceptions import UnknownRPCMethodError
 
+pytestmark = pytest.mark.filterwarnings("ignore:Collection\\.from_api_response:DeprecationWarning")
+
 
 def test_from_api_response_populated() -> None:
     # Live-captured (PR #2009): populated members are BARE strings, not the

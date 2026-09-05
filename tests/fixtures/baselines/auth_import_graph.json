@@ -128,6 +128,11 @@
     {
       "scope": "module",
       "source": "cookies",
+      "target": "mint_service"
+    },
+    {
+      "scope": "module",
+      "source": "cookies",
       "target": "paths"
     },
     {
@@ -313,6 +318,11 @@
     {
       "scope": "module",
       "source": "profile_store",
+      "target": "mint_service"
+    },
+    {
+      "scope": "module",
+      "source": "profile_store",
       "target": "paths"
     },
     {
@@ -492,36 +502,6 @@
     },
     {
       "scope": "module",
-      "source": "session",
-      "target": "account"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "cookie_types"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "extraction"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "recovery"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "refresh"
-    },
-    {
-      "scope": "module",
-      "source": "session",
-      "target": "tokens"
-    },
-    {
-      "scope": "module",
       "source": "storage",
       "target": "cookie_filter"
     },
@@ -683,12 +663,12 @@
       "path": "src/notebooklm/_auth/cookie_semantics.py"
     },
     {
-      "lines": 401,
+      "lines": 672,
       "name": "cookie_types",
       "path": "src/notebooklm/_auth/cookie_types.py"
     },
     {
-      "lines": 961,
+      "lines": 833,
       "name": "cookies",
       "path": "src/notebooklm/_auth/cookies.py"
     },
@@ -753,12 +733,12 @@
       "path": "src/notebooklm/_auth/profile_migration.py"
     },
     {
-      "lines": 876,
+      "lines": 921,
       "name": "profile_store",
       "path": "src/notebooklm/_auth/profile_store.py"
     },
     {
-      "lines": 1214,
+      "lines": 1051,
       "name": "psidts_recovery",
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
@@ -778,11 +758,6 @@
       "path": "src/notebooklm/_auth/refresh.py"
     },
     {
-      "lines": 317,
-      "name": "session",
-      "path": "src/notebooklm/_auth/session.py"
-    },
-    {
       "lines": 268,
       "name": "single_flight",
       "path": "src/notebooklm/_auth/single_flight.py"
@@ -798,7 +773,7 @@
       "path": "src/notebooklm/_auth/storage_lock.py"
     },
     {
-      "lines": 938,
+      "lines": 952,
       "name": "tokens",
       "path": "src/notebooklm/_auth/tokens.py"
     }
@@ -809,10 +784,10 @@
   },
   "summary": {
     "function_local_edges": 12,
-    "module_edges": 115,
-    "modules": 33,
-    "total_lines": 13964,
-    "unique_edges": 127
+    "module_edges": 111,
+    "modules": 32,
+    "total_lines": 13686,
+    "unique_edges": 123
   },
   "version": 1
 }

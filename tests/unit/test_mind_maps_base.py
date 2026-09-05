@@ -203,7 +203,9 @@ def test_android_rename_inherits_the_scoped_base_workflow() -> None:
 def test_default_client_assembly_keeps_the_web_frontend() -> None:
     import notebooklm
     import notebooklm._client_assembly as assembly
+    import notebooklm._web.assembly as web_assembly
 
-    assert assembly.WebMindMapsAPI is WebMindMapsAPI
+    assert web_assembly.WebMindMapsAPI is WebMindMapsAPI
+    assert "WebMindMapsAPI" not in assembly.__dict__
     assert "AndroidMindMapsAPI" not in assembly.__dict__
     assert not hasattr(notebooklm, "AndroidMindMapsAPI")

@@ -26,7 +26,7 @@
           "mint",
           "store"
         ],
-        "note": "Canonical value types own conversion and the cookie-set policy questions."
+        "note": "Canonical values are built as one live-cookie and typed-baseline pair from a single storage sample."
       },
       {
         "id": "recovery",
@@ -37,7 +37,7 @@
           "mint",
           "mastertoken"
         ],
-        "note": "One leader per canonical path drives the ladder; followers bridge its result."
+        "note": "One leader per path and rung policy drives a flight; a separate path lock serializes stronger and weaker policies."
       }
     ]
   },
@@ -46,7 +46,7 @@
       "id": "loader",
       "type": "backend",
       "label": "StoredAuthLoader",
-      "sublabel": "source · seed · route",
+      "sublabel": "source · paired seed · route",
       "pos": [
         282,
         60
@@ -87,8 +87,8 @@
     {
       "id": "client",
       "type": "backend",
-      "label": "Client Runtime",
-      "sublabel": "AuthRefreshCoordinator",
+      "label": "Web Auth Owners",
+      "sublabel": "session auth · persistence",
       "pos": [
         30,
         260
@@ -199,10 +199,10 @@
     },
     {
       "id": "mastertoken",
-      "type": "security",
-      "label": "MasterToken",
-      "sublabel": "frozen value",
-      "tag": "redacted repr",
+      "type": "backend",
+      "label": "MasterTokenBootstrapper",
+      "sublabel": "MintService · ProfileStore",
+      "tag": "bootstrap lock",
       "pos": [
         1063,
         460
@@ -232,7 +232,7 @@
       "id": "client-tokens",
       "from": "client",
       "to": "tokens",
-      "label": "aliases",
+      "label": "mutates in place",
       "variant": "emphasis"
     },
     {
@@ -259,14 +259,14 @@
       "id": "tokens-store",
       "from": "tokens",
       "to": "store",
-      "label": "persists to",
+      "label": "storage path",
       "variant": "emphasis"
     },
     {
-      "id": "store-flight",
-      "from": "store",
+      "id": "cold-flight",
+      "from": "cold",
       "to": "flight",
-      "label": "guarded by",
+      "label": "coalesces through",
       "labelAt": [
         629,
         398
@@ -293,14 +293,18 @@
       "id": "jar-lock",
       "from": "jar",
       "to": "lock",
-      "label": "written under",
-      "variant": "security"
+      "label": "persistence guarded",
+      "variant": "security",
+      "labelAt": [
+        1017,
+        364
+      ]
     },
     {
-      "id": "mastertoken-lock",
+      "id": "bootstrap-store-lock",
       "from": "mastertoken",
       "to": "lock",
-      "label": "bootstrap lock",
+      "label": "nested store lock",
       "variant": "security",
       "labelAt": [
         1140.5,
@@ -321,7 +325,7 @@
       "id": "lock-files",
       "from": "lock",
       "to": "lockfiles",
-      "label": "derives",
+      "label": "acquires sentinels",
       "variant": "security",
       "labelAt": [
         1140.5,
@@ -344,8 +348,8 @@
       "dot": "cyan",
       "title": "Value types",
       "items": [
-        "Cookie and CookieJar own every conversion plus the cookie-set policy questions",
-        "MasterToken is frozen and redacts its credential from repr"
+        "Cookie and CookieJar are the canonical typed values used by auth policy",
+        "cookie_types.py projects one raw sample into live HTTP cookies and a typed baseline"
       ]
     },
     {
@@ -353,14 +357,14 @@
       "title": "Load result",
       "items": [
         "StoredAuthLoader returns a closed InlineLoadedAuth or FileLoadedAuth",
-        "TokenAcquirer is its only structural seam; blocking work is offloaded"
+        "TokenAcquirer is its only structural seam; ProfileStore supplies file-backed transactions"
       ]
     },
     {
       "dot": "rose",
       "title": "Concurrency",
       "items": [
-        "SingleFlight keys on the canonical storage path with per-path success epochs",
+        "SingleFlight keys on canonical path plus rung policy; ColdRecoveryState serializes each path",
         "Waiter cancellation never cancels the shared leader task"
       ]
     }

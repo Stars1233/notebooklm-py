@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from notebooklm._app.errors import ErrorCategory, classify
+from notebooklm._web.rows.source_models import decode_source
 from notebooklm._web.rows.sources import unwrap_add_source_rows
 from notebooklm._web.sources.batch import SourceBatchAddService
 from notebooklm.exceptions import (
@@ -64,7 +65,7 @@ class RecordingRpc:
     ],
 )
 def test_unwrap_add_source_rows_accepts_known_repeated_envelopes(payload: Any) -> None:
-    assert [Source.from_api_response(row).id for row in unwrap_add_source_rows(payload)] == [
+    assert [decode_source(Source, row).id for row in unwrap_add_source_rows(payload)] == [
         "src-a",
         "src-b",
     ]

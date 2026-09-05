@@ -7,6 +7,8 @@ import logging
 import os
 from functools import lru_cache
 
+from ...rpc._identifiers import RPCMethod
+
 # Preserve the established logging category and its operator filters across
 # the private module move.
 logger = logging.getLogger("notebooklm.rpc.overrides")
@@ -20,9 +22,7 @@ _logged_override_hashes: set[int] = set()
 
 
 def _valid_rpc_method_names() -> set[str]:
-    """Return valid RPCMethod member names without importing RPCMethod at module load."""
-    from ...rpc.types import RPCMethod
-
+    """Return the stable RPC method names accepted by the override policy."""
     return set(RPCMethod.__members__)
 
 
@@ -53,9 +53,9 @@ def _parse_rpc_overrides(raw: str | None) -> tuple[tuple[str, str], ...]:
     # gate, a typo like ``"LIST_NOTEBOOK"`` would silently no-op (resolver
     # only matches exact enum names) while the INFO log line proudly claims
     # the override was applied - making the escape hatch look live while
-    # calls keep using canonical IDs. ``RPCMethod`` lives in ``rpc.types``;
-    # the lookup is deferred so importing this module does not create a
-    # runtime import cycle.
+    # calls keep using canonical IDs. ``RPCMethod`` is imported from the
+    # stable RPC identifier owner above; this direction avoids a cycle with
+    # ``rpc.types`` while keeping the override policy Web-owned.
     valid_methods = _valid_rpc_method_names()
     normalized: list[tuple[str, str]] = []
     null_keys: list[str] = []

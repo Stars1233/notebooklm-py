@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+import pytest
+
 from notebooklm import (
     Artifact,
     ArtifactMediaType,
@@ -14,6 +16,8 @@ from notebooklm import (
     UnknownArtifactUserState,
 )
 from notebooklm.rpc import ArtifactTypeCode
+
+pytestmark = pytest.mark.filterwarnings("ignore:Artifact\\.from_api_response:DeprecationWarning")
 
 
 def _row(type_code: int, *, length: int = 22) -> list[object]:

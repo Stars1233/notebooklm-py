@@ -174,6 +174,8 @@ addopts = "--ignore=tests/e2e"
 filterwarnings = [
     "ignore:SelectableGroups dict interface is deprecated:DeprecationWarning",
     "ignore:.*Using .httpx. with .starlette\\.testclient. is deprecated.*",
+    "ignore:ssl\\.SSLContext\\(\\) without protocol argument is deprecated\\.:DeprecationWarning:gpsoauth",
+    "ignore:ssl\\.PROTOCOL_TLS is deprecated:DeprecationWarning:gpsoauth",
 ]
 # Global timeout prevents tests from hanging indefinitely (CI safety net)
 # Individual tests can override with @pytest.mark.timeout(seconds)

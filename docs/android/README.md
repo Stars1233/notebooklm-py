@@ -45,9 +45,19 @@ typed-operation fallback to Web. Use the backend-selected `client.raw.unary(...)
 or `client.raw.unary_stream(...)` for advanced Android calls. The deprecated
 `client.rpc_call(...)` wrapper still takes Web `RPCMethod` identifiers; its first
 Android use opens a separate Web compatibility sidecar through v0.x.
-The Android `from_storage(...)` bootstrap is read-only for cookies: it performs
-no PSIDTS poke/recovery or profile-cookie merge. A homepage cookie observation
+Under the retained default v0.x policy, Android `from_storage(...)` still sends
+one homepage GET while the storage wrapper builds the client, before Android
+open. Web-cookie, network, or homepage-token failure therefore still surfaces
+at that build step. The bootstrap is read-only for cookies: it performs no
+PSIDTS poke/recovery or profile-cookie merge, and a homepage cookie observation
 remains in memory until the deprecated sidecar takes ownership, if ever.
+
+These are deliberately separate credential paths during the compatibility
+window. Typed namespaces and Android raw unary calls use the profile's master
+token; deprecated `rpc_call(...)` uses the Web cookies loaded by the bootstrap.
+A master-token-only profile can use the Android typed/raw APIs but cannot use
+that Web compatibility wrapper. Prefer the typed namespaces, or Android
+`raw.unary(...)` / `raw.unary_stream(...)` when a raw operation is necessary.
 
 `master_token.json` is a durable, full-account credential that can mint OAuth
 tokens for multiple Google services and survives a password change. Prefer a

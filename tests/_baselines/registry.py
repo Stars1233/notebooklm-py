@@ -232,6 +232,34 @@ def _derive_browser_import_graph() -> dict[str, object]:
     )
 
 
+@lru_cache(maxsize=1)
+def _derive_backend_runtime_coupling() -> dict[str, object]:
+    """Clean-interpreter public-entry and backend-stage coupling projection."""
+    from scripts.audit_backend_coupling import build_runtime_projection
+
+    return build_runtime_projection()
+
+
+def _backend_runtime_coupling_growth(previous: object, current: object) -> list[str]:
+    from scripts.audit_backend_coupling import runtime_projection_growth
+
+    return runtime_projection_growth(previous, current)
+
+
+@lru_cache(maxsize=1)
+def _derive_backend_static_coupling() -> dict[str, object]:
+    """Resolved authored-code cross-subsystem import projection."""
+    from scripts.audit_backend_coupling import build_static_projection
+
+    return build_static_projection()
+
+
+def _backend_static_coupling_growth(previous: object, current: object) -> list[str]:
+    from scripts.audit_backend_coupling import static_projection_growth
+
+    return static_projection_growth(previous, current)
+
+
 def _derive_module_size() -> dict[str, object]:
     """Current module-size budget, allowlist ceilings, and shrink locks."""
     from tests._baselines.module_size import derive_module_size
@@ -263,6 +291,19 @@ def _derive_guardrail_inline_literals() -> dict[str, dict[str, int]]:
     from tests._baselines.guardrail_literals import inventory_large_inline_literals
 
     return inventory_large_inline_literals()
+
+
+def _derive_backend_boundary() -> dict[str, list[dict[str, str]]]:
+    """Exact lazy public-type-to-Web compatibility-shim allowlist."""
+    from tests._baselines.backend_boundary import derive_backend_boundary
+
+    return derive_backend_boundary()
+
+
+def _backend_boundary_growth(previous: object, current: object) -> list[str]:
+    from tests._baselines.backend_boundary import backend_boundary_growth
+
+    return backend_boundary_growth(previous, current)
 
 
 def _guardrail_inline_literal_growth(previous: object, current: object) -> list[str]:
@@ -331,6 +372,32 @@ class Baseline:
 
 
 BASELINES: list[Baseline] = [
+    Baseline(
+        name="backend_runtime_coupling",
+        path=_BASELINES_DIR / "backend_runtime_coupling.json",
+        derive=_derive_backend_runtime_coupling,
+        sort_keys=True,
+        growth_check=_backend_runtime_coupling_growth,
+        description=(
+            "Clean-interpreter exact module, object, network, profile, and lifecycle ratchets."
+        ),
+    ),
+    Baseline(
+        name="backend_static_coupling",
+        path=_BASELINES_DIR / "backend_static_coupling.json",
+        derive=_derive_backend_static_coupling,
+        sort_keys=True,
+        growth_check=_backend_static_coupling_growth,
+        description=("Resolved cross-subsystem imports with local, type-only, and dynamic edges."),
+    ),
+    Baseline(
+        name="backend_boundary",
+        path=_BASELINES_DIR / "backend_boundary.json",
+        derive=_derive_backend_boundary,
+        sort_keys=True,
+        growth_check=_backend_boundary_growth,
+        description="Lazy public-type-to-Web compatibility edges; shrink-only through v0.x.",
+    ),
     Baseline(
         name="module_size",
         path=_BASELINES_DIR / "module_size.json",

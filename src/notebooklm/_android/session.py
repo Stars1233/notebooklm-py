@@ -812,9 +812,10 @@ class AndroidSession(EpochFenced):
         request_serializer: RequestSerializer[ReqT] | None = None,
         response_deserializer: ResponseDeserializer[RespT] | None = None,
         response_sizer: ResponseSizer[RespT] | None = None,
+        stop_after: Callable[[RespT], bool] | None = None,
         raw_replay: _RawReplayClassification | None = None,
     ) -> AsyncIterator[RespT]:
-        """Yield a stream without retaining this secret owner in failures."""
+        """Yield a stream, optionally stopping after a protocol-terminal response."""
 
         # Resolve the method through the same total policy table as unary calls
         # so a new stream cannot bypass classification. Streams remain
@@ -841,6 +842,7 @@ class AndroidSession(EpochFenced):
                 request_serializer=request_serializer,
                 response_deserializer=response_deserializer,
                 response_sizer=response_sizer,
+                stop_after=stop_after,
             ),
         )
         failure: BaseException | None = None
@@ -872,6 +874,7 @@ class AndroidSession(EpochFenced):
         request_serializer: RequestSerializer[ReqT] | None,
         response_deserializer: ResponseDeserializer[RespT] | None,
         response_sizer: ResponseSizer[RespT] | None,
+        stop_after: Callable[[RespT], bool] | None,
     ) -> AsyncIterator[RespT]:
         """Yield a typed server stream while retaining one supervisor lease."""
 
@@ -954,7 +957,13 @@ class AndroidSession(EpochFenced):
                                             bytes_read=response_bytes,
                                             method_id=method,
                                         )
+                                should_stop = stop_after(item) if stop_after is not None else False
                                 yield item
+                                if should_stop:
+                                    # ``exhausted`` deliberately stays false so the
+                                    # finally block cancels a wire stream that lingers
+                                    # beyond its protocol-level terminal response.
+                                    break
                         except _DeadlineSignal:
                             failure = _AttemptFailure(
                                 GrpcStatus("DEADLINE_EXCEEDED", 4),

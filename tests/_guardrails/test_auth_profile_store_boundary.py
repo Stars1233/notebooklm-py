@@ -34,6 +34,7 @@ _STORE_METHODS = {
     "_update_account_if_document_unchanged",
     "read_document",
     "read_session",
+    "read_cookie_pair",
     "read_account",
     "update_account",
     "clear_account",
@@ -362,10 +363,14 @@ _EXPECTED_IMPORTS: list[ImportRecord] = [
     ("module", 2, "exceptions", "LockUnavailableError", None),
     ("module", 1, "", "cookie_merge", "_cookie_merge"),
     ("module", 1, "", "cookie_policy", "_cookie_policy"),
+    ("module", 1, "", "mint_service", "_mint_service"),
     ("module", 1, "cookie_filter", "filter_storage_state_cookies_by_domain_policy", None),
     ("module", 1, "cookie_merge", "RecoveryObservation", None),
     ("module", 1, "cookie_types", "CookieIdentity", None),
     ("module", 1, "cookie_types", "CookieJar", None),
+    ("module", 1, "cookie_types", "StorageStateValidationError", None),
+    ("module", 1, "cookie_types", "_build_cookie_pair_from_storage_state", None),
+    ("module", 1, "cookie_types", "_LoadedCookiePair", None),
     ("module", 1, "credential_io", "_commit_profile_json", None),
     ("module", 1, "master_token_file", "MasterTokenFile", None),
     ("module", 1, "master_token_types", "MasterToken", None),
@@ -512,7 +517,7 @@ def test_production_importers_are_exactly_approved_store_owners_and_loader() -> 
         )
     }
     assert actual == {
-        "_android/auth.py",
+        "_android/assembly.py",
         "_web/transport/cookie_persistence.py",
         "_web/transport/init.py",
         "account_email.py",
@@ -557,6 +562,7 @@ def test_profile_store_public_method_set_is_minimal_and_exact() -> None:
         "ordering_key",
         "read_document",
         "read_session",
+        "read_cookie_pair",
         "read_account",
         "update_account",
         "clear_account",
@@ -706,6 +712,9 @@ def test_profile_store_constructor_and_replace_method_signatures_are_exact() -> 
     )
     assert str(inspect.signature(profile_store.ProfileStore.write_master_token)) == (
         "(self, token: 'MasterToken') -> 'None'"
+    )
+    assert str(inspect.signature(profile_store.ProfileStore.read_cookie_pair)) == (
+        "(self, *, require_routable: 'bool' = False) -> '_LoadedCookiePair'"
     )
     assert profile_store.ProfileStore.write_master_token.__annotations__["token"] == "MasterToken"
     assert MasterToken.__module__ == "notebooklm._auth.master_token_types"
@@ -1550,13 +1559,28 @@ def test_direct_production_store_callers_are_exact_and_function_granular() -> No
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         actual.update(_store_calls(path, tree))
     assert actual == {
-        ("_android/auth.py", "_make_bearer_provider", "ProfileStore"),
-        (
-            "_android/auth.py",
-            "BearerProvider.activate_for_epoch",
-            "<store-method-capability-escape:read_master_token>",
-        ),
+        ("_android/assembly.py", "assemble_android_backend", "ProfileStore"),
         ("_web/transport/cookie_persistence.py", "CookiePersistence.__init__", "ProfileStore"),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._prepare_open_baseline",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._adopt_reloaded_baseline",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._save_canonical",
+            "read_cookie_pair",
+        ),
+        (
+            "_web/transport/cookie_persistence.py",
+            "CookiePersistence._save_v0_callback",
+            "read_cookie_pair",
+        ),
         (
             "_web/transport/cookie_persistence.py",
             "CookiePersistence._resolve_store",
@@ -2275,7 +2299,29 @@ def _auth_edges() -> dict[str, set[str]]:
     for path in AUTH_ROOT.glob("*.py"):
         source = path.stem
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        parents = {
+            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+        }
+
+        def is_runtime_module_import(
+            node: ast.AST,
+            parent_map: dict[ast.AST, ast.AST] = parents,
+        ) -> bool:
+            current = node
+            while current in parent_map:
+                current = parent_map[current]
+                if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                    return False
+                if isinstance(current, ast.If) and ast.unparse(current.test) in {
+                    "TYPE_CHECKING",
+                    "typing.TYPE_CHECKING",
+                }:
+                    return False
+            return True
+
         for node in ast.walk(tree):
+            if not is_runtime_module_import(node):
+                continue
             targets: list[str] = []
             if isinstance(node, ast.Import):
                 targets = [item.name for item in node.names]

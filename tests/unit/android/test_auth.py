@@ -253,7 +253,8 @@ async def test_missing_token_and_dependency_have_sanitized_diagnostics(
         raise MissingDependencyError("wrong import detail and secret")
 
     monkeypatch.setattr(android_auth, "_require_gpsoauth", missing_dependency)
-    dependency = BearerProvider(_Profile(_record()), _Minter([]))
+    dependency_reader = _Profile(_record())
+    dependency = BearerProvider(dependency_reader, _Minter([]))
     dependency.set_bound_loop(asyncio.get_running_loop())
     dependency.reset_after_open()
     with pytest.raises(MissingDependencyError, match=r"notebooklm-py\[android\]") as captured:
@@ -261,6 +262,7 @@ async def test_missing_token_and_dependency_have_sanitized_diagnostics(
     assert "wrong import detail" not in str(captured.value)
     assert captured.value.__cause__ is None
     assert captured.value.__context__ is None
+    assert dependency_reader.reads == 0
 
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     missing = BearerProvider(_Profile(None), _Minter([]))

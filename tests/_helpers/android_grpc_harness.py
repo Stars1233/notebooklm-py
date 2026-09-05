@@ -30,7 +30,6 @@ from uuid import uuid4
 import pytest
 
 from notebooklm import AuthTokens, NotebookLMClient
-from notebooklm._android import auth as android_auth
 from notebooklm._android import phenotype as android_phenotype
 from notebooklm._android import session as android_session
 
@@ -198,6 +197,8 @@ async def delete_scratch_notebook(scratch: ScratchNotebook) -> None:
 
 
 def _inject_grpc_loader(monkeypatch: pytest.MonkeyPatch, grpc_module: Any) -> None:
+    from notebooklm._android import assembly as android_assembly
+
     production_session = android_session.AndroidSession
 
     def seamed_session(
@@ -223,7 +224,7 @@ def _inject_grpc_loader(monkeypatch: pytest.MonkeyPatch, grpc_module: Any) -> No
             grpc_loader=lambda: grpc_module,
         )
 
-    monkeypatch.setattr(android_session, "AndroidSession", seamed_session)
+    monkeypatch.setattr(android_assembly, "AndroidSession", seamed_session)
 
 
 RecordedCallback = Callable[[Path, Path], None]
@@ -265,6 +266,8 @@ async def android_cassette_client(
     phenotype_staging_path: Path | None = None
     phenotype_http_post: Any | None = None
     if phenotype_cassette_path is not None:
+        from notebooklm._android import assembly as android_assembly
+
         from .android_phenotype_http_cassette import build_phenotype_http_post
 
         provider_type = android_phenotype.PhenotypeTokenProvider
@@ -281,7 +284,7 @@ async def android_cassette_client(
             kwargs["http_post"] = phenotype_http_post
             return provider_type(*args, **kwargs)
 
-        monkeypatch.setattr(android_phenotype, "PhenotypeTokenProvider", cassette_provider)
+        monkeypatch.setattr(android_assembly, "PhenotypeTokenProvider", cassette_provider)
     if record:
         if scratch is None:
             raise RuntimeError("Recording requires the android_record_scratch fixture")
@@ -350,7 +353,13 @@ async def android_cassette_client(
         sanitizer=compose_sanitizers(normalize_request, redactor),
     )
     bearer = ReplayBearer()
-    monkeypatch.setattr(android_auth, "_make_bearer_provider", lambda _storage_path: bearer)
+    from notebooklm._android import assembly as android_assembly
+
+    monkeypatch.setattr(
+        android_assembly,
+        "_make_bearer_provider",
+        lambda _master_token_reader, _oauth_minter: bearer,
+    )
     _inject_grpc_loader(monkeypatch, replay)
     auth = AuthTokens(
         cookies={"SID": "synthetic-cookie"},

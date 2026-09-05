@@ -346,7 +346,7 @@ async def try_refresh_cmd_reauth(
 
     Client-neutral adapter mirroring :func:`notebooklm._auth.recovery.try_headless_reauth`
     / :func:`~notebooklm._auth.recovery.try_master_token_reauth` so the
-    mid-session ladder (``_auth/session.py:refresh_auth_session``) can slot the
+    Web-owned mid-session ladder (``_web/transport/session_auth.py``) can slot the
     refresh-cmd rung between L2 (RotateCookies) and L3 (headless re-mint). It
     REUSES the same cold-start machinery — the ``single_flight``-coalesced
     :func:`_coalesced_run_refresh_cmd` and the per-path refresh flock

@@ -13,6 +13,7 @@ from notebooklm._web.params.notebooks import (
     build_create_notebook_params,
     build_get_notebook_params,
 )
+from notebooklm._web.rows.notebooks import decode_notebook
 from notebooklm._web.sources.listing import SourceLister
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
@@ -90,7 +91,8 @@ def _owned_but_shared_notebooks(count: int) -> list[Notebook]:
     mis-read as "not owned".
     """
     return [
-        Notebook.from_api_response(
+        decode_notebook(
+            Notebook,
             [
                 f"Owned & Shared {i}",
                 [],
@@ -98,7 +100,7 @@ def _owned_but_shared_notebooks(count: int) -> list[Notebook]:
                 "\U0001f4d3",
                 None,
                 [1, True, True, None, None, None, 1, False, None],
-            ]
+            ],
         )
         for i in range(count)
     ]

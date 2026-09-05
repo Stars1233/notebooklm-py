@@ -22,12 +22,13 @@ Example:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import logging
 import os
 from collections.abc import Callable, Generator, Mapping
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import httpx
 
@@ -35,15 +36,13 @@ if TYPE_CHECKING:
     from .rpc import RPCMethod
     from .types import ClientMetricsSnapshot, ConnectionLimits, RpcTelemetryEvent
 
-# Keep feature/collaborator types importable for runtime type-hint introspection.
-from ._android.runtime import AndroidRuntime
+from . import raw as raw_api
 from ._artifacts import ArtifactsAPI
 from ._auth import tokens as _auth_tokens
 from ._auth.account import _probe_authuser
 from ._auth.account import authuser_query as authuser_query
 from ._auth.account_email import AccountEmailCacheKey, resolve_account_email
 from ._auth.extraction import extract_wiz_field as extract_wiz_field
-from ._auth.session import refresh_auth_session
 from ._chat import ChatAPI
 from ._client_assembly import (
     BackendName,
@@ -51,6 +50,7 @@ from ._client_assembly import (
     _assemble_client,
     resolve_backend_preference,
 )
+from ._client_contracts import CookieRotator, CookieSaver
 from ._collections import CollectionsAPI
 from ._deprecation import warn_deprecated, warn_registered_deprecation
 from ._env import get_base_url as get_base_url
@@ -72,23 +72,48 @@ from ._settings import SettingsAPI
 from ._sharing import SharingAPI
 from ._sources import SourcesAPI
 from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
-from ._web.mind_maps import NoteBackedMindMapService as NoteBackedMindMapService  # noqa: F401
-from ._web.notes import NoteService as NoteService  # noqa: F401
-from ._web.transport.composed import ClientComposed as ClientComposed  # noqa: F401
-from ._web.transport.executor import RpcExecutor as RpcExecutor  # noqa: F401
-from ._web.transport.init import WebRuntime
-from ._web.transport.init import compose_client_internals as compose_client_internals  # noqa: F401
-from ._web.transport.lifecycle import CookieRotator, CookieSaver
-from ._web.transport.seams import ClientSeams
-from ._web.transport.seams import resolve_client_seams as resolve_client_seams  # noqa: F401
-from ._web.transport.sidecar import LazyWebSidecar
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
-from .raw import AndroidRawAPI, WebRawAPI
 
 __all__ = ["NotebookLMClient"]
 
 logger = logging.getLogger(__name__)
+
+_LAZY_COMPAT_EXPORTS = {
+    "AndroidRawAPI": ("notebooklm._android.raw", "AndroidRawAPI"),
+    "AndroidRuntime": ("notebooklm._android.runtime", "AndroidRuntime"),
+    "ClientComposed": ("notebooklm._web.transport.composed", "ClientComposed"),
+    "ClientSeams": ("notebooklm._web.transport.seams", "ClientSeams"),
+    "LazyWebSidecar": ("notebooklm._client_compat", "LazyWebSidecar"),
+    "NoteBackedMindMapService": (
+        "notebooklm._web.mind_maps",
+        "NoteBackedMindMapService",
+    ),
+    "NoteService": ("notebooklm._web.notes", "NoteService"),
+    "RpcExecutor": ("notebooklm._web.transport.executor", "RpcExecutor"),
+    "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
+    "WebRuntime": ("notebooklm._web.transport.init", "WebRuntime"),
+    "compose_client_internals": (
+        "notebooklm._web.transport.init",
+        "compose_client_internals",
+    ),
+    "resolve_client_seams": (
+        "notebooklm._web.transport.seams",
+        "resolve_client_seams",
+    ),
+}
+
+
+def __getattr__(name: str) -> object:
+    target = _LAZY_COMPAT_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute = target
+    return getattr(importlib.import_module(module_name), attribute)
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_COMPAT_EXPORTS})
 
 
 class NotebookLMClient:
@@ -142,11 +167,11 @@ class NotebookLMClient:
     # ``tests/_guardrails/test_client_factory_parity.py`` pins the
     # runtime attribute surface itself.
     _auth: AuthTokens
-    _seams: ClientSeams
+    _seams: Any
     _collaborators: SharedRuntime
-    _web_runtime: WebRuntime | None
-    _web_sidecar: LazyWebSidecar | None
-    _android_runtime: AndroidRuntime | None
+    _web_runtime: Any | None
+    _web_sidecar: Any | None
+    _android_runtime: Any | None
     _backend_preference: BackendPreference
     _backends: Mapping[str, BackendName]
     _rpc_call_deprecation_warned: bool
@@ -161,9 +186,9 @@ class NotebookLMClient:
     sharing: SharingAPI
     labels: LabelsAPI
     collections: CollectionsAPI
-    _raw: WebRawAPI | AndroidRawAPI
+    _raw: Any
 
-    def _require_web_runtime(self) -> WebRuntime:
+    def _require_web_runtime(self) -> Any:
         """Return the web bundle or fail before a web-only operation."""
         runtime = self._web_runtime
         if runtime is None:
@@ -171,10 +196,10 @@ class NotebookLMClient:
         return runtime
 
     @property
-    def raw(self) -> WebRawAPI | AndroidRawAPI:
+    def raw(self) -> raw_api.WebRawAPI | raw_api.AndroidRawAPI:
         """Return the advanced wire adapter selected for this client backend."""
 
-        return self._raw
+        return cast("raw_api.WebRawAPI | raw_api.AndroidRawAPI", self._raw)
 
     def __init__(
         self,
@@ -706,15 +731,10 @@ class NotebookLMClient:
         its cookies are refreshed best-effort through that sidecar's own Web
         ladder as well.
 
-        The Web path uses explicit collaborators sourced from ``self._auth``
-        and the applicable :class:`WebRuntime`. The five kwargs mirror the
-        :func:`refresh_auth_session` signature: ``auth`` is the client-owned
-        :class:`AuthTokens` instance (the Auth Instance Invariant guarantees
-        every auth consumer observes it), and the remaining four come from
-        the bundle the composition root produced. The canonical test helper
-        wires ``_auth`` and both runtime variants through the same
-        :func:`notebooklm._client_assembly._assemble_client` seam, so test
-        shells observe the production resolution path.
+        The selected Web runtime owns the concrete homepage, token, cookie,
+        persistence, and lifecycle collaborators. The root client invokes one
+        narrow bound refresh operation and does not reconstruct that Web-only
+        collaborator graph.
 
         Args:
             allow_headless: Opt in to **layer-3 headless re-auth** when the
@@ -838,45 +858,20 @@ class NotebookLMClient:
 
     async def _refresh_web_runtime_auth_for_epoch(
         self,
-        web: WebRuntime,
+        web: Any,
         *,
         allow_headless: bool = False,
         expected_epoch: int,
     ) -> AuthTokens:
         """Run the Web recovery ladder for an explicit Web bundle."""
 
-        coord = web.auth_coord
-        if not allow_headless or not coord.has_refresh_callback:
-            # Base policy — also the coordinator's single-flight callback body,
-            # so this branch must NOT re-enter await_refresh (that would recurse
-            # through the callback). No coordinator wired ⇒ same direct path.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=web.kernel,
-                auth_coord=coord,
-                web_transport=web.web_transport,
-                cookie_persistence=web.cookie_persistence,
+        return cast(
+            AuthTokens,
+            await web.refresh_auth(
                 allow_headless=allow_headless,
                 expected_epoch=expected_epoch,
-            )
-        # Wider policy: join the in-flight base refresh (join-then-rerun).
-        try:
-            await coord.await_refresh(expected_epoch)
-        except ValueError:
-            # Narrow by design: the L3-remediable base-flight failure surfaces as
-            # ValueError (dead-cookie 302 / token extraction). refresh-cmd swallows
-            # its RuntimeError internally (returns bool), so a RuntimeError here is
-            # incidental and must propagate rather than trigger a second refresh.
-            return await refresh_auth_session(
-                auth=self._auth,
-                kernel=web.kernel,
-                auth_coord=coord,
-                web_transport=web.web_transport,
-                cookie_persistence=web.cookie_persistence,
-                allow_headless=True,
-                expected_epoch=expected_epoch,
-            )
-        return self._auth
+            ),
+        )
 
     def get_account_authuser(self) -> int:
         """Return the ``authuser`` index of the signed-in account (0 = default).

@@ -5099,8 +5099,8 @@
         <text data-detail="fine" x="315" y="175" class="t-backend" font-size="7" text-anchor="middle">dedicated client</text>
         </g>
 
-        <g id="node-addsvc" data-node-id="addsvc" data-node-label="Source Add Services" tabindex="0" role="button" aria-label="Focus Source Add Services, validate · register, 02 / Register" aria-pressed="false" data-node-kind="backend" data-node-sublabel="validate · register" data-node-tag="idempotent" data-node-context="02 / Register">
-          <title>Source Add Services · validate · register · 02 / Register · idempotent</title>
+        <g id="node-addsvc" data-node-id="addsvc" data-node-label="Source Add Services" tabindex="0" role="button" aria-label="Focus Source Add Services, validate · register, 02 / Register" aria-pressed="false" data-node-kind="backend" data-node-sublabel="validate · register" data-node-tag="mixed retry safety" data-node-context="02 / Register">
+          <title>Source Add Services · validate · register · 02 / Register · mixed retry safety</title>
           <rect x="259" y="356" width="112" height="58" rx="6" class="c-mask"/>
           <rect x="259" y="356" width="112" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(265 362) scale(0.6875)">
@@ -5108,7 +5108,7 @@
           </g>
           <text data-node-label="" data-detail-anchor="" x="315" y="377" class="t-primary" font-size="9.1" font-weight="600" text-anchor="middle">Source Add Services</text>
           <text data-detail="context" x="315" y="393" class="t-muted" font-size="7" text-anchor="middle">validate · register</text>
-        <text data-detail="fine" x="315" y="403" class="t-backend" font-size="7" text-anchor="middle">idempotent</text>
+        <text data-detail="fine" x="315" y="403" class="t-backend" font-size="7" text-anchor="middle">mixed retry safety</text>
         </g>
 
         <g id="node-scotty" data-node-id="scotty" data-node-label="Scotty" tabindex="0" role="button" aria-label="Focus Scotty, resumable upload, 03 / Transfer" aria-pressed="false" data-node-kind="cloud" data-node-sublabel="resumable upload" data-node-tag="start · finalize" data-node-context="03 / Transfer">
@@ -5159,14 +5159,14 @@
         <text data-detail="fine" x="745" y="403" class="t-database" font-size="7" text-anchor="middle">status field</text>
         </g>
 
-        <g id="node-waitready" data-node-id="waitready" data-node-label="wait_for_ready" tabindex="0" role="button" aria-label="Focus wait_for_ready, poll until READY, 05 / Consume" aria-pressed="false" data-node-kind="backend" data-node-sublabel="poll until READY" data-node-tag="PROCESSING" data-node-context="05 / Consume">
-          <title>wait_for_ready · poll until READY · 05 / Consume · PROCESSING</title>
+        <g id="node-waitready" data-node-id="waitready" data-node-label="wait_until_ready" tabindex="0" role="button" aria-label="Focus wait_until_ready, poll until READY, 05 / Consume" aria-pressed="false" data-node-kind="backend" data-node-sublabel="poll until READY" data-node-tag="PROCESSING" data-node-context="05 / Consume">
+          <title>wait_until_ready · poll until READY · 05 / Consume · PROCESSING</title>
           <rect x="904" y="242" width="112" height="58" rx="6" class="c-mask"/>
           <rect x="904" y="242" width="112" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(910 248) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
-          <text data-node-label="" data-detail-anchor="" x="960" y="263" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">wait_for_ready</text>
+          <text data-node-label="" data-detail-anchor="" x="960" y="263" class="t-primary" font-size="10" font-weight="600" text-anchor="middle">wait_until_ready</text>
           <text data-detail="context" x="960" y="279" class="t-muted" font-size="7" text-anchor="middle">poll until READY</text>
         <text data-detail="fine" x="960" y="289" class="t-backend" font-size="7" text-anchor="middle">PROCESSING</text>
         </g>
@@ -5199,9 +5199,9 @@
         <text data-detail="fine" x="422.5" y="158" class="t-dim" font-size="7" text-anchor="middle">outside RPC</text>
         </g>
         <g data-detail="context" data-edge-from="addsvc" data-edge-to="rpcpath" data-edge-label="mutating RPC" data-edge-key="3" data-edge-id="add-rpc">
-          <rect x="384.65" y="364" width="75.7" height="27" rx="4" class="c-mask"/>
-          <text x="422.5" y="375" class="t-backend" font-size="8" text-anchor="middle">mutating RPC</text>
-        <text data-detail="fine" x="422.5" y="386" class="t-dim" font-size="7" text-anchor="middle">probe guarded</text>
+          <rect x="345.95" y="417" width="154.1" height="27" rx="4" class="c-mask"/>
+          <text x="423" y="428" class="t-backend" font-size="8" text-anchor="middle">mutating RPC</text>
+        <text data-detail="fine" x="423" y="439" class="t-dim" font-size="7" text-anchor="middle">URL/Drive probe · text direct</text>
         </g>
         <g data-detail="context" data-edge-from="scotty" data-edge-to="indexer" data-edge-label="finalized blob" data-edge-key="4" data-edge-id="scotty-index">
           <rect x="597.2" y="189.5" width="80.6" height="27" rx="4" class="c-mask"/>

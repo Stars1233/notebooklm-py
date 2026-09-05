@@ -23,7 +23,7 @@ from ...types import (
     ArtifactParseError,
     ArtifactType,
 )
-from ..rows.artifacts import ArtifactRow, extract_interactive_tree_leaf
+from ..rows.artifacts import ArtifactRow, decode_artifact, extract_interactive_tree_leaf
 from ..rows.notes import NoteRow
 from .table import _parse_data_table
 
@@ -489,7 +489,7 @@ class ArtifactDownloadService:
                 for row in artifacts_data:
                     if not isinstance(row, list):
                         continue
-                    artifact = Artifact.from_api_response(row)
+                    artifact = decode_artifact(Artifact, row)
                     if artifact.id == artifact_id and artifact.is_interactive_mind_map:
                         interactive = True
                         break

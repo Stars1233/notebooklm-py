@@ -258,13 +258,13 @@ def test_notebooks_api_has_no_hidden_sources_api_runtime_dependency() -> None:
 def test_client_constructs_sources_before_notebooks_and_injects_sources_api() -> None:
     """Client wiring must avoid hidden SourcesAPI construction inside NotebooksAPI.
 
-    The wiring lives in :func:`notebooklm._client_assembly._assemble_client`
+    The wiring lives in :func:`notebooklm._web.assembly.assemble_web_backend`
     (the single construction seam ``NotebookLMClient.__init__`` and the
     canonical test factory both run), where the client instance is bound to
     the ``client`` parameter — hence the ``owner="client"`` matchers.
     """
-    assembly_tree = ast.parse((SRC_ROOT / "_client_assembly.py").read_text(encoding="utf-8"))
-    assembly_body = _module_function_body(assembly_tree, "_assemble_client")
+    assembly_tree = ast.parse((SRC_ROOT / "_web" / "assembly.py").read_text(encoding="utf-8"))
+    assembly_body = _module_function_body(assembly_tree, "assemble_web_backend")
     sources_index, sources_assignment = _owned_attr_assignment(
         assembly_body, "sources", owner="client"
     )

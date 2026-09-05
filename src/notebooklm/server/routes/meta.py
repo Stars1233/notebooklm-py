@@ -27,8 +27,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 
+from ..._adapter_support import redact
 from ..._app.auth_check import AuthCheckPlan, run_auth_check
-from ..._redact import redact
 from ..._version_info import version_string
 from ...client import NotebookLMClient
 from ...exceptions import AuthError, NotebookLMError

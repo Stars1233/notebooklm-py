@@ -26,8 +26,9 @@ from typing import Any
 
 import pytest
 
-from notebooklm._runtime.init import RuntimeCollaborators, SharedRuntime
+from notebooklm._runtime.init import RuntimeCollaborators, SharedRuntime, SharedRuntimeConfig
 from notebooklm._web.transport.composed import ClientComposed
+from notebooklm._web.transport.config import WebSessionConfig
 from notebooklm._web.transport.init import (
     ClientInternals,
     WebRuntime,
@@ -53,6 +54,27 @@ def _make_auth() -> AuthTokens:
     )
 
 
+def test_shared_runtime_config_contains_only_the_rpc_admission_cap() -> None:
+    assert [field.name for field in fields(SharedRuntimeConfig)] == ["max_concurrent_rpcs"]
+
+
+def test_web_session_config_owns_every_web_transport_setting() -> None:
+    assert {field.name for field in fields(WebSessionConfig)} == {
+        "timeout",
+        "connect_timeout",
+        "limits",
+        "refresh_retry_delay",
+        "rate_limit_max_retries",
+        "server_error_max_retries",
+        "keepalive_interval",
+        "keepalive_storage_path",
+        "decode_response",
+        "sleep",
+        "is_auth_error",
+        "async_client_factory",
+    }
+
+
 # ---------------------------------------------------------------------------
 # compose_client_internals — client-owned composition root
 # ---------------------------------------------------------------------------
@@ -71,6 +93,7 @@ def test_runtime_bundles_follow_backend_ownership_boundary() -> None:
         "kernel",
         "cookie_persistence",
         "web_transport",
+        "session_auth",
         "composed",
         "executor",
         "source_uploader",
@@ -146,6 +169,17 @@ def test_max_concurrent_rpcs_keeps_phase_a_validation_precedence(
         )
 
     assert str(raised.value) == "max_concurrent_rpcs must be >= 1, got 0"
+
+
+def test_direct_web_composition_keeps_owned_validation_precedence() -> None:
+    with pytest.raises(ValueError) as raised:
+        compose_client_internals(
+            auth=_make_auth(),
+            rate_limit_max_retries=-1,
+            max_concurrent_rpcs=0,
+        )
+
+    assert str(raised.value) == "rate_limit_max_retries must be >= 0, got -1"
 
 
 def test_prebuilt_client_composed_has_no_runtime_policy_configuration() -> None:

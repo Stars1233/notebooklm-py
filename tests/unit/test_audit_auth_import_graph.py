@@ -120,10 +120,10 @@ def test_scope_duplicate_self_and_scc_rules(audit, tmp_path):
 def test_live_projection_is_the_frozen_scorecard(audit):
     result = audit.build_projection()
     assert result["summary"] == {
-        "modules": 33,
-        "total_lines": 13964,
-        "unique_edges": 127,
-        "module_edges": 115,
+        "modules": 32,
+        "total_lines": 13686,
+        "unique_edges": 123,
+        "module_edges": 111,
         "function_local_edges": 12,
     }
     assert result["sccs"] == {
@@ -131,13 +131,13 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         "all_scopes": [],
     }
     edges = {(edge["source"], edge["target"], edge["scope"]) for edge in result["edges"]}
-    assert ("cookie_types", "cookies", "module") not in edges
     assert {
         ("cookie_types", "cookie_policy", "module"),
         ("cookie_types", "cookie_semantics", "module"),
         ("cookies", "cookie_types", "module"),
         ("cookies", "cookie_semantics", "module"),
     } <= edges
+    assert {edge for edge in edges if "cookie_pair" in edge[:2]} == set()
     assert {edge for edge in edges if "account_types" in edge[:2]} == {
         ("account", "account_types", "module"),
         ("account_repair", "account_types", "module"),
@@ -220,10 +220,12 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("storage", "master_token_types", "module"),
     }
     assert {edge for edge in edges if "mint_service" in edge[:2]} == {
+        ("cookies", "mint_service", "module"),
         ("keepalive", "mint_service", "module"),
         ("master_token", "mint_service", "module"),
         ("master_token_bootstrap", "mint_service", "module"),
         ("mint_service", "master_token_types", "module"),
+        ("profile_store", "mint_service", "module"),
     }
     assert {edge for edge in edges if "profile_store" in edge[:2]} == {
         ("account_email", "profile_store", "module"),
@@ -239,6 +241,7 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("profile_store", "credential_io", "module"),
         ("profile_store", "master_token_file", "module"),
         ("profile_store", "master_token_types", "module"),
+        ("profile_store", "mint_service", "module"),
         ("profile_store", "paths", "module"),
         ("profile_store", "profile_account", "module"),
         ("profile_store", "profile_document", "module"),
@@ -269,7 +272,6 @@ def test_live_projection_is_the_frozen_scorecard(audit):
     }
     assert {edge for edge in edges if "tokens" in edge[:2]} == {
         ("account_email", "tokens", "module"),
-        ("session", "tokens", "module"),
         ("tokens", "account", "module"),
         ("tokens", "cookie_types", "module"),
         ("tokens", "cookies", "module"),
@@ -297,7 +299,6 @@ def test_live_projection_is_the_frozen_scorecard(audit):
         ("recovery", "storage", "function"),
         ("recovery", "storage", "module"),
         ("refresh", "recovery", "module"),
-        ("session", "recovery", "module"),
     }
     assert {edge for edge in edges if "recovery_rungs" in edge[:2]} == {
         ("recovery", "recovery_rungs", "function"),

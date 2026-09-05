@@ -11,7 +11,7 @@ a human, then lets the normal auth path retry.
 Recovery layering (deepest last):
 
 * **L1** — token / CSRF refresh (homepage GET re-extracts ``SNlM0e`` /
-  ``FdrFJe``; :func:`notebooklm._auth.session.refresh_auth_session`).
+  ``FdrFJe``; :func:`notebooklm._web.transport.session_auth.refresh_auth_session`).
 * **L2** — ``__Secure-1PSIDTS`` rotation via the ``RotateCookies`` POST
   (:mod:`notebooklm._auth.keepalive` / :mod:`notebooklm._auth.psidts_recovery`).
 * **L3** — headless browser re-auth (this module). Fired only after L1/L2

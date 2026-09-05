@@ -12,6 +12,7 @@ from ...rpc import RPCError, RPCMethod, safe_index
 from ...types import Source, SourceType
 from ..contracts import RpcCaller
 from ..params.sources import build_template_block
+from ..rows.source_models import source_from_row
 from ..rows.sources import SourceRow
 
 # Keep source-list warnings on the historical logger so existing log filters
@@ -274,7 +275,7 @@ class SourceLister:
         # Funnel through the single ``Source`` construction site shared
         # with ``Source.from_api_response`` so the list/get/poll path and
         # the ADD_SOURCE/rename path produce identical Sources.
-        return Source.from_row(row)
+        return source_from_row(Source, row)
 
 
 __all__ = ["SourceLister"]

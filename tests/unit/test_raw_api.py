@@ -25,6 +25,34 @@ from notebooklm.raw import (
 )
 from notebooklm.rpc import RPCMethod
 
+
+def test_public_raw_facade_loads_backend_classes_lazily() -> None:
+    script = """
+import pickle
+import sys
+import notebooklm.raw as raw
+
+assert "notebooklm._android.raw" not in sys.modules
+assert "notebooklm._web.raw" not in sys.modules
+from notebooklm.raw import AndroidRawAPI, WebRawAPI
+from notebooklm._android.raw import AndroidRawAPI as AndroidImplementation
+from notebooklm._web.raw import WebRawAPI as WebImplementation
+assert AndroidRawAPI is AndroidImplementation
+assert WebRawAPI is WebImplementation
+assert AndroidRawAPI.__module__ == "notebooklm.raw"
+assert repr(AndroidRawAPI) == "<class 'notebooklm.raw.AndroidRawAPI'>"
+assert pickle.loads(pickle.dumps(AndroidRawAPI)) is AndroidRawAPI
+assert pickle.loads(pickle.dumps(WebRawAPI)) is WebRawAPI
+assert {"AndroidRawAPI", "WebRawAPI"} <= set(dir(raw))
+"""
+    subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
 METHOD = "/example.raw.Service/GetThing"
 
 
@@ -315,7 +343,7 @@ async def test_unary_stream_failure_does_not_retain_wire_secrets_in_traceback_lo
     inspected_raw_frame = False
     while frame is not None:
         frame_path = Path(frame.tb_frame.f_code.co_filename)
-        if frame_path.name == "raw.py" and frame_path.parent.name == "notebooklm":
+        if frame_path.name == "raw.py" and frame_path.parent.name in {"notebooklm", "_android"}:
             inspected_raw_frame = True
             local_values = tuple(frame.tb_frame.f_locals.values())
             assert metadata_secret not in repr(local_values)

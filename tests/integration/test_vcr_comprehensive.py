@@ -22,6 +22,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from notebooklm import NotebookLMClient, ReportFormat
+from notebooklm._web.rows.artifacts import decode_artifact
 from notebooklm.types import Artifact, ArtifactType
 from tests.integration.conftest import get_vcr_auth, skip_no_cassettes
 from tests.vcr_config import notebooklm_vcr
@@ -402,7 +403,7 @@ class TestArtifactsListAPI:
         """Real rows expose media duration/URLs and visual accessibility text."""
         async with vcr_client() as client:
             rows = await client.artifacts._list_raw(READONLY_NOTEBOOK_ID)
-        artifacts = [Artifact.from_api_response(row) for row in rows]
+        artifacts = [decode_artifact(Artifact, row) for row in rows]
 
         audio = next(art for art in artifacts if art.kind is ArtifactType.AUDIO)
         video = next(art for art in artifacts if art.kind is ArtifactType.VIDEO)

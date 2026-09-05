@@ -1,6 +1,8 @@
 """Unit tests for RPC types and constants."""
 
 import ast
+import os
+import pickle
 import re
 import subprocess
 import sys
@@ -8,6 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from notebooklm.rpc import RPCMethod as FacadeRPCMethod
+from notebooklm.rpc import types as rpc_types
+from notebooklm.rpc._identifiers import RPCMethod as IdentifierRPCMethod
 from notebooklm.rpc.types import (
     BATCHEXECUTE_URL,
     QUERY_URL,
@@ -31,15 +36,43 @@ from notebooklm.rpc.types import (
 )
 
 
+def test_rpc_method_identity_and_historical_runtime_provenance() -> None:
+    """The dependency-bottom owner must not change the public enum object."""
+    assert IdentifierRPCMethod is RPCMethod is FacadeRPCMethod
+    assert RPCMethod.__module__ == "notebooklm.rpc.types"
+    assert RPCMethod.__qualname__ == "RPCMethod"
+    assert repr(RPCMethod) == "<enum 'RPCMethod'>"
+    assert repr(RPCMethod.LIST_NOTEBOOKS) == "<RPCMethod.LIST_NOTEBOOKS: 'wXbhsf'>"
+    assert str(RPCMethod.LIST_NOTEBOOKS) == "RPCMethod.LIST_NOTEBOOKS"
+
+    payload = pickle.dumps(RPCMethod.LIST_NOTEBOOKS)
+    assert b"notebooklm.rpc.types" in payload
+    assert b"_identifiers" not in payload
+    assert pickle.loads(payload) is RPCMethod.LIST_NOTEBOOKS
+
+
+def test_rpc_types_preserves_historical_wildcard_tail_order() -> None:
+    """Moving the enum owner must not reorder the compatibility star surface."""
+    assert rpc_types.__all__[-7:] == [
+        "QUERY_URL",
+        "UPLOAD_URL",
+        "get_batchexecute_url",
+        "get_query_url",
+        "get_upload_url",
+        "RPCMethod",
+        "resolve_rpc_id",
+    ]
+
+
 def test_rpc_types_does_not_own_runtime_override_policy() -> None:
-    """Runtime override env parsing belongs in web wire, not rpc.types."""
+    """Runtime override policy belongs in Web wire, not compatibility types."""
     path = Path(__file__).parents[2] / "src/notebooklm/rpc/types.py"
     tree = ast.parse(path.read_text())
 
     imported_os: list[int] = []
     environ_access: list[int] = []
     direct_override_defs: list[int] = []
-    override_aliases: set[str] = set()
+    web_override_imports: list[int] = []
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -49,9 +82,8 @@ def test_rpc_types_does_not_own_runtime_override_policy() -> None:
         elif isinstance(node, ast.ImportFrom):
             if node.module == "os":
                 imported_os.append(node.lineno)
-            for alias in node.names:
-                if (node.module, node.level) == ("_web.wire.overrides", 2):
-                    override_aliases.add(alias.asname or alias.name)
+            if (node.module, node.level) == ("_web.wire.overrides", 2):
+                web_override_imports.append(node.lineno)
         elif (
             isinstance(node, ast.Attribute)
             and node.attr == "environ"
@@ -68,12 +100,31 @@ def test_rpc_types_does_not_own_runtime_override_policy() -> None:
     assert imported_os == []
     assert environ_access == []
     assert direct_override_defs == []
-    assert {
-        "_load_rpc_overrides",
-        "_logged_override_hashes",
-        "_parse_rpc_overrides",
-        "resolve_rpc_id",
-    } <= override_aliases
+    assert web_override_imports == []
+
+
+def test_rpc_types_legacy_override_exports_are_lazy_identity_reexports() -> None:
+    """Legacy names remain exact aliases without an eager Web-wire import."""
+    import notebooklm._web.wire.overrides as web_overrides
+    import notebooklm.rpc.types as rpc_types
+
+    assert rpc_types.resolve_rpc_id is web_overrides.resolve_rpc_id
+    assert rpc_types._parse_rpc_overrides is web_overrides._parse_rpc_overrides
+    assert rpc_types._load_rpc_overrides is web_overrides._load_rpc_overrides
+    assert rpc_types._logged_override_hashes is web_overrides._logged_override_hashes
+
+
+def test_rpc_types_does_not_bind_web_override_policy_at_module_scope() -> None:
+    """The identifier module keeps compatibility aliases lazy in its namespace."""
+    script = """
+import notebooklm.rpc.types as rpc_types
+assert 'resolve_rpc_id' not in vars(rpc_types)
+assert '_parse_rpc_overrides' not in vars(rpc_types)
+"""
+    env = os.environ.copy()
+    source_root = str(Path(__file__).parents[2] / "src")
+    env["PYTHONPATH"] = os.pathsep.join(filter(None, (source_root, env.get("PYTHONPATH"))))
+    subprocess.run([sys.executable, "-c", script], check=True, env=env)
 
 
 def test_rpc_override_import_order_smoke() -> None:
@@ -84,9 +135,29 @@ def test_rpc_override_import_order_smoke() -> None:
         "from notebooklm.rpc.types import RPCMethod, resolve_rpc_id, _parse_rpc_overrides; "
         "assert resolve_rpc_id(RPCMethod.LIST_NOTEBOOKS.name, RPCMethod.LIST_NOTEBOOKS.value); "
         "assert hasattr(_parse_rpc_overrides, 'cache_clear')",
+        "from notebooklm._web.wire.overrides import RPCMethod as web_method; "
+        "from notebooklm.rpc.types import RPCMethod as compat_method; "
+        "from notebooklm.rpc import RPCMethod as public_method; "
+        "assert web_method is compat_method is public_method",
+        "from notebooklm.rpc._identifiers import RPCMethod as leaf_method; "
+        "from notebooklm._web.wire.overrides import RPCMethod as web_method; "
+        "from notebooklm.rpc.types import RPCMethod as compat_method; "
+        "assert leaf_method is web_method is compat_method",
     ]
     for snippet in snippets:
         subprocess.run([sys.executable, "-c", snippet], check=True)
+
+
+def test_rpc_types_wildcard_import_preserves_lazy_override_export() -> None:
+    """Wildcard compatibility keeps ``resolve_rpc_id`` without leaking typing helpers."""
+    script = """
+namespace = {}
+exec('from notebooklm.rpc.types import *', namespace)
+assert 'resolve_rpc_id' in namespace
+assert 'Any' not in namespace
+assert namespace['resolve_rpc_id']('LIST_NOTEBOOKS', 'canonical') == 'canonical'
+"""
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 class TestRPCConstants:
@@ -123,7 +194,7 @@ class TestRPCMethod:
     re-stated ``rpc/types.py`` (zero behavioral value, a mechanical re-edit on
     every ID rotation). This is strictly stronger: it holds for ALL members and
     catches empties / malformed tokens / cross-enum duplicate IDs that the
-    individual pins never checked. ``rpc/types.py`` remains the single source of
+    individual pins never checked. ``rpc/_identifiers.py`` remains the single source of
     truth for the literal values.
     """
 

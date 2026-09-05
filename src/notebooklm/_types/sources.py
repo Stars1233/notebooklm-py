@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import warnings
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from .._deprecation import warn_registered_deprecation
 from .._url_utils import pdf_url_display_title
 from .common import (
     UnknownTypeWarning,
@@ -17,6 +19,12 @@ from .enums import DriveSourceStatus, SourceStatus
 
 if TYPE_CHECKING:
     from .._web.rows.sources import SourceRow
+
+
+_suppress_source_from_row_warning: ContextVar[bool] = ContextVar(
+    "suppress_source_from_row_warning",
+    default=False,
+)
 
 
 class SourceType(str, Enum):
@@ -605,13 +613,15 @@ class Source:
     def from_row(cls, row: SourceRow) -> Source:
         """Build a :class:`Source` from a normalized :class:`SourceRow`.
 
-        This is the **single** construction site for a :class:`Source`
-        from a parsed source row. Both :meth:`from_api_response` (the
-        public classmethod used by ``ADD_SOURCE`` / rename paths) and
-        :meth:`notebooklm._web.sources.listing.SourceLister._parse_source`
-        (the ``GET_NOTEBOOK`` list/get/poll path) funnel through here so
-        every code path produces identical :class:`Source` instances —
-        including the decoded :attr:`status`.
+        .. deprecated:: 0.9.0
+           Use ``client.sources`` typed APIs. ``SourceRow`` is a private Web
+           adapter and has no supported public decoder.
+
+        This compatibility wrapper mirrors the Web-owned constructor used by
+        the ``GET_NOTEBOOK`` list/get/poll path. First-party Web operations no
+        longer call public row decoders, while the v0.x method keeps producing
+        identical :class:`Source` instances — including the decoded
+        :attr:`status` — until its v1 removal.
 
         Minimal flat rows historically yield ``_type_code=None`` and skip
         metadata-derived fields. That invariant is now handled by SourceRow
@@ -621,21 +631,18 @@ class Source:
         :attr:`~SourceRow.created_at` and all optional enrichment properties
         resolve to ``None`` while
         :attr:`~SourceRow.status` resolves to ``SourceStatus.UNKNOWN``. The
-        single field mapping below therefore covers all three wire shapes
-        identically.
+        compatibility field mapping below therefore covers all three wire
+        shapes identically.
         """
-        # Correct the type_code==14 native-Sheet/Drive-PDF overload before it
-        # reaches ``kind`` (#1832). Prefer the original-content MIME, then fall
-        # back to the Drive-only MIME if the first value is not a known
-        # override. Both passes are no-ops for every other code and real Sheets.
+        if not _suppress_source_from_row_warning.get():
+            warn_registered_deprecation("source_from_row")
+        # Keep the v0.x compatibility body local: unlike first-party Web
+        # operations, this public wrapper must retain only its existing
+        # TYPE_CHECKING edge to SourceRow until the v1 removal boundary.
         type_code = _disambiguate_type_code(row.type_code, row.content_mime)
         type_code = _disambiguate_type_code(type_code, row.mime)
         return cls(
             id=row.id,
-            # #1850: a direct-PDF URL arrives with the raw URL in the title slot
-            # (the server extracts <title> for HTML pages but not for a link
-            # that points straight at a .pdf). Fall back to the URL path
-            # basename. This single funnel covers the add and list paths.
             title=_pdf_url_title_fallback(row.title, row.url, type_code),
             url=row.url,
             _type_code=type_code,
@@ -663,19 +670,21 @@ class Source:
     ) -> Source:
         """Parse source data from various API response formats.
 
+        .. deprecated:: 0.9.0
+           Use ``client.sources`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         Multi-shape dispatch (the three wire shapes — deeply nested,
         medium nested, flat) is centralised in
         :meth:`notebooklm._web.rows.sources.SourceRow.from_unknown_shape`;
         position knowledge for the entry layout lives on
         :class:`SourceRow` itself. This method only normalizes the wire
-        shape into a :class:`SourceRow` and defers to :meth:`from_row` —
-        the single construction site shared with the
-        ``GET_NOTEBOOK`` list/get/poll path
-        (:meth:`notebooklm._web.sources.listing.SourceLister._parse_source`) —
-        so all paths produce identical :class:`Source` instances,
-        including the decoded :attr:`status`. ``status`` earlier silently
-        fell back to the ``SourceStatus.READY`` default here while the
-        listing path read it from the row.
+        shape into a :class:`SourceRow` and delegates to the Web-owned source
+        constructor shared by first-party operations, so both the public v0.x
+        wrapper and the ``GET_NOTEBOOK`` list/get/poll path produce identical
+        :class:`Source` instances, including the decoded :attr:`status`.
+        ``status`` earlier silently fell back to the ``SourceStatus.READY``
+        default here while the listing path read it from the row.
 
         Args:
             data: Raw decoded source payload (one of the three wire
@@ -698,12 +707,24 @@ class Source:
                 fall back to its ``GET_NOTEBOOK`` default — preserving
                 the historical behavior for callers that do not pass it.
         """
-        # Keep the row-adapter dependency local so importing the source
-        # dataclass package does not pull source-row parsing helpers into
-        # the top-level public type facade.
+        warn_registered_deprecation("source_from_api_response")
+        from .._web.rows.source_models import source_from_row
         from .._web.rows.sources import SourceRow
 
-        return cls.from_row(SourceRow.from_unknown_shape(data, method_id=method_id))
+        del notebook_id  # Retained for parity with the tracked public signature.
+        row = SourceRow.from_unknown_shape(data, method_id=method_id)
+        inherited_from_row = getattr(cls.from_row, "__func__", cls.from_row)
+        canonical_from_row = getattr(Source.from_row, "__func__", Source.from_row)
+        if inherited_from_row is not canonical_from_row:
+            # Preserve the historical extension point for subclasses that
+            # override the public row constructor.  The common path stays on
+            # the warning-free Web-owned constructor used by first-party code.
+            token = _suppress_source_from_row_warning.set(True)
+            try:
+                return cls.from_row(row)
+            finally:
+                _suppress_source_from_row_warning.reset(token)
+        return source_from_row(cls, row)
 
 
 @dataclass

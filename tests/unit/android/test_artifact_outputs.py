@@ -13,6 +13,7 @@ import asyncio
 import json
 import tempfile
 import threading
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ from notebooklm._android.artifact_outputs import (
     decode_interactive_app_data,
     decode_interactive_mind_map_tree,
     decode_prefetched_artifacts,
+    matches_artifact_type,
     report_doc_markdown,
     select_note_backed_mind_map,
     select_single_file_media_url,
@@ -40,13 +42,15 @@ from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import (
     artifacts_pb2 as wire_pb2,
 )
 from notebooklm._types.artifact_content import ArtifactMedia, ArtifactMediaType
+from notebooklm._types.artifacts import _warned_artifact_types
+from notebooklm._types.common import UnknownTypeWarning
 from notebooklm.exceptions import (
     ArtifactDownloadError,
     ArtifactParseError,
     DecodingError,
     ValidationError,
 )
-from notebooklm.types import Artifact, MindMap, MindMapKind
+from notebooklm.types import Artifact, ArtifactType, MindMap, MindMapKind
 
 METHOD_ID = "test-method"
 
@@ -87,6 +91,16 @@ def test_validate_echoed_source_ids_accepts_matching_or_absent_echoes(
     source_ids: tuple[str, ...],
 ) -> None:
     validate_echoed_source_ids(_artifact(source_ids=source_ids), ["s1", "s2"], "report", METHOD_ID)
+
+
+def test_artifact_type_filter_ignores_unclassified_type4_without_warning() -> None:
+    artifact = _artifact(_artifact_type=4, _variant=None)
+    _warned_artifact_types.discard((4, None))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnknownTypeWarning)
+        assert matches_artifact_type(artifact, ArtifactType.QUIZ) is False
+        assert matches_artifact_type(artifact, ArtifactType.UNKNOWN) is True
 
 
 # ---------------------------------------------------------------------------

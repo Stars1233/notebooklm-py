@@ -31,6 +31,7 @@ from ...rpc import RPCError, RPCMethod
 from ...types import Source
 from ..contracts import RpcCaller
 from ..params.sources import build_template_block
+from ..rows.source_models import decode_source
 from ..rows.sources import unwrap_add_source_rows
 
 ListSources = Callable[..., Awaitable[list[Source]]]
@@ -215,7 +216,7 @@ class SourceBatchAddService:
         try:
             rows = [] if rpc_error is not None else unwrap_add_source_rows(payload)
             sources = [
-                Source.from_api_response(row, method_id=RPCMethod.ADD_SOURCE.value) for row in rows
+                decode_source(Source, row, method_id=RPCMethod.ADD_SOURCE.value) for row in rows
             ]
         except Exception as exc:  # noqa: BLE001 - strict decode boundary; fail closed
             raise _unresolved_batch_error(

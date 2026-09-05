@@ -1,4 +1,4 @@
-"""Keep every Android call-site retry literal aligned with web policy semantics."""
+"""Keep fixed Android call-site retry literals aligned with web policy semantics."""
 
 from __future__ import annotations
 
@@ -123,6 +123,188 @@ def _string_value(node: ast.expr, names: dict[str, str]) -> str | None:
     return None
 
 
+def _android_raw_dynamic_dispatches(path: Path, tree: ast.Module) -> set[ast.Call]:
+    """Return only the two typed-descriptor dispatches in ``_android/raw.py``.
+
+    ``AndroidRawAPI`` is a public generic escape hatch: its caller supplies a
+    validated ``GrpcUnaryMethod``/``GrpcUnaryStreamMethod``, so the transport
+    path is necessarily ``method.path`` rather than a first-party literal. The
+    descriptor's ``replay_policy`` is classified at runtime and then capped by
+    the manifest in ``AndroidSession``. No other dynamic transport expression
+    is exempt from this guard.
+
+    The exemption is deliberately equality-pinned to the owner, function,
+    method annotation, receiver, and ``method.path`` expression. A function
+    with an extra matching dispatch receives no exemption at all.
+    """
+    if path != _ANDROID_ROOT / "raw.py":
+        return set()
+
+    specs = {
+        "unary": ("GrpcUnaryMethod", "self", "_transport", "unary"),
+        "_unary_stream_impl": ("GrpcUnaryStreamMethod", "session", None, "stream"),
+    }
+
+    class _DirectScopeVisitor(ast.NodeVisitor):
+        """Collect calls/assignments without entering nested scopes."""
+
+        def __init__(self) -> None:
+            self.calls: list[ast.Call] = []
+            self.assignments: list[ast.Assign | ast.AnnAssign] = []
+            self.session_bindings: list[ast.AST | str] = []
+
+        def visit_Call(self, node: ast.Call) -> None:
+            self.calls.append(node)
+            self.generic_visit(node)
+
+        def visit_Assign(self, node: ast.Assign) -> None:
+            self.assignments.append(node)
+            self.generic_visit(node)
+
+        def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+            self.assignments.append(node)
+            self.generic_visit(node)
+
+        def visit_Name(self, node: ast.Name) -> None:
+            if node.id == "session" and isinstance(node.ctx, ast.Store):
+                self.session_bindings.append(node)
+
+        def visit_Import(self, node: ast.Import) -> None:
+            for alias in node.names:
+                if alias.asname == "session" or (alias.asname is None and alias.name == "session"):
+                    self.session_bindings.append(alias.name)
+
+        def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+            for alias in node.names:
+                if alias.asname == "session" or (alias.asname is None and alias.name == "session"):
+                    self.session_bindings.append(alias.name)
+
+        def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
+            if node.name == "session":
+                self.session_bindings.append(node.name)
+            self.generic_visit(node)
+
+        def visit_MatchAs(self, node: ast.MatchAs) -> None:
+            if node.name == "session":
+                self.session_bindings.append(node.name)
+            self.generic_visit(node)
+
+        def visit_MatchStar(self, node: ast.MatchStar) -> None:
+            if node.name == "session":
+                self.session_bindings.append(node.name)
+            self.generic_visit(node)
+
+        def visit_MatchMapping(self, node: ast.MatchMapping) -> None:
+            if node.rest == "session":
+                self.session_bindings.append(node.rest)
+            self.generic_visit(node)
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            return
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> None:
+            return
+
+        def visit_Lambda(self, node: ast.Lambda) -> None:
+            return
+
+    allowed: set[ast.Call] = set()
+    for owner in tree.body:
+        if not isinstance(owner, ast.ClassDef) or owner.name != "AndroidRawAPI":
+            continue
+        for function in owner.body:
+            if not isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            spec = specs.get(function.name)
+            if spec is None:
+                continue
+            annotation_name, receiver_name, receiver_attr, call_name = spec
+            method_parameters = [
+                argument
+                for argument in (*function.args.posonlyargs, *function.args.args)
+                if argument.arg == "method"
+            ]
+            if len(method_parameters) != 1:
+                continue
+            annotation = method_parameters[0].annotation
+            if not (
+                isinstance(annotation, ast.Subscript)
+                and isinstance(annotation.value, ast.Name)
+                and annotation.value.id == annotation_name
+            ):
+                continue
+
+            direct = _DirectScopeVisitor()
+            for statement in function.body:
+                direct.visit(statement)
+            for argument in (
+                *function.args.posonlyargs,
+                *function.args.args,
+                *function.args.kwonlyargs,
+                function.args.vararg,
+                function.args.kwarg,
+            ):
+                if argument is not None and argument.arg == "session":
+                    direct.session_bindings.append(argument)
+
+            if receiver_name == "session":
+                exact_session_bindings = [
+                    assignment
+                    for assignment in direct.assignments
+                    if (
+                        isinstance(assignment, ast.Assign)
+                        and len(assignment.targets) == 1
+                        and isinstance(assignment.targets[0], ast.Name)
+                        and assignment.targets[0].id == "session"
+                        and isinstance(assignment.targets[0].ctx, ast.Store)
+                        and isinstance(assignment.value, ast.Attribute)
+                        and assignment.value.attr == "_transport"
+                        and isinstance(assignment.value.value, ast.Name)
+                        and assignment.value.value.id == "self"
+                    )
+                ]
+                if len(direct.session_bindings) != 1 or len(exact_session_bindings) != 1:
+                    continue
+                exact_binding = exact_session_bindings[0].targets[0]
+                if direct.session_bindings != [exact_binding]:
+                    continue
+
+            matches: list[ast.Call] = []
+            for node in direct.calls:
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == call_name
+                    and node.args
+                ):
+                    continue
+                method = node.args[0]
+                if not (
+                    isinstance(method, ast.Attribute)
+                    and method.attr == "path"
+                    and isinstance(method.value, ast.Name)
+                    and method.value.id == "method"
+                ):
+                    continue
+                receiver = node.func.value
+                if receiver_name == "self":
+                    exact_receiver = (
+                        isinstance(receiver, ast.Attribute)
+                        and receiver.attr == receiver_attr
+                        and isinstance(receiver.value, ast.Name)
+                        and receiver.value.id == "self"
+                    )
+                else:
+                    exact_receiver = isinstance(receiver, ast.Name) and receiver.id == receiver_name
+                if exact_receiver:
+                    matches.append(node)
+            if len(matches) == 1:
+                allowed.add(matches[0])
+    return allowed
+
+
 def _module_strings(tree: ast.Module, imported: dict[str, str] | None = None) -> dict[str, str]:
     names = dict(imported or {})
     pending = list(tree.body)
@@ -210,6 +392,7 @@ def _android_callsite_classes(
     found: dict[str, set[bool]] = {}
     for path, tree in trees.items():
         names = names_by_path[path]
+        dynamic_dispatches = _android_raw_dynamic_dispatches(path, tree)
         for node in ast.walk(tree):
             if not (
                 isinstance(node, ast.Call)
@@ -219,10 +402,12 @@ def _android_callsite_classes(
             ):
                 continue
             method = _string_value(node.args[0], names)
+            if method is None and node in dynamic_dispatches:
+                continue
             assert method is not None, (
                 f"{path.relative_to(_ANDROID_ROOT)}:{node.lineno} has an unresolved "
-                f"{node.func.attr} method expression; every Android transport call must be "
-                "classified"
+                f"{node.func.attr} method expression; every fixed Android transport callsite "
+                "must be classified"
             )
             # Ignore unrelated HTTP client.stream("GET", ...). Android gRPC
             # methods are absolute /service/method names.
@@ -288,6 +473,62 @@ def test_android_retry_manifest_negative_self_test_covers_imported_constant_site
 
     with pytest.raises(AssertionError, match="ListArtifacts.*declares replay_safe"):
         _assert_retry_manifest(_android_callsite_classes({path: changed}))
+
+
+def test_android_raw_dynamic_dispatch_exemption_is_exact() -> None:
+    path = _ANDROID_ROOT / "raw.py"
+    source = path.read_text(encoding="utf-8")
+
+    # The generic raw API has exactly two descriptor-driven transport calls;
+    # neither can be represented by the fixed first-party manifest.
+    tree = ast.parse(source, filename=str(path))
+    dispatches = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and node in _android_raw_dynamic_dispatches(path, tree)
+    ]
+    assert [(node.func.attr, node.lineno) for node in dispatches] == [
+        ("unary", 49),
+        ("stream", 106),
+    ]
+
+    # Similar-looking calls must not gain the exemption when their owner,
+    # function, annotation, or dispatch count changes.
+    adversarial_sources = (
+        source.replace("method.path", "other.path", 1),
+        source.replace("class AndroidRawAPI:", "class OtherRawAPI:", 1),
+        source.replace("async def unary(", "async def other(", 1),
+        source.replace(
+            "return _deserialize_response(method, wire_response)",
+            "await self._transport.unary(method.path, wire_request, replay_safe=replay_safe)\n"
+            "        return _deserialize_response(method, wire_response)",
+            1,
+        ),
+        source.replace(
+            "method: GrpcUnaryMethod[RequestT, ResponseT]",
+            "method: str",
+            1,
+        ),
+        source.replace(
+            "return _deserialize_response(method, wire_response)",
+            "def nested_dispatch():\n"
+            "            return self._transport.unary(\n"
+            "                method.path, wire_request, replay_safe=replay_safe\n"
+            "            )\n"
+            "        return _deserialize_response(method, wire_response)",
+            1,
+        ),
+        source.replace("session = self._transport", "session = self._other_transport", 1),
+        source.replace("session = self._transport", "session = other", 1),
+        source.replace(
+            "session = self._transport",
+            "session = self._transport\n        session = self._other_transport",
+            1,
+        ),
+    )
+    for changed in adversarial_sources:
+        with pytest.raises(AssertionError, match="has an unresolved (?:unary|stream) method"):
+            _android_callsite_classes({path: changed})
 
 
 def test_android_session_consults_the_retry_manifest() -> None:

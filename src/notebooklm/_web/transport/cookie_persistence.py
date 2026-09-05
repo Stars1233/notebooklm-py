@@ -5,20 +5,17 @@ from __future__ import annotations
 __all__ = ["CookiePersistence", "SaveCookiesToStorage"]
 
 import itertools
-import json
 import logging
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Protocol, TypeAlias, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar
 
 import httpx
 
-from ..._auth.cookie_policy import RequiredCookieValidationError
 from ..._auth.cookie_types import Cookie, CookieJar
-from ..._auth.cookies import StorageStateValidationError, _load_cookie_pair_pure
-from ..._auth.profile_store import ProfileStore
+from ..._auth.profile_store import ProfileStore, _is_cookie_pair_read_error
 from ..._auth.storage import (
     CookieSaveResult,
     CookieSnapshot,
@@ -29,21 +26,22 @@ from ..._auth.storage import (
 )
 from ...auth import AuthTokens
 
+if TYPE_CHECKING:
+    from ..._client_contracts import SaveCookiesToStorage
+
 logger = logging.getLogger("notebooklm.auth")
 
 
-class SaveCookiesToStorage(Protocol):
-    """Callable shape for the exact v0.x callback invocation."""
+def __getattr__(name: str) -> object:
+    if name != "SaveCookiesToStorage":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from ..._client_contracts import SaveCookiesToStorage
 
-    def __call__(
-        self,
-        cookie_jar: httpx.Cookies,
-        path: Path,
-        /,
-        *,
-        original_snapshot: CookieSnapshot | None,
-        return_result: bool,
-    ) -> bool | CookieSaveResult: ...
+    return SaveCookiesToStorage
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *__all__})
 
 
 T = TypeVar("T")
@@ -169,18 +167,6 @@ class _LegacySnapshotAdapter:
         snapshot: CookieSnapshot,
     ) -> None:
         self.set(key, snapshot)
-
-
-_BASELINE_ERRORS = (
-    OSError,
-    UnicodeDecodeError,
-    json.JSONDecodeError,
-    StorageStateValidationError,
-    RequiredCookieValidationError,
-    TypeError,
-    ValueError,
-    OverflowError,
-)
 
 
 class CookiePersistence:
@@ -324,10 +310,10 @@ class CookiePersistence:
             return
 
         try:
-            pair = await to_thread(
-                lambda: _load_cookie_pair_pure(store.path, require_routable=False)
-            )
-        except _BASELINE_ERRORS as exc:
+            pair = await to_thread(lambda: store.read_cookie_pair(require_routable=False))
+        except Exception as exc:
+            if not _is_cookie_pair_read_error(exc):
+                raise
             logger.warning(
                 "Cookie persistence disabled for %s: baseline load failed (%s)",
                 store.path,
@@ -365,7 +351,7 @@ class CookiePersistence:
 
         def _adopt() -> None:
             with self.save_lock:
-                pair = _load_cookie_pair_pure(store.path, require_routable=False)
+                pair = store.read_cookie_pair(require_routable=False)
                 if pair.baseline != expected:
                     logger.debug(
                         "Cookie profile advanced again; recovery baseline not adopted: %s",
@@ -417,8 +403,10 @@ class CookiePersistence:
                     return
                 if isinstance(state.baseline, UninitializedBaseline):
                     try:
-                        pair = _load_cookie_pair_pure(store.path, require_routable=False)
-                    except _BASELINE_ERRORS:
+                        pair = store.read_cookie_pair(require_routable=False)
+                    except Exception as exc:
+                        if not _is_cookie_pair_read_error(exc):
+                            raise
                         return
                     state.baseline = ReadyBaseline(pair.baseline)
                     self._legacy.project(key, pair.baseline)
@@ -465,8 +453,10 @@ class CookiePersistence:
                 original = self._legacy.get(key)
                 if original is None and not is_default:
                     try:
-                        pair = _load_cookie_pair_pure(store.path, require_routable=False)
-                    except _BASELINE_ERRORS as exc:
+                        pair = store.read_cookie_pair(require_routable=False)
+                    except Exception as exc:
+                        if not _is_cookie_pair_read_error(exc):
+                            raise
                         logger.warning(
                             "Skipping cookie save: override baseline initialization failed (%s)",
                             type(exc).__name__,

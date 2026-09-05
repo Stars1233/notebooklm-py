@@ -98,9 +98,8 @@ LAZY_WEB_IMPORT_ALLOWLIST = frozenset(
 
 ALLOWED_WEB_IMPORTERS = frozenset(
     {
-        "notebooklm.client",
         "notebooklm._client_assembly",
-        "notebooklm.raw",
+        "notebooklm._client_compat",
         "notebooklm.rpc",
         "notebooklm.rpc.types",
         "notebooklm._artifact",
@@ -114,6 +113,20 @@ TRANSPORT_NEUTRAL_PACKAGE_PREFIXES = (
     "notebooklm.cli",
     "notebooklm.mcp",
     "notebooklm.server",
+)
+
+PUBLIC_WEB_DECODER_METHODS = frozenset(
+    {
+        ("Artifact", "from_api_response"),
+        ("Artifact", "from_mind_map"),
+        ("Collection", "from_api_response"),
+        ("Label", "from_api_response"),
+        ("Notebook", "from_api_response"),
+        ("ShareStatus", "from_api_response"),
+        ("SharedUser", "from_api_response"),
+        ("Source", "from_api_response"),
+        ("Source", "from_row"),
+    }
 )
 
 
@@ -309,6 +322,23 @@ def _defined_scopes(path: Path) -> frozenset[str]:
 def test_backend_direct_import_boundaries() -> None:
     imports = [direct for path in sorted(SRC_ROOT.rglob("*.py")) for direct in _scan_path(path)]
     assert _boundary_violations(imports) == []
+
+
+def test_first_party_production_never_calls_public_web_decoder_shims() -> None:
+    """Typed client paths must stay warning-free after the public runway starts."""
+    callers: list[str] = []
+    for path in sorted(SRC_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and (node.func.value.id, node.func.attr) in PUBLIC_WEB_DECODER_METHODS
+            ):
+                continue
+            callers.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+    assert callers == []
 
 
 @pytest.mark.parametrize(

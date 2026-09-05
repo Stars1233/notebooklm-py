@@ -31,6 +31,7 @@ from notebooklm._android.settings import AndroidSettingsAPI
 from notebooklm._android.sharing import AndroidSharingAPI
 from notebooklm._android.sources import AndroidSourcesAPI
 from notebooklm._auth.master_token_types import MasterToken
+from notebooklm._auth.mint_service import MintedOAuthToken
 from notebooklm._auth.profile_store import ProfileStore
 from notebooklm._client_assembly import BackendPreference, resolve_backend_preference
 from notebooklm._web.transport.cookie_persistence import CookiePersistence
@@ -40,6 +41,18 @@ from notebooklm.client import NotebookLMClient
 from notebooklm.exceptions import ConfigurationError, MissingDependencyError
 from notebooklm.raw import AndroidRawAPI, WebRawAPI
 from notebooklm.types import ConnectionLimits
+from tests._helpers.client_factory import build_client_shell_for_tests
+
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+
+
+def _backend_subprocess_env() -> dict[str, str]:
+    """Prefer this worktree's sources over any concurrently relinked editable install."""
+    env = os.environ.copy()
+    env.pop("NOTEBOOKLM_BACKEND", None)
+    inherited = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = os.pathsep.join(part for part in (str(_SRC_ROOT), inherited) if part)
+    return env
 
 
 def _auth() -> AuthTokens:
@@ -405,23 +418,11 @@ def test_default_and_explicit_web_keep_every_namespace_on_web(backend: str | Non
     assert client._android_runtime is None
 
 
-def test_default_web_construction_does_not_import_android_or_optional_runtime() -> None:
+def test_web_construction_avoids_android_and_optional_runtime_imports() -> None:
     script = """
-import builtins
+import sys
 
-original_import = builtins.__import__
-
-def guarded_import(name, *args, **kwargs):
-    if (
-        name == "grpc"
-        or name == "gpsoauth"
-        or name.startswith("google.protobuf")
-        or name.startswith("notebooklm._android")
-    ):
-        raise AssertionError(f"default Web construction imported {name}")
-    return original_import(name, *args, **kwargs)
-
-builtins.__import__ = guarded_import
+before = set(sys.modules)
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 
@@ -429,31 +430,33 @@ client = NotebookLMClient(
     AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session")
 )
 assert set(client.backends.values()) == {"web"}
+delta = set(sys.modules) - before
+assert not any(name.startswith("notebooklm._android") for name in delta)
+assert not any(
+    name == "grpc"
+    or name.startswith("grpc.")
+    or name == "gpsoauth"
+    or name.startswith("gpsoauth.")
+    or name == "google.protobuf"
+    or name.startswith("google.protobuf.")
+    for name in delta
+)
 """
-    env = os.environ.copy()
-    env.pop("NOTEBOOKLM_BACKEND", None)
     completed = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
-        env=env,
+        env=_backend_subprocess_env(),
     )
     assert completed.returncode == 0, completed.stderr
 
 
 def test_android_construction_defers_optional_runtime_imports_to_open() -> None:
     script = """
-import builtins
+import sys
 
-original_import = builtins.__import__
-
-def guarded_import(name, *args, **kwargs):
-    if name == "grpc" or name == "gpsoauth" or name.startswith("google.protobuf"):
-        raise AssertionError(f"Android construction imported {name}")
-    return original_import(name, *args, **kwargs)
-
-builtins.__import__ = guarded_import
+before = set(sys.modules)
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 
@@ -462,17 +465,107 @@ client = NotebookLMClient(
     backend="android",
 )
 assert client.backends["collections"] == "android"
+delta = set(sys.modules) - before
+assert not any(
+    name == "grpc"
+    or name.startswith("grpc.")
+    or name == "gpsoauth"
+    or name.startswith("gpsoauth.")
+    or name == "google.protobuf"
+    or name.startswith("google.protobuf.")
+    for name in delta
+)
 """
-    env = os.environ.copy()
-    env.pop("NOTEBOOKLM_BACKEND", None)
     completed = subprocess.run(
         [sys.executable, "-c", script],
         check=False,
         capture_output=True,
         text=True,
-        env=env,
+        env=_backend_subprocess_env(),
     )
     assert completed.returncode == 0, completed.stderr
+
+
+def test_android_construction_loads_no_web_module() -> None:
+    script = (
+        f"import sys\nsys.path.insert(0, {str(_SRC_ROOT)!r})\n"
+        + """
+import json
+from notebooklm.auth import AuthTokens
+from notebooklm.client import NotebookLMClient
+
+NotebookLMClient(
+    AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
+    backend="android",
+)
+after = {name for name in sys.modules if name.startswith("notebooklm._web")}
+print(json.dumps(sorted(after)))
+"""
+    )
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert json.loads(completed.stdout) == []
+
+
+def test_android_construction_retains_web_seam_overrides_without_resolving_defaults() -> None:
+    client = NotebookLMClient(_auth(), backend="android")
+
+    assert client._seams.decode_response is None
+    assert client._seams.sleep is None
+    assert client._seams.is_auth_error is None
+
+
+def test_android_global_synthetic_error_guard_is_web_free() -> None:
+    script = (
+        f"import sys\nsys.path.insert(0, {str(_SRC_ROOT)!r})\n"
+        + """
+import os
+from notebooklm.auth import AuthTokens
+from notebooklm.client import NotebookLMClient
+
+os.environ["NOTEBOOKLM_VCR_RECORD_ERRORS"] = "5xx"
+os.environ.pop("PYTEST_CURRENT_TEST", None)
+try:
+    NotebookLMClient(
+        AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
+        backend="android",
+    )
+except RuntimeError as error:
+    assert "NOTEBOOKLM_VCR_RECORD_ERRORS" in str(error)
+else:
+    raise AssertionError("global synthetic-error guard did not refuse construction")
+assert not [name for name in sys.modules if name.startswith("notebooklm._web")]
+"""
+    )
+    subprocess.run(
+        [sys.executable, "-I", "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"rate_limit_max_retries": -1}, "rate_limit_max_retries must be >= 0, got -1"),
+        ({"server_error_max_retries": -1}, "server_error_max_retries must be >= 0, got -1"),
+        ({"max_concurrent_uploads": 0}, "max_concurrent_uploads must be >= 1, got 0"),
+    ],
+)
+def test_android_owned_validation_preserves_exact_errors(
+    kwargs: dict[str, int],
+    message: str,
+) -> None:
+    with pytest.raises(ValueError) as raised:
+        NotebookLMClient(_auth(), backend="android", **kwargs)  # type: ignore[arg-type]
+
+    assert str(raised.value) == message
 
 
 def test_android_preference_has_no_unqualified_namespace_log(caplog) -> None:  # type: ignore[no-untyped-def]
@@ -562,7 +655,7 @@ async def test_selected_android_reads_token_only_at_open_and_fails_without_one(
     session = client._android_runtime.session
     provider = client._android_runtime.bearer_provider
     token_read = MagicMock(return_value=None)
-    provider._profile_store.read_master_token = token_read
+    provider._master_token_reader.read_master_token = token_read
     session._grpc_loader = lambda: object()
     session._protobuf_loader = lambda: object()
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
@@ -577,10 +670,30 @@ async def test_selected_android_missing_dependency_fails_at_open_not_constructio
     client = NotebookLMClient(_auth(), backend="android")
     assert client._android_runtime is not None
     missing = MissingDependencyError("missing android runtime")
-    client._android_runtime.session._grpc_loader = MagicMock(side_effect=missing)
+    session = client._android_runtime.session
+    provider = client._android_runtime.bearer_provider
+    token_read = MagicMock(side_effect=AssertionError("credential read preceded dependency check"))
+    protobuf_load = MagicMock(side_effect=AssertionError("protobuf loaded after grpc failed"))
+    provider._master_token_reader.read_master_token = token_read
+    session._grpc_loader = MagicMock(side_effect=missing)
+    session._protobuf_loader = protobuf_load
 
     with pytest.raises(MissingDependencyError, match="missing android runtime"):
         await client.__aenter__()
+
+    protobuf_load.assert_not_called()
+    token_read.assert_not_called()
+
+
+def test_android_assembly_accepts_only_narrow_primary_credentials() -> None:
+    from notebooklm._android.assembly import assemble_android_backend
+
+    parameters = inspect.signature(assemble_android_backend).parameters
+
+    assert "auth" not in parameters
+    assert "profile_path" in parameters
+    assert "master_token_reader" in parameters
+    assert "oauth_minter" in parameters
 
 
 async def test_selected_android_open_binds_auth_and_session_without_eager_channel(
@@ -597,7 +710,7 @@ async def test_selected_android_open_binds_auth_and_session_without_eager_channe
     token_read = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
-    provider._profile_store.read_master_token = token_read
+    provider._master_token_reader.read_master_token = token_read
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
 
     await client.__aenter__()
@@ -612,6 +725,72 @@ async def test_selected_android_open_binds_auth_and_session_without_eager_channe
     assert session.active_epoch is None
     assert provider._master_token is None
     token_read.assert_called_once_with()
+
+
+async def test_android_primary_auth_uses_only_explicit_reader_and_minter(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Poisoned Web values cannot participate in Android open or typed refresh."""
+
+    class PoisonedWebAuth:
+        storage_path = tmp_path / "storage_state.json"
+
+        def __getattr__(self, name: str) -> object:
+            if name in {"cookies", "cookie_jar", "csrf_token", "session_id"}:
+                raise AssertionError(f"Android read Web session field {name}")
+            raise AttributeError(name)
+
+    class RecordingReader:
+        def __init__(self) -> None:
+            self.reads = 0
+
+        def read_master_token(self) -> MasterToken:
+            self.reads += 1
+            return MasterToken(
+                email="android@example.com",
+                android_id="1234",
+                secret="master-secret",
+            )
+
+    class RecordingMinter:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def mint_oauth(self, master_token: MasterToken, spec: object) -> MintedOAuthToken:
+            del spec
+            assert master_token.email == "android@example.com"
+            self.calls += 1
+            return MintedOAuthToken(token="bearer-secret", expires_at=None)
+
+    auth = PoisonedWebAuth()
+    reader = RecordingReader()
+    minter = RecordingMinter()
+    client = build_client_shell_for_tests(
+        auth,  # type: ignore[arg-type]
+        backend="android",
+        master_token_reader=reader,
+        oauth_minter=minter,
+    )
+    assert client.auth is auth
+    assert client._android_runtime is not None
+    session = client._android_runtime.session
+    session._grpc_loader = lambda: object()
+    session._protobuf_loader = lambda: object()
+    monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
+
+    assert reader.reads == 0
+    assert minter.calls == 0
+    await client.__aenter__()
+    try:
+        assert reader.reads == 1
+        assert minter.calls == 0
+        assert await client.refresh_auth() is auth
+        assert minter.calls == 1
+        assert client._web_sidecar is not None
+        assert not client._web_sidecar.is_materialized
+    finally:
+        await client.close()
 
 
 def test_android_selection_extends_the_frozen_lifecycle_ownership_graph() -> None:
@@ -663,7 +842,7 @@ async def test_android_open_without_deprecated_hatch_constructs_no_web_runtime(
         cookie_saver=cookie_saver,
     )
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()
@@ -719,6 +898,11 @@ async def test_from_storage_threads_explicit_backend(
     client = await NotebookLMClient.from_storage(path=str(storage), backend="android")._build()
     assert client._backend_preference.preferred == "android"
     assert set(client.backends.values()) == {"android"}
+    assert client.auth.csrf_token == "csrf"
+    assert client.auth.session_id == "session"
+    assert [(request.method, str(request.url)) for request in httpx_mock.get_requests()] == [
+        ("GET", "https://notebook.google.com/")
+    ]
 
 
 async def test_android_from_storage_uses_name_only_psidts_policy(
@@ -774,7 +958,12 @@ async def test_android_from_storage_uses_name_only_psidts_policy(
     assert client._web_runtime is None
     assert client.auth.cookie_jar is not None
     assert client.auth.cookie_jar.get("SID", domain=".google.com", path="/") == "fresh"
+    assert client.auth.csrf_token == "csrf"
+    assert client.auth.session_id == "session"
     assert storage.read_text(encoding="utf-8") == stored_payload
+    assert [(request.method, str(request.url)) for request in httpx_mock.get_requests()] == [
+        ("GET", "https://notebook.google.com/")
+    ]
     recovery.assert_not_called()
     poke.assert_not_called()
     web_ladder.assert_not_called()

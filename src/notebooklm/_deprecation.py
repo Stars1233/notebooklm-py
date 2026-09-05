@@ -100,6 +100,136 @@ DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
             removal="1.0",
             stacklevel=3,
         ),
+        "auth_tokens_replace_cookie_jar": DeprecationSpec(
+            key="auth_tokens_replace_cookie_jar",
+            message=(
+                "AuthTokens.replace_cookie_jar(...) is deprecated; use managed "
+                "NotebookLMClient request APIs instead. Cookie-jar replacement is an internal "
+                "compatibility sync-back operation. It will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.auth",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "artifact_from_api_response": DeprecationSpec(
+            key="artifact_from_api_response",
+            message=(
+                "Artifact.from_api_response(...) is deprecated; use client.artifacts typed "
+                "APIs instead. Raw Web row decoding has no supported public replacement. It "
+                "will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.artifacts",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "artifact_from_mind_map": DeprecationSpec(
+            key="artifact_from_mind_map",
+            message=(
+                "Artifact.from_mind_map(...) is deprecated; use client.artifacts typed APIs "
+                "instead. Raw Web row decoding has no supported public replacement. It will "
+                "be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.artifacts",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "collection_from_api_response": DeprecationSpec(
+            key="collection_from_api_response",
+            message=(
+                "Collection.from_api_response(...) is deprecated; use client.collections typed "
+                "APIs instead. Raw Web row decoding has no supported public replacement. It "
+                "will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.collections",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "label_from_api_response": DeprecationSpec(
+            key="label_from_api_response",
+            message=(
+                "Label.from_api_response(...) is deprecated; use client.labels typed APIs "
+                "instead. Raw Web row decoding has no supported public replacement. It will "
+                "be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.labels",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "notebook_from_api_response": DeprecationSpec(
+            key="notebook_from_api_response",
+            message=(
+                "Notebook.from_api_response(...) is deprecated; use client.notebooks typed "
+                "APIs instead. Raw Web row decoding has no supported public replacement. It "
+                "will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.notebooks",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "share_status_from_api_response": DeprecationSpec(
+            key="share_status_from_api_response",
+            message=(
+                "ShareStatus.from_api_response(...) is deprecated; use client.sharing typed "
+                "APIs instead. Raw Web row decoding has no supported public replacement. It "
+                "will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.sharing",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "shared_user_from_api_response": DeprecationSpec(
+            key="shared_user_from_api_response",
+            message=(
+                "SharedUser.from_api_response(...) is deprecated; use client.sharing typed "
+                "APIs instead. Raw Web row decoding has no supported public replacement. It "
+                "will be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.sharing",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "source_from_api_response": DeprecationSpec(
+            key="source_from_api_response",
+            message=(
+                "Source.from_api_response(...) is deprecated; use client.sources typed APIs "
+                "instead. Raw Web row decoding has no supported public replacement. It will "
+                "be removed in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.sources",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
+        "source_from_row": DeprecationSpec(
+            key="source_from_row",
+            message=(
+                "Source.from_row(...) is deprecated; use client.sources typed APIs instead. "
+                "Raw Web row decoding has no supported public replacement. It will be removed "
+                "in v1.0."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.sources",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
         "client_rpc_call_web": DeprecationSpec(
             key="client_rpc_call_web",
             message=(

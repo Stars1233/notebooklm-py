@@ -56,7 +56,7 @@ def _cassette_request_rpcids(cassette_name: str) -> set[str]:
     :class:`~notebooklm.rpc.RPCMethod` *by its constant* rather than re-pinning
     the obfuscated literal. When Google rotates an ID, ``rpc/types.py`` and the
     cassette rotate together and this assertion keeps holding with no edit —
-    ``rpc/types.py`` stays the single source of truth.
+    ``rpc/_identifiers.py`` stays the single source of truth.
     """
     text = (_CASSETTE_DIR / cassette_name).read_text(encoding="utf-8")
     data = yaml.safe_load(text)
@@ -83,7 +83,7 @@ async def test_refresh_source_rpc_has_cassette_coverage():
 
     assert refreshed is None  # v0.8.0 (#1290): returns None on success
     # Rotation-proof: assert the replayed interaction targeted REFRESH_SOURCE by
-    # its constant (rpc/types.py is the single source of truth), not a literal.
+    # its constant (rpc/_identifiers.py is the single source of truth), not a literal.
     assert RPCMethod.REFRESH_SOURCE.value in _cassette_request_rpcids("sources_refresh_direct.yaml")
 
 
@@ -105,7 +105,7 @@ async def test_import_research_rpc_has_cassette_coverage():
 
     assert imported == [{"id": "imported_source_001", "title": RESEARCH_SOURCE_TITLE}]
     # Rotation-proof: assert the replayed interaction targeted IMPORT_RESEARCH by
-    # its constant (rpc/types.py is the single source of truth), not a literal.
+    # its constant (rpc/_identifiers.py is the single source of truth), not a literal.
     assert RPCMethod.IMPORT_RESEARCH.value in _cassette_request_rpcids(
         "research_import_sources_direct.yaml"
     )

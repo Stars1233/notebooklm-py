@@ -15,6 +15,7 @@ from notebooklm._app import source_add as cli_source_add
 from notebooklm._app.errors import ErrorCategory, classify
 from notebooklm._idempotency import _CreateResultKind, _IdempotentCreateResult
 from notebooklm._sources import SourcesAPI, _validate_add_text_idempotency
+from notebooklm._web.rows.source_models import decode_source
 from notebooklm._web.sources import WebSourcesAPI
 from notebooklm._web.sources.add import SourceAddService, honor_requested_title_if_fresh
 from notebooklm.exceptions import (
@@ -1162,7 +1163,8 @@ def _drive_source(source_id: str, file_id: str, title: str = "Drive Doc") -> Sou
         None,
         1,
     ]
-    source = Source.from_api_response(
+    source = decode_source(
+        Source,
         [[source_id], title, metadata, [None, 2]],
         method_id=RPCMethod.GET_NOTEBOOK.value,
     )

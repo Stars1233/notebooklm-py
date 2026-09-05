@@ -16,26 +16,29 @@
         "focus": [
           "started",
           "inprogress",
+          "polling",
           "completed",
           "importing",
           "imported"
         ],
-        "note": "A research run finishes server-side, then its sources are imported into the notebook."
+        "note": "Polling observes server completion; importing the selected sources is a separate caller step."
       },
       {
         "id": "wait",
         "label": "Polling",
         "focus": [
           "inprogress",
-          "polling"
+          "polling",
+          "completed",
+          "failed"
         ],
-        "note": "The wait loop classifies each status sample rather than assuming progress."
+        "note": "Each poll sample either loops, completes, or returns a terminal non-success."
       },
       {
         "id": "exits",
         "label": "Non-success exits",
         "focus": [
-          "polling",
+          "inprogress",
           "failed",
           "cancelled"
         ],
@@ -121,7 +124,7 @@
       "id": "failed",
       "type": "failure",
       "label": "FAILED",
-      "sublabel": "or NO_RESULTS",
+      "sublabel": "no_results · unknown",
       "lane": "events",
       "col": 2,
       "tag": "terminal"
@@ -145,7 +148,7 @@
     },
     {
       "id": "run-complete",
-      "from": "inprogress",
+      "from": "polling",
       "to": "completed",
       "variant": "emphasis",
       "route": "straight"
@@ -207,8 +210,13 @@
       "id": "poll-cancelled",
       "from": "polling",
       "to": "cancelled",
+      "label": "cancel(run_id)",
       "variant": "security",
-      "route": "drop"
+      "route": "drop",
+      "labelAt": [
+        402,
+        350
+      ]
     }
   ],
   "cards": [

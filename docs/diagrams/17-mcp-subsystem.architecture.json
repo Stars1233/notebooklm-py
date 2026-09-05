@@ -26,7 +26,7 @@
           "guards",
           "confirm"
         ],
-        "note": "Loopback binding, optional OAuth, and confirmation gating on mutations."
+        "note": "Loopback binding, optional OAuth, and confirmation gating on deletes, grants/regrades, and public-access widening."
       },
       {
         "id": "files",
@@ -184,7 +184,7 @@
       "id": "filelink",
       "type": "security",
       "label": "File Link Signer",
-      "sublabel": "single-use jti",
+      "sublabel": "scoped signed tokens",
       "pos": [
         544,
         460
@@ -268,7 +268,7 @@
       "id": "tools-confirm",
       "from": "tools",
       "to": "confirm",
-      "label": "mutations",
+      "label": "delete / share change",
       "variant": "security",
       "labelAt": [
         629,
@@ -355,7 +355,7 @@
       "dot": "rose",
       "title": "Safety gates",
       "items": [
-        "Mutating tools return a needs_confirmation preview unless confirm=true",
+        "Deletes, user grants/regrades, and public-access widening require confirm=true",
         "HTTP mode binds loopback and rejects non-loopback Host headers"
       ]
     },
@@ -363,7 +363,8 @@
       "dot": "amber",
       "title": "File transfer",
       "items": [
-        "Downloads are handed back as signed single-use short links, not inline bytes",
+        "Remote FileTransferConfig returns signed links; local configurations retain paths",
+        "Remote upload links are single-use; remote downloads remain reusable for Range and resume",
         "notebooklm mcp install wires Claude Desktop, Claude Code, Cursor or Windsurf"
       ]
     }

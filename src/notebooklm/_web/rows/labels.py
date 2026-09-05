@@ -12,12 +12,15 @@ in v0.7.0 — ``_web/wire/safe_index.py`` is strict-only now.)
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ...exceptions import UnknownRPCMethodError
 from ...rpc import safe_index
 
-__all__ = ["LabelRow"]
+if TYPE_CHECKING:
+    from ..._types.labels import Label
+
+__all__ = ["LabelRow", "decode_label"]
 
 # Keep the historical diagnostic source stable across the private module move.
 # ``UnknownRPCMethodError.source`` is structured caller-visible context.
@@ -77,3 +80,21 @@ class LabelRow:
                 source=_SRC,
             )
         return cls(name=name, source_ids=source_ids, id=label_id, emoji=emoji)
+
+
+def decode_label(
+    cls: type[Label],
+    data: list[Any],
+    *,
+    notebook_id: str | None = None,
+    method_id: str | None = None,
+) -> Label:
+    """Construct a public label from one Web label tuple."""
+    row = LabelRow.from_label_tuple(data, method_id=method_id)
+    return cls(
+        id=row.id,
+        name=row.name,
+        notebook_id=notebook_id,
+        emoji=row.emoji or None,
+        source_ids=list(row.source_ids),
+    )

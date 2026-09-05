@@ -11,9 +11,9 @@ import httpx
 import pytest
 
 from notebooklm._auth import master_token as mt
-from notebooklm._auth import session as session_mod
 from notebooklm._auth.mint_service import MintService
 from notebooklm._auth.profile_store import ProfileStore
+from notebooklm._web.transport import session_auth as session_mod
 from notebooklm.auth import AuthTokens
 from tests._helpers.client_factory import build_client_shell_for_tests
 

@@ -24,7 +24,7 @@
         "id": "auth",
         "label": "Bearer refresh",
         "focus": ["session", "bearer", "pa"],
-        "note": "AndroidRuntime.bearer_provider supplies generation-fenced auth and is invalidated on an observed 401."
+        "note": "AndroidRuntime.bearer_provider supplies generation-fenced auth and is invalidated on an observed UNAUTHENTICATED status."
       }
     ]
   },
@@ -55,9 +55,9 @@
       "from": "adapter",
       "to": "session",
       "y": 212,
-      "label": "unary / unary_stream",
+      "label": "unary / stream",
       "variant": "emphasis",
-      "note": "AndroidRawAPI serializes outside grpcio; typed workflows inherit the task-local epoch"
+      "note": "AndroidRawAPI.unary_stream delegates to session.stream; typed workflows inherit the task-local epoch"
     },
     {
       "id": "classify",

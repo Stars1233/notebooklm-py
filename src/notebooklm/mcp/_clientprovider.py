@@ -41,7 +41,7 @@ from contextlib import AbstractAsyncContextManager
 from types import TracebackType
 from typing import TYPE_CHECKING
 
-from .._redact import redact
+from .._adapter_support import redact
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient

@@ -1,28 +1,103 @@
-"""Auth session refresh implementation."""
+"""Web-owned homepage refresh and session-auth orchestration."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
 
 import httpx
 
-from .._env import get_base_url
-from .._url_utils import is_google_auth_redirect
-from ..exceptions import AuthExtractionError
-from ..paths import profile_from_storage_path
-from .account import authuser_query
-from .cookie_types import CookieJar
-from .extraction import extract_wiz_field
-from .recovery import try_headless_reauth, try_master_token_reauth, try_storage_cookie_reload
-from .refresh import try_refresh_cmd_reauth
-from .tokens import AuthTokens
+from ..._auth.account import authuser_query
+from ..._auth.cookie_types import CookieJar
+from ..._auth.extraction import extract_wiz_field
+from ..._auth.recovery import (
+    try_headless_reauth,
+    try_master_token_reauth,
+    try_storage_cookie_reload,
+)
+from ..._auth.refresh import try_refresh_cmd_reauth
+from ..._auth.tokens import AuthTokens
+from ..._env import get_base_url
+from ..._url_utils import is_google_auth_redirect
+from ...exceptions import AuthExtractionError
+from ...paths import profile_from_storage_path
+from .auth import AuthRefreshCoordinator
+from .cookie_persistence import CookiePersistence
+from .kernel import Kernel
+from .lifecycle import WebTransportLifecycle
 
-if TYPE_CHECKING:
-    from .._web.transport.auth import AuthRefreshCoordinator
-    from .._web.transport.cookie_persistence import CookiePersistence
-    from .._web.transport.kernel import Kernel
-    from .._web.transport.lifecycle import WebTransportLifecycle
+
+class WebSessionAuth:
+    """Own the concrete collaborators for one managed Web auth session."""
+
+    def __init__(
+        self,
+        *,
+        auth: AuthTokens,
+        kernel: Kernel,
+        cookie_persistence: CookiePersistence,
+    ) -> None:
+        self._auth = auth
+        self._kernel = kernel
+        self._cookie_persistence = cookie_persistence
+        self._auth_coord: AuthRefreshCoordinator | None = None
+        self._web_transport: WebTransportLifecycle | None = None
+
+    def bind(
+        self,
+        *,
+        auth_coord: AuthRefreshCoordinator,
+        web_transport: WebTransportLifecycle,
+    ) -> None:
+        """Complete the construction cycle before the runtime is exposed."""
+        if self._auth_coord is not None or self._web_transport is not None:
+            raise RuntimeError("WebSessionAuth is already bound.")
+        self._auth_coord = auth_coord
+        self._web_transport = web_transport
+
+    def _bound(self) -> tuple[AuthRefreshCoordinator, WebTransportLifecycle]:
+        if self._auth_coord is None or self._web_transport is None:
+            raise RuntimeError("WebSessionAuth is not bound.")
+        return self._auth_coord, self._web_transport
+
+    async def refresh_base(self, expected_epoch: int) -> AuthTokens:
+        """Coordinator callback for the base (non-headless) refresh policy."""
+        return await self._refresh(allow_headless=False, expected_epoch=expected_epoch)
+
+    async def refresh(
+        self,
+        *,
+        allow_headless: bool = False,
+        expected_epoch: int,
+    ) -> AuthTokens:
+        """Refresh this Web runtime, preserving join-then-rerun semantics."""
+        auth_coord, _ = self._bound()
+        if not allow_headless or not auth_coord.has_refresh_callback:
+            return await self._refresh(
+                allow_headless=allow_headless,
+                expected_epoch=expected_epoch,
+            )
+        try:
+            await auth_coord.await_refresh(expected_epoch)
+        except ValueError:
+            return await self._refresh(allow_headless=True, expected_epoch=expected_epoch)
+        return self._auth
+
+    async def _refresh(
+        self,
+        *,
+        allow_headless: bool,
+        expected_epoch: int,
+    ) -> AuthTokens:
+        auth_coord, web_transport = self._bound()
+        return await refresh_auth_session(
+            auth=self._auth,
+            kernel=self._kernel,
+            auth_coord=auth_coord,
+            web_transport=web_transport,
+            cookie_persistence=self._cookie_persistence,
+            allow_headless=allow_headless,
+            expected_epoch=expected_epoch,
+        )
 
 
 async def refresh_auth_session(
@@ -45,9 +120,9 @@ async def refresh_auth_session(
     ``update_auth_headers``) and a separate ``cast`` to satisfy the
     lifecycle's ``host``-shaped ``save_cookies`` signature; both have
     been lifted now that every collaborator the refresh path needs is
-    in scope directly. The single production caller
-    (:meth:`NotebookLMClient.refresh_auth`) sources the five
-    collaborators from ``self._auth`` and ``self._collaborators``.
+    in scope directly. :class:`WebSessionAuth` is the single managed-client
+    production caller and owns these concrete Web collaborators; the root
+    client invokes only the runtime's narrow bound refresh operation.
 
     Layer-3 headless re-auth (the deepest recovery layer):
 
@@ -252,7 +327,7 @@ async def _try_storage_cookie_reload(
         # cancellation lands while adoption is waiting on disk or save_lock.
         if expected_epoch is not None:
             auth_coord.assert_epoch(expected_epoch)
-        auth.replace_cookie_jar(cookie_jar)
+        auth._sync_cookie_jar(cookie_jar)
 
 
 async def _try_refresh_cmd_reauth(

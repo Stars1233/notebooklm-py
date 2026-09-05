@@ -75,7 +75,7 @@ _FORBIDDEN_IMPORTS = {
     "notebooklm._auth.mint_service",
     "notebooklm._auth.profile_store",
     "notebooklm._auth.refresh",
-    "notebooklm._auth.session",
+    "notebooklm._web",
     "notebooklm._auth.storage_lock",
     "notebooklm._auth.tokens",
     "notebooklm.cli",

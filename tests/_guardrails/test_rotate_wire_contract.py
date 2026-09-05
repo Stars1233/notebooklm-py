@@ -164,6 +164,35 @@ def _files_with_constant(value: str) -> list[Path]:
     return hits
 
 
+def _static_url(node: ast.AST, bindings: dict[str, str]) -> str | None:
+    direct = _static_string(node)
+    if direct is not None:
+        return direct
+    if not isinstance(node, ast.Call) or _method_name(node.func, bindings) != "URL":
+        return None
+    if node.args and (value := _static_string(node.args[0])) is not None:
+        return value
+    keywords = {item.arg: _static_string(item.value) for item in node.keywords if item.arg}
+    if (value := keywords.get("url")) is not None:
+        return value
+    scheme = keywords.get("scheme")
+    host = keywords.get("host")
+    path = keywords.get("path") or ""
+    if scheme is None or host is None:
+        return None
+    return f"{scheme}://{host}{path}"
+
+
+def _files_with_rotate_url() -> list[Path]:
+    hits: list[Path] = []
+    for path in _iter_src_modules():
+        tree = _tree(path)
+        bindings = _bindings(tree, path=path, src_root=_SRC_ROOT)
+        if any(_static_url(node, bindings) == _ROTATE_URL_LITERAL for node in ast.walk(tree)):
+            hits.append(path)
+    return hits
+
+
 def _is_rotate_url(node: ast.AST, bindings: dict[str, str]) -> bool:
     origin = _expression_origin(node, bindings)
     return origin == "KEEPALIVE_ROTATE_URL" or bool(
@@ -282,12 +311,31 @@ def _keepalive_reexports(tree: ast.Module) -> dict[str, str]:
 
 
 def test_rotate_literals_and_definitions_have_one_dependency_bottom_owner() -> None:
-    assert _files_with_constant(_ROTATE_URL_LITERAL) == [_WIRE_OWNER]
+    assert _files_with_rotate_url() == [_WIRE_OWNER]
     assert _files_with_constant(_ROTATE_BODY_LITERAL) == [_WIRE_OWNER]
     assert _wire_definitions() == {
         ("_auth/mint_service.py", "_rotate_post"),
         ("_auth/mint_service.py", "_rotate_post_sync"),
     }
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'import httpx\nhttpx.URL(scheme="https", host="accounts.google.com", '
+        'path="/RotateCookies")',
+        'from httpx import URL as U\nU(scheme="ht" + "tps", '
+        'host="accounts." + "google.com", path="/Rotate" + "Cookies")',
+        'import httpx\nhttpx.URL("https://accounts.google.com" + "/RotateCookies")',
+        'import httpx\nhttpx.URL(url="https://accounts.google.com/RotateCookies")',
+        'from httpx import URL as U\nU(url="https://accounts.google.com" + "/RotateCookies")',
+    ],
+)
+def test_rotate_url_owner_guard_bites_structural_reconstruction(source: str) -> None:
+    tree = ast.parse(source)
+    path = _AUTH_ROOT / "synthetic.py"
+    bindings = _bindings(tree, path=path, src_root=_SRC_ROOT)
+    assert any(_static_url(node, bindings) == _ROTATE_URL_LITERAL for node in ast.walk(tree))
 
 
 def test_no_bespoke_rotate_post_outside_wire_owner() -> None:

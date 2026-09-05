@@ -531,7 +531,16 @@ class NotebookLifecycleManager:
         if require_artifacts:
             artifacts = await self._read(lambda: self.client.artifacts.list(self.template_id))
             completed = [artifact for artifact in artifacts if _artifact_completed(artifact)]
-            families = {_kind_value(getattr(artifact, "kind", None)) for artifact in completed}
+            # The public template has legacy type-4 rows whose missing Web
+            # variant cannot distinguish quiz, flashcards, or mind map. Skip
+            # those known-unclassifiable rows before ``.kind`` warns; they
+            # cannot satisfy any concrete required family.
+            classified = [
+                artifact
+                for artifact in completed
+                if not bool(getattr(artifact, "is_unclassified_type4", False))
+            ]
+            families = {_kind_value(getattr(artifact, "kind", None)) for artifact in classified}
             required = set(self.template_contract["artifacts"]["required_completed_families"])
             missing = sorted(required - families)
             if missing:

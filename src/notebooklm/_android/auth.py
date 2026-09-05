@@ -6,18 +6,15 @@ import asyncio
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Protocol
 
 from .._auth.master_token_types import MasterToken
 from .._auth.mint_service import (
     MintedOAuthToken,
-    MintService,
     OAuthClientSpec,
     OAuthMintError,
     _require_gpsoauth,
 )
-from .._auth.profile_store import ProfileStore
 from .._loop_affinity import assert_bound_loop
 from .._loop_bound import EpochFenced
 from ..exceptions import AuthError, ConfigurationError, MissingDependencyError
@@ -56,11 +53,15 @@ _ANDROID_EXTRA_MESSAGE = (
 )
 
 
-class _ProfileReader(Protocol):
+class MasterTokenReader(Protocol):
+    """Narrow synchronous read capability supplied by composition."""
+
     def read_master_token(self) -> MasterToken | None: ...
 
 
-class _OAuthMinter(Protocol):
+class OAuthMinter(Protocol):
+    """Narrow Android bearer-mint capability supplied by composition."""
+
     async def mint_oauth(
         self,
         master_token: MasterToken,
@@ -68,7 +69,7 @@ class _OAuthMinter(Protocol):
     ) -> MintedOAuthToken: ...
 
 
-class _NoMasterTokenProfile:
+class _NoMasterTokenReader:
     """I/O-free reader for direct clients without a profile-backed path."""
 
     def read_master_token(self) -> None:
@@ -97,8 +98,8 @@ class BearerProvider(EpochFenced):
 
     def __init__(
         self,
-        profile_store: ProfileStore | _ProfileReader,
-        mint_service: MintService | _OAuthMinter,
+        master_token_reader: MasterTokenReader,
+        oauth_minter: OAuthMinter,
         *,
         wall_clock: Callable[[], float] = time.time,
         monotonic: Callable[[], float] = time.monotonic,
@@ -108,8 +109,8 @@ class BearerProvider(EpochFenced):
             initially_closing=True,
             include_epoch_details=False,
         )
-        self._profile_store = profile_store
-        self._mint_service = mint_service
+        self._master_token_reader = master_token_reader
+        self._oauth_minter = oauth_minter
         self._wall_clock = wall_clock
         self._monotonic = monotonic
         self._provider_epoch = 0
@@ -195,7 +196,7 @@ class BearerProvider(EpochFenced):
         self._cached = None
         self._cache_deadline = None
         try:
-            record = await asyncio.to_thread(self._profile_store.read_master_token)
+            record = await asyncio.to_thread(self._master_token_reader.read_master_token)
         except asyncio.CancelledError:
             raise
         except (KeyboardInterrupt, SystemExit):
@@ -327,7 +328,7 @@ class BearerProvider(EpochFenced):
         failure: Exception | None = None
         minted: MintedOAuthToken | None = None
         try:
-            minted = await self._mint_service.mint_oauth(record, NOTEBOOKLM_OAUTH_SPEC)
+            minted = await self._oauth_minter.mint_oauth(record, NOTEBOOKLM_OAUTH_SPEC)
         except MissingDependencyError:
             failure = MissingDependencyError(_ANDROID_EXTRA_MESSAGE)
         except OAuthMintError:
@@ -395,13 +396,19 @@ class BearerProvider(EpochFenced):
             await asyncio.gather(task, return_exceptions=True)
 
 
-def _make_bearer_provider(storage_path: Path | None) -> BearerProvider:
-    """Assemble the concrete credential owners without reading the profile."""
+def _make_bearer_provider(
+    master_token_reader: MasterTokenReader,
+    oauth_minter: OAuthMinter,
+) -> BearerProvider:
+    """Bind explicit credential capabilities without reading or minting."""
 
-    profile_reader = (
-        ProfileStore(storage_path) if storage_path is not None else _NoMasterTokenProfile()
-    )
-    return BearerProvider(profile_reader, MintService())
+    return BearerProvider(master_token_reader, oauth_minter)
 
 
-__all__ = ["BearerCredential", "BearerProvider", "NOTEBOOKLM_OAUTH_SPEC"]
+__all__ = [
+    "BearerCredential",
+    "BearerProvider",
+    "MasterTokenReader",
+    "NOTEBOOKLM_OAUTH_SPEC",
+    "OAuthMinter",
+]

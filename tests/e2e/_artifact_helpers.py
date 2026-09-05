@@ -21,7 +21,8 @@ def completed_download_candidates(
     candidates = [
         artifact
         for artifact in artifacts
-        if artifact.kind == family
+        if not bool(getattr(artifact, "is_unclassified_type4", False))
+        and artifact.kind == family
         and artifact.is_completed
         and (hydrate_android_slide or bool(artifact.url))
     ]

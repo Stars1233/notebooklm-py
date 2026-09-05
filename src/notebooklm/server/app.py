@@ -37,7 +37,7 @@ from typing import Literal, cast
 from fastapi import APIRouter, Depends, FastAPI, Request, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .._runtime.config import DEFAULT_SERVER_KEEPALIVE_INTERVAL
+from .._adapter_support import DEFAULT_SERVER_KEEPALIVE_INTERVAL
 from ..client import NotebookLMClient
 from ..exceptions import AuthError, NotebookLMError
 from ..paths import get_active_profile, resolve_profile, set_active_profile

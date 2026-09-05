@@ -10,13 +10,21 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLIENT_PATH = REPO_ROOT / "src" / "notebooklm" / "client.py"
 ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_assembly.py"
+CLIENT_COMPAT_PATH = REPO_ROOT / "src" / "notebooklm" / "_client_compat.py"
+WEB_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "assembly.py"
+ANDROID_ASSEMBLY_PATH = REPO_ROOT / "src" / "notebooklm" / "_android" / "assembly.py"
 COMPOSED_PATH = REPO_ROOT / "src" / "notebooklm" / "_web" / "transport" / "composed.py"
 
 # Both composition-root files: ``client.py`` (the thin ``__init__``
 # delegate) and ``_client_assembly.py`` (the shared assembly seam the
 # constructor and the canonical test factory both run). The guards below
 # scan both so moving wiring between them can't dodge the gate.
-COMPOSITION_ROOT_PATHS = (CLIENT_PATH, ASSEMBLY_PATH)
+COMPOSITION_ROOT_PATHS = (
+    CLIENT_PATH,
+    ASSEMBLY_PATH,
+    WEB_ASSEMBLY_PATH,
+    ANDROID_ASSEMBLY_PATH,
+)
 
 # Names a composition-root scope may bind the client instance to:
 # ``self`` inside ``NotebookLMClient`` methods, ``client`` inside
@@ -38,9 +46,35 @@ FEATURE_API_NAMES = {
     "WebSourcesAPI",
     "SourceUploadPipeline",
     "NoteService",
+    "AndroidArtifactsAPI",
+    "AndroidChatAPI",
+    "AndroidCollectionsAPI",
+    "AndroidLabelsAPI",
+    "AndroidMindMapsAPI",
+    "AndroidNotebooksAPI",
+    "AndroidNotesAPI",
+    "AndroidResearchAPI",
+    "AndroidSettingsAPI",
+    "AndroidSharingAPI",
+    "AndroidSourcesAPI",
+    "NoteBackedMindMapArtifactAdapter",
 }
 
-WEB_ONLY_NAMESPACE_IMPORTS: dict[str, str] = {}
+WEB_ONLY_NAMESPACE_IMPORTS = {
+    "WebArtifactsAPI": "_web.artifacts",
+    "WebChatAPI": "_web.chat",
+    "WebCollectionsAPI": "_web.collections",
+    "WebLabelsAPI": "_web.labels",
+    "WebMindMapsAPI": "_web.mind_maps",
+    "WebNotebooksAPI": "_web.notebooks",
+    "WebNotesAPI": "_web.notes",
+    "WebResearchAPI": "_web.research",
+    "WebSettingsAPI": "_web.settings",
+    "WebSharingAPI": "_web.sharing",
+    "WebSourcesAPI": "_web.sources",
+    "NoteBackedMindMapService": "_web.mind_maps",
+    "NoteService": "_web.notes",
+}
 
 NEUTRAL_NAMESPACE_IMPORTS = {
     "CollectionsAPI": "_collections",
@@ -64,13 +98,13 @@ INLINE_CLIENT_ATTRS = {
 }
 
 
-def _tree(path: Path) -> ast.AST:
+def _tree(path: Path) -> ast.Module:
     return ast.parse(path.read_text(encoding="utf-8"))
 
 
-@pytest.mark.parametrize("path", COMPOSITION_ROOT_PATHS, ids=lambda p: p.name)
-def test_web_only_namespaces_are_composed_from_their_canonical_modules(path: Path) -> None:
-    """Client annotations and assembly share the exact moved class objects."""
+@pytest.mark.parametrize("path", (CLIENT_PATH, ASSEMBLY_PATH), ids=lambda p: p.name)
+def test_public_client_and_root_selector_import_no_web_namespaces(path: Path) -> None:
+    """Only the selected Web assembler may import Web namespace implementations."""
     imported_from: dict[str, str] = {}
     for node in ast.walk(_tree(path)):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
@@ -79,7 +113,7 @@ def test_web_only_namespaces_are_composed_from_their_canonical_modules(path: Pat
             if alias.name in WEB_ONLY_NAMESPACE_IMPORTS:
                 imported_from[alias.name] = node.module
 
-    assert imported_from == WEB_ONLY_NAMESPACE_IMPORTS
+    assert imported_from == {}
 
 
 def test_client_annotations_use_neutral_namespace_contracts() -> None:
@@ -98,14 +132,26 @@ def test_client_annotations_use_neutral_namespace_contracts() -> None:
 def test_assembly_uses_concrete_web_namespace_implementations() -> None:
     """The composition root, and only it, selects the web backend classes."""
     imported_from: dict[str, str] = {}
-    for node in ast.walk(_tree(ASSEMBLY_PATH)):
+    for node in ast.walk(_tree(WEB_ASSEMBLY_PATH)):
         if not isinstance(node, ast.ImportFrom) or node.module is None:
             continue
         for alias in node.names:
             if alias.name in WEB_NAMESPACE_IMPLEMENTATION_IMPORTS:
-                imported_from[alias.name] = node.module
+                imported_from[alias.name] = f"_web.{node.module.lstrip('.')}"
 
     assert imported_from == WEB_NAMESPACE_IMPLEMENTATION_IMPORTS
+
+
+def test_web_assembly_imports_every_namespace_from_its_canonical_module() -> None:
+    imported_from: dict[str, str] = {}
+    for node in ast.walk(_tree(WEB_ASSEMBLY_PATH)):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        for alias in node.names:
+            if alias.name in WEB_ONLY_NAMESPACE_IMPORTS:
+                imported_from[alias.name] = f"_web.{node.module.lstrip('.')}"
+
+    assert imported_from == WEB_ONLY_NAMESPACE_IMPORTS
 
 
 @pytest.mark.parametrize("path", COMPOSITION_ROOT_PATHS, ids=lambda p: p.name)
@@ -162,3 +208,117 @@ def test_client_composed_does_not_expose_collaborators_alias() -> None:
         "ClientComposed must expose runtime_collaborators, not collaborators:\n  "
         + "\n  ".join(violations)
     )
+
+
+def test_android_web_compatibility_installer_has_one_root_owner() -> None:
+    """The temporary 0.x bridge must not leak back into either backend assembler."""
+    definitions: list[str] = []
+    sidecar_constructors: list[str] = []
+    installer_calls: list[str] = []
+    runtime_builder_calls: list[str] = []
+    for path in sorted((REPO_ROOT / "src" / "notebooklm").rglob("*.py")):
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        for node in ast.walk(_tree(path)):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in {
+                "_install_android_lifecycle",
+                "_install_android_web_compatibility",
+            }:
+                definitions.append(f"{relative}:{node.name}")
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "LazyWebSidecar"
+            ):
+                sidecar_constructors.append(f"{relative}:{node.lineno}")
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+                if node.func.id == "_install_android_web_compatibility":
+                    installer_calls.append(f"{relative}:{node.lineno}")
+                if node.func.id == "build_compatibility_runtime":
+                    runtime_builder_calls.append(f"{relative}:{node.lineno}")
+
+    assert definitions == ["src/notebooklm/_client_compat.py:_install_android_web_compatibility"]
+    assert len(sidecar_constructors) == 1
+    assert sidecar_constructors[0].startswith("src/notebooklm/_client_compat.py:")
+    assert len(installer_calls) == 1
+    assert installer_calls[0].startswith("src/notebooklm/_client_assembly.py:")
+    assert len(runtime_builder_calls) == 1
+    assert runtime_builder_calls[0].startswith("src/notebooklm/_client_compat.py:")
+
+
+def test_android_web_compatibility_import_and_lifecycle_placement_are_exact() -> None:
+    """Only the root owner may lazily build Web and extend the frozen lifecycle tuples."""
+    tree = _tree(CLIENT_COMPAT_PATH)
+    installer = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_install_android_web_compatibility"
+    )
+    builder = next(
+        node
+        for node in installer.body
+        if isinstance(node, ast.FunctionDef) and node.name == "build_sidecar_runtime"
+    )
+    web_imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "_web.assembly"
+    ]
+    assert len(web_imports) == 1
+    assert web_imports[0] in list(ast.walk(builder))
+    assert not [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+        and (
+            any(alias.name.startswith("notebooklm._android") for alias in node.names)
+            if isinstance(node, ast.Import)
+            else node.module is not None and "_android" in node.module
+        )
+    ]
+
+    lifecycle_calls = [
+        node
+        for node in ast.walk(installer)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "ClientLifecycle"
+    ]
+    assert len(lifecycle_calls) == 1
+    keywords = {keyword.arg: keyword.value for keyword in lifecycle_calls[0].keywords}
+    assert ast.unparse(keywords["transports"]) == "(*assembly.transports, sidecar)"
+    assert ast.unparse(keywords["loop_participants"]) == "(*assembly.loop_participants, sidecar)"
+
+
+def test_android_rpc_call_materializes_sidecar_inside_operation_lease() -> None:
+    """The temporary Web runtime must never materialize outside root admission."""
+    rpc_call = next(
+        node
+        for node in ast.walk(_tree(CLIENT_PATH))
+        if isinstance(node, ast.AsyncFunctionDef) and node.name == "rpc_call"
+    )
+    materialize_calls = [
+        node
+        for node in ast.walk(rpc_call)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "materialize"
+    ]
+    leases = [
+        node
+        for node in ast.walk(rpc_call)
+        if isinstance(node, ast.AsyncWith)
+        and any(
+            isinstance(item.context_expr, ast.Call)
+            and isinstance(item.context_expr.func, ast.Attribute)
+            and item.context_expr.func.attr == "operation_scope"
+            and len(item.context_expr.args) == 1
+            and isinstance(item.context_expr.args[0], ast.Constant)
+            and item.context_expr.args[0].value == "rpc_call.sidecar"
+            for item in node.items
+        )
+    ]
+    assert len(materialize_calls) == 1
+    assert len(leases) == 1
+    assert materialize_calls[0] in [
+        child for statement in leases[0].body for child in ast.walk(statement)
+    ]

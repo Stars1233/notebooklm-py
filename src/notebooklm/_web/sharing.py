@@ -11,6 +11,7 @@ from .._types.enums import ShareAccess, SharePermission, ShareViewLevel
 from ..rpc import RPCMethod
 from ..types import ShareStatus
 from .contracts import RpcCaller
+from .rows.sharing import decode_share_status
 
 logger = logging.getLogger("notebooklm._sharing")
 
@@ -63,7 +64,7 @@ class WebSharingAPI(SharingAPI):
             params,
             source_path=f"/notebook/{notebook_id}",
         )
-        return ShareStatus.from_api_response(result, notebook_id)
+        return decode_share_status(ShareStatus, result, notebook_id)
 
     async def _share_and_readback(
         self,

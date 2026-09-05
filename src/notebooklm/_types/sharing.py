@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .._deprecation import warn_registered_deprecation
 from .enums import ShareAccess, SharePermission, ShareViewLevel
 
 
@@ -21,8 +22,13 @@ class SharedUser:
     def from_api_response(cls, data: list[Any]) -> SharedUser:
         """Parse from GET_SHARE_STATUS user entry.
 
+        .. deprecated:: 0.9.0
+           Use ``client.sharing`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         Entry format: [email, permission, [], [name, avatar]]
         """
+        warn_registered_deprecation("shared_user_from_api_response")
         from .._web.rows.sharing import decode_shared_user
 
         return decode_shared_user(cls, data)
@@ -104,12 +110,17 @@ class ShareStatus:
     def from_api_response(cls, data: list[Any], notebook_id: str) -> ShareStatus:
         """Parse from GET_SHARE_STATUS response.
 
+        .. deprecated:: 0.9.0
+           Use ``client.sharing`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         Response format: ``[user_entries, public_block_or_null,
         max_individuals_share_limit, is_public_sharing_allowed, ...]``, where
         ``user_entries`` is a list of ``[email, permission, [], [name, avatar]]``
         rows. See the class docstring for the full observed shape, including the
         two populated-but-unnamed trailing slots.
         """
+        warn_registered_deprecation("share_status_from_api_response")
         from .._web.rows.sharing import decode_share_status
 
         return decode_share_status(cls, data, notebook_id)

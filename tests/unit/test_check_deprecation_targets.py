@@ -30,6 +30,7 @@ Script is imported via spec-loading to match the convention used by
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import importlib.util
 import io
@@ -158,7 +159,19 @@ def _install_registered_tree(
     entries = entries or [
         _spec_entry("auth_tokens_flat_cookies"),
         _spec_entry("auth_tokens_from_storage"),
+        _spec_entry(
+            "auth_tokens_replace_cookie_jar",
+            replacement='"notebooklm.NotebookLMClient.auth"',
+        ),
         _spec_entry("auth_tokens_sync_storage_construction"),
+        _spec_entry(
+            "artifact_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.artifacts"',
+        ),
+        _spec_entry(
+            "artifact_from_mind_map",
+            replacement='"notebooklm.NotebookLMClient.artifacts"',
+        ),
         _spec_entry(
             "client_rpc_call_web",
             replacement='"notebooklm.raw.WebRawAPI.call"',
@@ -167,19 +180,65 @@ def _install_registered_tree(
             "client_rpc_call_android",
             replacement='"notebooklm.raw.AndroidRawAPI.unary"',
         ),
+        _spec_entry(
+            "collection_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.collections"',
+        ),
+        _spec_entry(
+            "label_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.labels"',
+        ),
+        _spec_entry(
+            "notebook_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.notebooks"',
+        ),
+        _spec_entry(
+            "share_status_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sharing"',
+        ),
+        _spec_entry(
+            "shared_user_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sharing"',
+        ),
+        _spec_entry(
+            "source_from_api_response",
+            replacement='"notebooklm.NotebookLMClient.sources"',
+        ),
+        _spec_entry(
+            "source_from_row",
+            replacement='"notebooklm.NotebookLMClient.sources"',
+        ),
     ]
     calls = calls or [
         'warn_registered_deprecation("auth_tokens_flat_cookies")',
         'warn_registered_deprecation("auth_tokens_from_storage")',
+        'warn_registered_deprecation("auth_tokens_replace_cookie_jar")',
         'warn_registered_deprecation("auth_tokens_sync_storage_construction")',
+        'warn_registered_deprecation("artifact_from_api_response")',
+        'warn_registered_deprecation("artifact_from_mind_map")',
         'warn_registered_deprecation("client_rpc_call_web")',
         'warn_registered_deprecation("client_rpc_call_android")',
+        'warn_registered_deprecation("collection_from_api_response")',
+        'warn_registered_deprecation("label_from_api_response")',
+        'warn_registered_deprecation("notebook_from_api_response")',
+        'warn_registered_deprecation("share_status_from_api_response")',
+        'warn_registered_deprecation("shared_user_from_api_response")',
+        'warn_registered_deprecation("source_from_api_response")',
+        'warn_registered_deprecation("source_from_row")',
     ]
     (src / "__init__.py").write_text("from .client import NotebookLMClient\n", encoding="utf-8")
     (src / "client.py").write_text(
         dedent(
             """
             class NotebookLMClient:
+                auth: object
+                artifacts: object
+                collections: object
+                labels: object
+                notebooks: object
+                sharing: object
+                sources: object
+
                 @classmethod
                 def from_storage(cls):
                     return cls()
@@ -282,6 +341,338 @@ def test_registered_replacement_resolves_nested_relative_reexports(script, synth
     )
 
     assert script._replacement_resolves("notebooklm.AuthTokens.jar")
+
+
+def test_registered_replacement_resolves_public_lazy_export(script, synthetic) -> None:
+    (synthetic / "raw.py").write_text(
+        dedent(
+            """
+            import importlib
+            from types import MappingProxyType
+
+            _LAZY_EXPORTS = MappingProxyType(
+                {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+            )
+
+            def __getattr__(name):
+                target = _LAZY_EXPORTS.get(name)
+                if target is None:
+                    raise AttributeError(name)
+                module_name, attribute = target
+                return getattr(importlib.import_module(module_name), attribute)
+            """
+        ),
+        encoding="utf-8",
+    )
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+def test_registered_replacement_rejects_inert_lazy_export_map(script, synthetic) -> None:
+    (synthetic / "raw.py").write_text(
+        dedent(
+            """
+            from types import MappingProxyType
+            _LAZY_EXPORTS = MappingProxyType(
+                {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+            )
+
+            def __getattr__(name):
+                raise AttributeError(name)
+            """
+        ),
+        encoding="utf-8",
+    )
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+@pytest.mark.parametrize(
+    "raw_source",
+    [
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+        )
+        def __getattr__(name):
+            _LAZY_EXPORTS.get(name)
+            raise AttributeError(name)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+        )
+        def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        def __getattr__(name):
+            raise AttributeError(name)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+        )
+        _LAZY_EXPORTS = MappingProxyType({})
+        def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {
+                "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
+                "WebRawAPI": ("notebooklm.missing", "Missing"),
+            }
+        )
+        def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _EXTRA = {}
+        _LAZY_EXPORTS = MappingProxyType(
+            {
+                **_EXTRA,
+                "WebRawAPI": ("notebooklm._web.raw", "WebRawAPI"),
+            }
+        )
+        def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+        )
+        async def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        """,
+        """
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+        )
+        def __getattr__(name, required):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+        """,
+    ],
+)
+def test_registered_replacement_rejects_ineffective_lazy_exports(
+    script, synthetic, raw_source
+) -> None:
+    (synthetic / "raw.py").write_text(dedent(raw_source), encoding="utf-8")
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+@pytest.mark.parametrize(
+    ("parameter", "lookup", "module_name", "attribute"),
+    [
+        ("importlib", "target", "module_name", "attribute"),
+        ("name", "importlib", "module_name", "attribute"),
+        ("name", "target", "getattr", "attribute"),
+        ("name", "target", "module_name", "getattr"),
+        ("name", "target", "value", "value"),
+        ("_LAZY_EXPORTS", "target", "module_name", "attribute"),
+        ("name", "_LAZY_EXPORTS", "module_name", "attribute"),
+    ],
+)
+def test_registered_replacement_rejects_lazy_hook_name_shadowing(
+    script, synthetic, parameter, lookup, module_name, attribute
+) -> None:
+    source = f"""
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {{"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}}
+        )
+        def __getattr__({parameter}):
+            {lookup} = _LAZY_EXPORTS.get({parameter})
+            if {lookup} is None:
+                raise AttributeError({parameter})
+            {module_name}, {attribute} = {lookup}
+            return getattr(importlib.import_module({module_name}), {attribute})
+    """
+    (synthetic / "raw.py").write_text(dedent(source), encoding="utf-8")
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        '_LAZY_EXPORTS["WebRawAPI"] = ("notebooklm.missing", "Missing")',
+        "_LAZY_EXPORTS.clear()",
+        '_LAZY_EXPORTS.update({"WebRawAPI": ("notebooklm.missing", "Missing")})',
+        "escaped = _LAZY_EXPORTS",
+    ],
+)
+def test_registered_replacement_rejects_top_level_lazy_map_use(script, synthetic, mutation) -> None:
+    source = f"""
+        import importlib
+        from types import MappingProxyType
+        _LAZY_EXPORTS = MappingProxyType(
+            {{"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}}
+        )
+        {mutation}
+        def __getattr__(name):
+            target = _LAZY_EXPORTS.get(name)
+            if target is None:
+                raise AttributeError(name)
+            module_name, attribute = target
+            return getattr(importlib.import_module(module_name), attribute)
+    """
+    (synthetic / "raw.py").write_text(dedent(source), encoding="utf-8")
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+@pytest.mark.parametrize(
+    "eager_use",
+    [
+        "@decorate(_LAZY_EXPORTS)\ndef helper():\n    pass",
+        "def helper(value=_LAZY_EXPORTS):\n    pass",
+        "def helper() -> _LAZY_EXPORTS:\n    pass",
+    ],
+)
+def test_registered_replacement_rejects_function_definition_time_map_use(
+    script, synthetic, eager_use
+) -> None:
+    source = (
+        dedent(
+            """
+            import importlib
+            from types import MappingProxyType
+            _LAZY_EXPORTS = MappingProxyType(
+                {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+            )
+            """
+        )
+        + eager_use
+        + "\n"
+        + dedent(
+            """
+            def __getattr__(name):
+                target = _LAZY_EXPORTS.get(name)
+                if target is None:
+                    raise AttributeError(name)
+                module_name, attribute = target
+                return getattr(importlib.import_module(module_name), attribute)
+            """
+        )
+    )
+    (synthetic / "raw.py").write_text(source, encoding="utf-8")
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+def test_registered_replacement_rejects_proxy_import_after_map(script, synthetic) -> None:
+    (synthetic / "raw.py").write_text(
+        dedent(
+            """
+            import importlib
+            _LAZY_EXPORTS = MappingProxyType(
+                {"WebRawAPI": ("notebooklm._web.raw", "WebRawAPI")}
+            )
+            from types import MappingProxyType
+            def __getattr__(name):
+                target = _LAZY_EXPORTS.get(name)
+                if target is None:
+                    raise AttributeError(name)
+                module_name, attribute = target
+                return getattr(importlib.import_module(module_name), attribute)
+            """
+        ),
+        encoding="utf-8",
+    )
+    (synthetic / "_web").mkdir()
+    (synthetic / "_web" / "raw.py").write_text(
+        "class WebRawAPI:\n    async def call(self):\n        pass\n",
+        encoding="utf-8",
+    )
+
+    assert not script._replacement_resolves("notebooklm.raw.WebRawAPI.call")
+
+
+def test_malformed_lazy_export_dict_fails_closed(script) -> None:
+    malformed = ast.Dict(keys=[ast.Constant("WebRawAPI")], values=[])
+    module = ast.Module(
+        body=[ast.Assign(targets=[ast.Name("_LAZY_EXPORTS")], value=malformed)],
+        type_ignores=[],
+    )
+
+    assert script._literal_lazy_exports(module, "_LAZY_EXPORTS") is None
+
+
+def test_lazy_export_scan_supports_pre_312_function_ast(script) -> None:
+    function = ast.parse("def helper():\n    pass\n").body[0]
+    if hasattr(function, "type_params"):
+        delattr(function, "type_params")
+
+    assert not script._eager_statement_references_name(function, "_LAZY_EXPORTS")
 
 
 def test_registered_replacement_does_not_escape_nested_relative_package(script, synthetic) -> None:

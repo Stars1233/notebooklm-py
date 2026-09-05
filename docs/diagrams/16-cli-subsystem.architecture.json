@@ -16,7 +16,7 @@
           "services",
           "client"
         ],
-        "note": "One asyncio.run bridge per invocation, wrapped by the shared error handler."
+        "note": "The shared guarded run_async bridge drives normal commands; master-token login directly injects asyncio.run for bootstrap."
       },
       {
         "id": "identity",
@@ -117,7 +117,7 @@
       "id": "authrt",
       "type": "backend",
       "label": "Auth Runtime",
-      "sublabel": "one asyncio.run",
+      "sublabel": "guarded run_async bridge",
       "tag": "ADR-0004",
       "pos": [
         544,
@@ -246,7 +246,7 @@
       "id": "command-authrt",
       "from": "command",
       "to": "authrt",
-      "label": "with_auth",
+      "label": "auth + errors",
       "variant": "emphasis"
     },
     {
@@ -345,9 +345,10 @@
     },
     {
       "dot": "emerald",
-      "title": "One loop per command",
+      "title": "One bridge implementation",
       "items": [
-        "cli/runtime.py holds the single asyncio.run bridge for sync Click handlers",
+        "cli/runtime.py holds the shared guarded asyncio.run bridge used by normal sync Click handlers",
+        "master_token_login.py directly injects asyncio.run for its bootstrap and refresh path",
         "Auth precedence is --storage, then NOTEBOOKLM_AUTH_JSON, then the active profile"
       ]
     },

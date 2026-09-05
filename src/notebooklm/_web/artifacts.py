@@ -568,7 +568,7 @@ class WebArtifactsAPI(ArtifactsAPI):
         for raw in rows:
             row = CopiedArtifactRow(raw)
             artifact = (
-                Artifact.from_api_response(row.artifact_row)
+                _artifact_rows.decode_artifact(Artifact, row.artifact_row)
                 if row.is_well_formed and row.artifact_row is not None
                 else None
             )

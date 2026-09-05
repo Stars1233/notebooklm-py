@@ -15,6 +15,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from .._deprecation import warn_registered_deprecation
+
 
 @dataclass
 class Collection:
@@ -37,6 +39,10 @@ class Collection:
     def from_api_response(cls, data: list[Any], *, method_id: str | None = None) -> Collection:
         """Parse one collection 4-tuple ``[name, notebook_ids, collection_id, emoji]``.
 
+        .. deprecated:: 0.9.0
+           Use ``client.collections`` typed APIs. Raw Web row decoding has no
+           supported public replacement.
+
         Decoded positionally rather than via :class:`LabelRow` because the
         member slot's shape differs from a label's once populated: bare
         notebook-id strings, not ``[[source_id], ...]`` wrapped singletons.
@@ -44,6 +50,7 @@ class Collection:
         any type drift (non-string name/id, a member that isn't a string, a
         non-string emoji) raises too; there is no degrade-to-sentinel path.
         """
+        warn_registered_deprecation("collection_from_api_response")
         from .._web.rows.collections import decode_collection
 
         return decode_collection(cls, data, method_id=method_id)

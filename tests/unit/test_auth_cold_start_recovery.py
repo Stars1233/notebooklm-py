@@ -15,7 +15,6 @@ from pytest_httpx import HTTPXMock
 from notebooklm._auth import master_token as mt
 from notebooklm._auth import recovery as recovery_mod
 from notebooklm._auth import refresh as refresh_mod
-from notebooklm._auth import session as session_mod
 from notebooklm._auth import single_flight as single_flight_mod
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.cookies import (
@@ -38,6 +37,7 @@ from notebooklm._browser.headless_reauth import (
     headless_reauth_env_enabled,
 )
 from notebooklm._env import PERSONAL_APP_HOSTS
+from notebooklm._web.transport import session_auth as session_auth_mod
 from notebooklm.auth import AuthTokens, fetch_tokens_with_domains
 from notebooklm.client import NotebookLMClient
 from notebooklm.exceptions import MissingDependencyError
@@ -632,7 +632,7 @@ async def test_cold_and_live_l4_recovery_share_one_master_token_mint(tmp_path, m
             )
             await started.wait()
             live = asyncio.create_task(
-                session_mod._try_master_token_reauth(
+                session_auth_mod._try_master_token_reauth(
                     auth=live_auth,
                     kernel=web.kernel,
                     expected_epoch=expected_epoch,

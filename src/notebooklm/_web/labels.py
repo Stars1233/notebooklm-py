@@ -26,6 +26,7 @@ from .params.labels import (
     build_list_labels_params,
     build_update_label_params,
 )
+from .rows.labels import decode_label
 
 # Preserve the historical logger key across the whole-module move.
 logger = logging.getLogger("notebooklm._labels")
@@ -88,7 +89,12 @@ class WebLabelsAPI(LabelsAPI):
                 source=_SRC,
             )
         return [
-            Label.from_api_response(tuple_, notebook_id=notebook_id, method_id=method_id)
+            decode_label(
+                Label,
+                tuple_,
+                notebook_id=notebook_id,
+                method_id=method_id,
+            )
             for tuple_ in raw
         ]
 

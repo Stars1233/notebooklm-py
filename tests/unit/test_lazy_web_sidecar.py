@@ -14,12 +14,14 @@ import httpx
 import pytest
 
 import notebooklm._android.auth as android_auth
-import notebooklm._client_assembly as assembly
+import notebooklm._web.assembly as web_assembly
 from notebooklm._auth.master_token_types import MasterToken
+from notebooklm._web.transport.seams import ClientSeams
 from notebooklm._web.transport.sidecar import LazyWebSidecar
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.rpc import RPCMethod
+from tests._helpers.client_factory import build_client_shell_for_tests
 
 
 def _assert_republished_cancel_message(error: asyncio.CancelledError, expected: str) -> None:
@@ -93,6 +95,22 @@ def _blocking_partial_open_runtime() -> tuple[
     runtime.web_transport.open = partial_open
     runtime.web_transport.close_resources = blocking_close
     return runtime, open_started, close_started, release_close
+
+
+async def test_sidecar_refuses_pre_open_materialization_then_retries_after_open() -> None:
+    runtime = _runtime()
+    build = MagicMock(return_value=runtime)
+    sidecar = LazyWebSidecar(build)
+
+    with pytest.raises(RuntimeError, match="Client not initialized"):
+        await sidecar.materialize(1)
+    build.assert_not_called()
+
+    loop = asyncio.get_running_loop()
+    await sidecar.open(loop, 1)
+
+    assert await sidecar.materialize(1) is runtime
+    build.assert_called_once_with()
 
 
 async def test_sidecar_is_inert_then_builds_once_and_reopens() -> None:
@@ -175,13 +193,15 @@ async def test_sidecar_serializes_forced_close_with_materialization() -> None:
 
 
 async def test_sidecar_retires_a_candidate_that_fails_to_open() -> None:
-    runtime = _runtime()
+    failed_runtime = _runtime()
+    replacement = _runtime()
 
     async def fail_open(_loop: asyncio.AbstractEventLoop, _epoch: int) -> None:
         raise RuntimeError("open failed")
 
-    runtime.web_transport.open = fail_open
-    sidecar = LazyWebSidecar(lambda: runtime)  # type: ignore[arg-type]
+    failed_runtime.web_transport.open = fail_open
+    candidates = iter((failed_runtime, replacement))
+    sidecar = LazyWebSidecar(lambda: next(candidates))  # type: ignore[arg-type]
     loop = asyncio.get_running_loop()
     await sidecar.open(loop, 1)
 
@@ -189,10 +209,15 @@ async def test_sidecar_retires_a_candidate_that_fails_to_open() -> None:
         await sidecar.materialize(1)
 
     assert sidecar.runtime is None
-    assert runtime.web_transport.prepared == 1
-    assert runtime.source_uploader.prepared == 1
-    assert runtime.web_transport.closed == 1
-    assert runtime.source_uploader.closed == 1
+    assert failed_runtime.web_transport.prepared == 1
+    assert failed_runtime.source_uploader.prepared == 1
+    assert failed_runtime.web_transport.closed == 1
+    assert failed_runtime.source_uploader.closed == 1
+
+    assert await sidecar.materialize(1) is replacement
+    assert sidecar.runtime is replacement
+    assert replacement.web_transport.opened == [1]
+    assert replacement.source_uploader.opened == [1]
 
 
 async def test_sidecar_first_open_cancellation_waits_for_candidate_retirement() -> None:
@@ -224,14 +249,14 @@ async def test_sidecar_recancellation_detaches_but_root_close_joins_retirement(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime, open_started, close_started, release_close = _blocking_partial_open_runtime()
-    monkeypatch.setattr(assembly, "build_web_runtime", MagicMock(return_value=runtime))
+    monkeypatch.setattr(web_assembly, "build_web_runtime", MagicMock(return_value=runtime))
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     client = NotebookLMClient(
         AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
         backend="android",
     )
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()
@@ -341,20 +366,22 @@ async def test_android_sidecar_uses_own_refresh_ladder_and_persists_cookies(
     def client_factory(**kwargs: object) -> httpx.AsyncClient:
         return httpx.AsyncClient(transport=httpx.MockTransport(handler), **kwargs)
 
-    monkeypatch.setattr(assembly, "_resolve_async_client_factory", lambda _factory: client_factory)
+    monkeypatch.setattr(
+        web_assembly,
+        "_resolve_async_client_factory",
+        lambda _factory: client_factory,
+    )
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
-    client = NotebookLMClient(auth, backend="android")
+    refresh = AsyncMock(return_value=auth)
+    client = build_client_shell_for_tests(auth, backend="android", refresh_callback=refresh)
     client._seams.decode_response = lambda *_args, **_kwargs: ["ok"]
     client._seams.sleep = AsyncMock()
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()
     client._android_runtime.session._protobuf_loader = lambda: object()
-    refresh = AsyncMock(return_value=auth)
-    monkeypatch.setattr(client, "_refresh_sidecar_auth_for_epoch", refresh)
-
     await client.__aenter__()
     try:
         with pytest.warns(DeprecationWarning, match="crosses from Android"):
@@ -362,6 +389,7 @@ async def test_android_sidecar_uses_own_refresh_ladder_and_persists_cookies(
         assert client._web_sidecar is not None
         runtime = client._web_sidecar.runtime
         assert runtime is not None
+        assert isinstance(client._seams, ClientSeams)
         assert runtime.web_transport._keepalive_task is None
         assert calls == 2
         refresh.assert_awaited_once()
@@ -378,14 +406,14 @@ async def test_android_deprecated_rpc_call_builds_once_warns_once_and_refuses_dr
 ) -> None:
     runtime = _runtime(result=["ok"])
     build = MagicMock(return_value=runtime)
-    monkeypatch.setattr(assembly, "build_web_runtime", build)
+    monkeypatch.setattr(web_assembly, "build_web_runtime", build)
     monkeypatch.setattr(android_auth, "_require_gpsoauth", lambda: object())
     client = NotebookLMClient(
         AuthTokens(cookies={"SID": "sid"}, csrf_token="csrf", session_id="session"),
         backend="android",
     )
     assert client._android_runtime is not None
-    client._android_runtime.bearer_provider._profile_store.read_master_token = MagicMock(
+    client._android_runtime.bearer_provider._master_token_reader.read_master_token = MagicMock(
         return_value=MasterToken(email="test@example.com", android_id="1234", secret="secret")
     )
     client._android_runtime.session._grpc_loader = lambda: object()

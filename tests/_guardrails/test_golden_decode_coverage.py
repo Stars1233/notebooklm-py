@@ -25,7 +25,7 @@ asserts each one is EITHER:
    ``None`` so there is no decoded payload to pin.
 
 Keying by ``RPCMethod`` (not by obfuscated string literals) keeps
-``rpc/types.py`` the single source of truth: when Google rotates an ID and the
+``rpc/_identifiers.py`` the single source of truth: when Google rotates an ID and the
 cassettes are re-recorded, this gate follows automatically. A cassette
 recording an rpcid that no current ``RPCMethod`` knows fails loudly — that is
 either a stale cassette or an un-modelled RPC, both worth a human look.
@@ -420,7 +420,7 @@ def test_every_cassette_rpcid_is_classified() -> None:
     unknown = {rpcid: sorted(files) for rpcid, files in corpus.items() if rpcid not in known_values}
     assert unknown == {}, (
         "Cassette(s) record rpcid(s) that no current RPCMethod constant knows — "
-        "either Google rotated an ID (update rpc/types.py and re-record) or a "
+        "either Google rotated an ID (update rpc/_identifiers.py and re-record) or a "
         f"stale cassette slipped in: {unknown}"
     )
 

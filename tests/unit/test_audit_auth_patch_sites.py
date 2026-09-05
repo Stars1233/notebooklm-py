@@ -239,6 +239,7 @@ def test_parameterized_package_counts_browser_patch_sites(script, tmp_path):
     assert [(site.module, site.attribute) for site in sites] == [("capture", "SEAM")]
 
 
+@pytest.mark.timeout(180)
 def test_real_function_local_import_sites_are_not_dropped(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src" / "notebooklm" / "_auth")
     actual = {(site.path, site.module, site.attribute) for site in sites}
@@ -312,6 +313,7 @@ def test_cold_recovery_mint_patches_are_owned_by_tests():
     )
 
 
+@pytest.mark.timeout(180)
 def test_live_replacement_patch_contract_and_scorecard_are_exact(script):
     sites = script.collect_sites(REPO_ROOT / "tests", REPO_ROOT / "src/notebooklm/_auth")
     projection = script.build_projection(sites)

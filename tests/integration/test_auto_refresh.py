@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from notebooklm import NotebookLMClient
+from notebooklm._web.transport import session_auth as session_auth_module
 from notebooklm.auth import AuthTokens
 from notebooklm.rpc import RPCError, RPCMethod
 from tests.integration.conftest import install_post_as_stream
@@ -19,7 +20,7 @@ pytestmark = pytest.mark.allow_no_vcr
 class TestAutoRefreshIntegration:
     @pytest.mark.asyncio
     async def test_client_has_refresh_callback_wired(self, monkeypatch: pytest.MonkeyPatch):
-        """NotebookLMClient should wire refresh_auth as an epoch-aware callback."""
+        """Production binds the Web session owner's base refresh operation."""
         auth = AuthTokens(
             cookies={"SID": "test"},
             csrf_token="csrf",
@@ -27,29 +28,38 @@ class TestAutoRefreshIntegration:
         )
 
         client = NotebookLMClient(auth)
-        callback = client._web_runtime.auth_coord._refresh_callback
+        web = client._web_runtime
+        callback = web.auth_coord._refresh_callback
         assert callback is not None
+        assert callback.__self__ is web.session_auth
+        assert callback.__func__ is type(web.session_auth).refresh_base
 
-        observed_epochs: list[int] = []
+        observed: list[tuple[bool, int]] = []
 
-        async def fake_refresh_auth(*, expected_epoch: int) -> AuthTokens:
-            observed_epochs.append(expected_epoch)
-            return client._auth
+        async def fake_refresh_auth_session(
+            *, auth: AuthTokens, allow_headless: bool, expected_epoch: int, **_kwargs: object
+        ) -> AuthTokens:
+            observed.append((allow_headless, expected_epoch))
+            return auth
 
-        monkeypatch.setattr(client, "_refresh_web_auth_for_epoch", fake_refresh_auth)
+        monkeypatch.setattr(
+            session_auth_module,
+            "refresh_auth_session",
+            fake_refresh_auth_session,
+        )
 
         async with client:
-            expected_epoch = client._web_runtime.auth_coord._active_epoch
+            expected_epoch = web.auth_coord._active_epoch
             assert expected_epoch is not None
             result = await callback(expected_epoch)
 
         assert result is client._auth
-        assert observed_epochs == [expected_epoch]
+        assert observed == [(False, expected_epoch)]
         # ``_refresh_lock`` is lazily created on first ``_await_refresh``.
         # At construction time it is ``None`` so the client can be
         # instantiated outside a running loop; the helper allocates the
         # lock on demand inside the async refresh path.
-        assert client._web_runtime.auth_coord._refresh_lock is None
+        assert web.auth_coord._refresh_lock is None
 
     @pytest.mark.asyncio
     async def test_full_refresh_flow_http_error(self):

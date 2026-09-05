@@ -6,7 +6,7 @@ import logging
 import reprlib
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from ..._types.artifact_content import (
     ArtifactInfographic,
@@ -23,11 +23,16 @@ from ..._types.enums import FLASHCARDS_VARIANT, ArtifactStatus, ArtifactTypeCode
 from ...exceptions import UnknownRPCMethodError
 from ...rpc import RPCMethod, safe_index
 
+if TYPE_CHECKING:
+    from ..._types.artifacts import Artifact
+
 __all__ = [
     "MIND_MAP_LEAF_ABSENT",
     "ArtifactRow",
     "QuizOptionPair",
     "ReportSuggestionRow",
+    "decode_artifact",
+    "decode_mind_map_artifact",
     "extract_interactive_tree_leaf",
     "unwrap_artifact_rows",
     "unwrap_mind_map_generation_leaf",
@@ -37,6 +42,70 @@ _INTERACTIVE_TREE_LEAF_POS = 3
 
 # Preserve the historical observable logger name after the decoder move.
 _mind_maps_logger = logging.getLogger("notebooklm._mind_maps_api")
+_artifact_logger = logging.getLogger("notebooklm._types.artifacts")
+
+
+def decode_artifact(cls: type[Artifact], data: list[Any]) -> Artifact:
+    """Construct a public artifact from one Web ``LIST_ARTIFACTS`` row."""
+    row = ArtifactRow(data)
+    artifact_type = row.type_code
+    url = row.artifact_url(artifact_type, suppress_drift=True)
+
+    # The generation prompt is an optional listing enrichment. Preserve the
+    # historical soft-degrade when its type-specific nested position drifts.
+    try:
+        generation_prompt = row.generation_prompt
+    except UnknownRPCMethodError:
+        generation_prompt = None
+
+    return cls(
+        id=row.id,
+        title=row.title,
+        _artifact_type=artifact_type,
+        status=row.status,
+        created_at=row.created_at,
+        url=url,
+        _variant=row.variant,
+        generation_prompt=generation_prompt,
+        media_urls=row.media_urls,
+        duration_seconds=row.duration_seconds,
+        slides=row.slides,
+        infographics=row.infographics,
+        report_kind=row.report_kind,
+        source_ids=row.source_ids,
+        last_modified_at=row.last_modified_at,
+        etag=row.etag,
+        user_state=row.user_state,
+    )
+
+
+def decode_mind_map_artifact(cls: type[Artifact], data: list[Any]) -> Artifact | None:
+    """Construct a public artifact from one Web note-backed mind-map row."""
+    if not isinstance(data, list) or len(data) < 1:
+        return None
+
+    from .notes import NoteRow
+
+    row = NoteRow(data)
+    if row.is_deleted:
+        return None
+    if row.has_unrecognized_tombstone:
+        _artifact_logger.warning(
+            "Mind-map row %s has a null content slot without the "
+            "soft-delete sentinel (tombstone drift? a deleted mind map "
+            "may be leaking as live): %s",
+            row.id,
+            reprlib.repr(data),
+        )
+
+    return cls(
+        id=row.id,
+        title=row.title,
+        _artifact_type=ArtifactTypeCode.MIND_MAP.value,
+        status=ArtifactStatus.COMPLETED.value,
+        created_at=row.created_at,
+        _variant=None,
+    )
 
 
 def extract_interactive_tree_leaf(result: Any, *, source: str) -> Any | None:

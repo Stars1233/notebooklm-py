@@ -19,7 +19,7 @@
           "backendselect",
           "webgraph"
         ],
-        "note": "Web selection installs WebRuntime, cookie-backed auth, and the Web raw adapter."
+        "note": "The Web assembler installs WebRuntime, all 11 APIs, and WebRawAPI."
       },
       {
         "id": "android-open",
@@ -30,7 +30,7 @@
           "backendselect",
           "androidgraph"
         ],
-        "note": "Android selection opens AndroidRuntime only; the Web compatibility sidecar stays lazy."
+        "note": "The Android assembler installs AndroidRuntime and APIs; the root Web compatibility sidecar stays inert."
       },
       {
         "id": "precedence",
@@ -105,7 +105,7 @@
       "col": 2,
       "width": 112,
       "type": "security",
-      "label": "Select Auth",
+      "label": "Load Stored Auth",
       "sublabel": "path · env · profile"
     },
     {
@@ -123,8 +123,8 @@
       "col": 4,
       "width": 108,
       "type": "backend",
-      "label": "WebRuntime",
-      "sublabel": "namespaces · executor",
+      "label": "Web Graph",
+      "sublabel": "WebRuntime · WebRawAPI",
       "tag": "default"
     },
     {
@@ -133,8 +133,8 @@
       "col": 4,
       "width": 108,
       "type": "backend",
-      "label": "AndroidRuntime",
-      "sublabel": "APIs · bearer · session",
+      "label": "Android Graph",
+      "sublabel": "runtime · raw APIs",
       "tag": "opt-in"
     }
   ],
@@ -179,14 +179,14 @@
       "title": "Authentication precedence",
       "items": [
         "Path > NOTEBOOKLM_AUTH_JSON > active profile",
-        "Web owns cookie I/O; Android owns its master token and bearer generation"
+        "Web owns cookie I/O; Android assembles ProfileStore, MintService, and bearer state"
       ]
     },
     {
       "dot": "emerald",
       "title": "Backend-selected graph",
       "items": [
-        "backend= > NOTEBOOKLM_BACKEND > Web",
+        "Explicit backend > NOTEBOOKLM_BACKEND > Web",
         "client.raw follows the backend; Android account lookup returns self._auth.account_email without I/O"
       ]
     },
@@ -194,8 +194,8 @@
       "dot": "rose",
       "title": "Android boundary",
       "items": [
-        "Android mode constructs only AndroidRuntime: no full Web transport, cookie I/O, or keepalive",
-        "Deprecated rpc_call materializes LazyWebSidecar only inside operation_scope"
+        "Android construction performs no credential I/O; BearerProvider first reads at open",
+        "Root _client_compat.py pre-registers LazyWebSidecar; deprecated rpc_call materializes it on demand"
       ]
     }
   ]

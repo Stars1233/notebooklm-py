@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import sys
+import warnings
 from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
@@ -47,6 +48,7 @@ from manage_ci_e2e_notebooks import (  # noqa: E402
 )
 
 from notebooklm import (  # noqa: E402
+    Artifact,
     AuthError,
     ChatError,
     MindMapKind,
@@ -54,10 +56,12 @@ from notebooklm import (  # noqa: E402
     RateLimitError,
     ServerError,
     SharePermission,
+    UnknownTypeWarning,
 )
 from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import (  # noqa: E402
     chat_pb2,
 )
+from notebooklm._types.artifacts import _warned_artifact_types  # noqa: E402
 
 TEMPLATE_ID = "template-id"
 TEMPLATE_TITLE = "Make Your Writing More Powerful and Persuasive"
@@ -1479,6 +1483,28 @@ async def test_template_validation_allows_optional_interactive_mind_map(
     counts = await manager.validate_template()
 
     assert counts["completed_artifacts"] == 8
+
+
+@pytest.mark.asyncio
+async def test_template_validation_skips_unclassified_type4_before_kind(
+    tmp_path: Path,
+    contracts: tuple[dict[str, Any], dict[str, Any]],
+) -> None:
+    manager, client, _store, _clock = _manager(tmp_path, contracts)
+    client.artifacts.by_notebook[TEMPLATE_ID].append(
+        Artifact(id="legacy-type4", title="Legacy", _artifact_type=4, status=3, _variant=None)
+    )
+    _warned_artifact_types.discard((4, None))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnknownTypeWarning)
+        counts = await manager.validate_template()
+
+    assert counts == {
+        "ready_sources": 3,
+        "completed_artifacts": 10,
+        "artifact_families": 9,
+    }
 
 
 @pytest.mark.asyncio

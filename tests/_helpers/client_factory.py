@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from notebooklm._client_assembly import BackendName, _assemble_client
+from notebooklm._client_contracts import CookieRotator, CookieSaver
 from notebooklm._runtime.config import (
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
     DEFAULT_CONNECT_TIMEOUT,
@@ -17,12 +18,12 @@ from notebooklm._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
 )
-from notebooklm._web.transport.lifecycle import CookieRotator, CookieSaver
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from notebooklm.types import RpcTelemetryEvent
 
 if TYPE_CHECKING:
+    from notebooklm._android.auth import MasterTokenReader, OAuthMinter
     from notebooklm.types import ConnectionLimits
 
 
@@ -50,6 +51,8 @@ def build_client_shell_for_tests(
     sleep: Callable[[float], Awaitable[Any]] | None = None,
     is_auth_error: Callable[[Exception], bool] | None = None,
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
+    master_token_reader: MasterTokenReader | None = None,
+    oauth_minter: OAuthMinter | None = None,
 ) -> NotebookLMClient:
     """Build a client shell through the production assembly seam.
 
@@ -72,16 +75,29 @@ def build_client_shell_for_tests(
     Shell-specific defaults (unchanged from the historical helper):
 
     - ``refresh_callback=None`` — no auth-refresh coordination unless a
-      test injects one (production wires ``client.refresh_auth``).
+      test injects one (production binds the Web-owned session refresh
+      operation).
     - ``keepalive_storage_path`` — passed through verbatim, bypassing the
       production canonicalization (``expanduser().resolve()``) of
       ``auth.storage_path``; an explicit ``None`` still falls through to
       ``compose_client_internals``' own raw ``auth.storage_path``
       fallback, as it always did.
+    - Web-only decoder/classifier overrides resolve into ``ClientSeams`` for a
+      Web shell. An Android shell retains the raw override values without
+      importing Web code and resolves them only if its deprecated sidecar is
+      materialized.
+    - Android-only master-token reader/minter overrides replace the concrete
+      ``ProfileStore`` / ``MintService`` pair at the same production assembly
+      boundary; neither capability is invoked until the shell is opened.
     - The client is returned **unopened**: loop binding still happens at
       ``open()`` time (via ``__aenter__``), exactly as in production.
     """
     client = NotebookLMClient.__new__(NotebookLMClient)
+    extra_android_credentials: dict[str, Any] = {}
+    if master_token_reader is not None:
+        extra_android_credentials["master_token_reader"] = master_token_reader
+    if oauth_minter is not None:
+        extra_android_credentials["oauth_minter"] = oauth_minter
     _assemble_client(
         client,
         auth=auth,
@@ -106,5 +122,6 @@ def build_client_shell_for_tests(
         sleep=sleep,
         is_auth_error=is_auth_error,
         async_client_factory=async_client_factory,
+        **extra_android_credentials,
     )
     return client

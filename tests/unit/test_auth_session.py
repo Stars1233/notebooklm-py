@@ -15,14 +15,14 @@ from typing import Any
 import httpx
 import pytest
 
-from notebooklm._auth import session as session_module
 from notebooklm._auth.cookie_types import CookieJar
 from notebooklm._auth.cookies import _load_cookie_pair_pure
 from notebooklm._auth.profile_migration import LegacyAccountContext, _load_profile_pair_pure
 from notebooklm._auth.recovery import try_storage_cookie_reload
-from notebooklm._auth.session import refresh_auth_session
 from notebooklm._env import get_base_host
+from notebooklm._web.transport import session_auth as session_module
 from notebooklm._web.transport.auth import AuthRefreshCoordinator
+from notebooklm._web.transport.session_auth import refresh_auth_session
 from notebooklm.auth import AuthTokens
 from notebooklm.client import NotebookLMClient
 from tests._fixtures.kernel_test_helpers import install_http_client_for_test
@@ -1722,10 +1722,10 @@ def test_client_refresh_auth_is_facade_only() -> None:
         for node in ast.walk(public_function)
     )
 
-    calls_refresh_session = any(
+    calls_bound_runtime_refresh = any(
         isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "refresh_auth_session"
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "refresh_auth"
         for node in ast.walk(helper_function)
     )
     forbidden_names = {
@@ -1747,12 +1747,12 @@ def test_client_refresh_auth_is_facade_only() -> None:
         elif isinstance(node, ast.Attribute) and node.attr in forbidden_attrs:
             violations.append((node.lineno, node.attr))
 
-    assert calls_refresh_session
+    assert calls_bound_runtime_refresh
     assert violations == []
 
 
-def test_auth_session_has_no_runtime_class_imports() -> None:
-    """``_auth/session.py`` must not import ``NotebookLMClient`` or ``Session``.
+def test_web_session_auth_has_no_runtime_root_class_imports() -> None:
+    """The Web session owner must not import ``NotebookLMClient`` or ``Session``.
 
     Module-level guards against importing ``notebooklm.client`` /
     ``notebooklm._core`` modules live in
@@ -1760,7 +1760,7 @@ def test_auth_session_has_no_runtime_class_imports() -> None:
     type-name axis (import the *class* by name from anywhere), which the
     module-level lint can't see.
     """
-    path = Path(__file__).parents[2] / "src/notebooklm/_auth/session.py"
+    path = Path(__file__).parents[2] / "src/notebooklm/_web/transport/session_auth.py"
     tree = ast.parse(path.read_text())
     parents: dict[ast.AST, ast.AST] = {}
     for parent in ast.walk(tree):

@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from notebooklm._web.rows.source_models import decode_source
 from notebooklm._web.sources.batch import (
     SourceBatchAddService,
     _unresolved_batch_error,
@@ -42,7 +43,8 @@ def _url_row(
 
 
 def _error_source(source_id: str, url: str | None) -> Source:
-    return Source.from_api_response(
+    return decode_source(
+        Source,
         _url_row(source_id, url, status=SourceStatus.ERROR),
         method_id=RPCMethod.ADD_SOURCE.value,
     )

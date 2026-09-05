@@ -5042,10 +5042,10 @@
         <path data-edge-from="shared" data-edge-to="supervisor" data-edge-label="owns" data-edge-key="2" data-edge-id="shared-supervisor" data-composition-points="452,102;544,102" d="M 452 102 L 544 102" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="supervisor" data-edge-to="lifecycle" data-edge-label="generation state" data-edge-key="3" data-edge-id="supervisor-lifecycle" data-composition-points="714,102;806,102" d="M 714 102 L 806 102" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="lifecycle" data-edge-to="sidecar" data-edge-label="pre-registers proxy" data-edge-key="4" data-edge-id="lifecycle-sidecar" data-composition-points="971,102;1063,102" d="M 971 102 L 1063 102" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
-        <path data-edge-from="assembly" data-edge-to="webruntime" data-edge-label="backend=web" data-edge-key="5" data-edge-id="assembly-web" data-composition-points="452,305;544,305" d="M 452 305 L 544 305" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path data-edge-from="assembly" data-edge-to="webruntime" data-edge-label="via _web/assembly" data-edge-key="5" data-edge-id="assembly-web" data-composition-points="452,305;544,305" d="M 452 305 L 544 305" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
         <path data-edge-from="webruntime" data-edge-to="composed" data-edge-label="binds once" data-edge-key="6" data-edge-id="web-composed" data-composition-points="714,305;806,305" d="M 714 305 L 806 305" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="composed" data-edge-to="chainhost" data-edge-label="owns chain" data-edge-key="7" data-edge-id="composed-chain" data-composition-points="971,305;1063,305" d="M 971 305 L 1063 305" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <path data-edge-from="assembly" data-edge-to="androidruntime" data-edge-label="backend=android" data-edge-key="8" data-edge-id="assembly-android" data-composition-points="367,350;367,460" d="M 367 350 L 367 460" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path data-edge-from="assembly" data-edge-to="androidruntime" data-edge-label="via _android/assembly" data-edge-key="8" data-edge-id="assembly-android" data-composition-points="367,350;367,460" d="M 367 350 L 367 460" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
         <path data-edge-from="androidruntime" data-edge-to="session" data-edge-label="owns" data-edge-key="9" data-edge-id="android-session" data-composition-points="452,502;544,502" d="M 452 502 L 544 502" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <path data-edge-from="session" data-edge-to="epoch" data-edge-label="reads task-local tag" data-edge-key="10" data-edge-id="session-epoch" data-composition-points="714,502;806,502" d="M 714 502 L 806 502" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
 
@@ -5087,16 +5087,16 @@
         <text data-detail="fine" x="888.5" y="136" class="t-backend" font-size="7" text-anchor="middle">participant tuples</text>
         </g>
 
-        <g id="node-sidecar" data-node-id="sidecar" data-node-label="LazyWebSidecar" tabindex="0" role="button" aria-label="Focus LazyWebSidecar, materialises WebRuntime, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="materialises WebRuntime" data-node-tag="no keepalive" data-node-context="Architecture component">
-          <title>LazyWebSidecar · materialises WebRuntime · Architecture component · no keepalive</title>
+        <g id="node-sidecar" data-node-id="sidecar" data-node-label="LazyWebSidecar" tabindex="0" role="button" aria-label="Focus LazyWebSidecar, _client_compat.py, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="_client_compat.py" data-node-tag="root-owned · inert" data-node-context="Architecture component">
+          <title>LazyWebSidecar · _client_compat.py · Architecture component · root-owned · inert</title>
           <rect x="1063" y="60" width="155" height="84" rx="6" class="c-mask"/>
           <rect x="1063" y="60" width="155" height="84" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(1069 66) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="1140.5" y="100" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LazyWebSidecar</text>
-        <text data-detail="context" x="1140.5" y="116" class="t-muted" font-size="9" text-anchor="middle">materialises WebRuntime</text>
-        <text data-detail="fine" x="1140.5" y="136" class="t-backend" font-size="7" text-anchor="middle">no keepalive</text>
+        <text data-detail="context" x="1140.5" y="116" class="t-muted" font-size="9" text-anchor="middle">_client_compat.py</text>
+        <text data-detail="fine" x="1140.5" y="136" class="t-backend" font-size="7" text-anchor="middle">root-owned · inert</text>
         </g>
 
         <g id="node-client" data-node-id="client" data-node-label="NotebookLMClient" tabindex="0" role="button" aria-label="Focus NotebookLMClient, public surface, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="public surface" data-node-tag="composition root" data-node-context="Architecture component">
@@ -5111,27 +5111,27 @@
         <text data-detail="fine" x="110" y="342" class="t-backend" font-size="7" text-anchor="middle">composition root</text>
         </g>
 
-        <g id="node-assembly" data-node-id="assembly" data-node-label="_client_assembly" tabindex="0" role="button" aria-label="Focus _client_assembly, conditional construction, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="conditional construction" data-node-tag="one primary runtime" data-node-context="Architecture component">
-          <title>_client_assembly · conditional construction · Architecture component · one primary runtime</title>
+        <g id="node-assembly" data-node-id="assembly" data-node-label="_client_assembly" tabindex="0" role="button" aria-label="Focus _client_assembly, selects branch assembler, Architecture component" aria-pressed="false" data-node-kind="backend" data-node-sublabel="selects branch assembler" data-node-tag="one primary runtime" data-node-context="Architecture component">
+          <title>_client_assembly · selects branch assembler · Architecture component · one primary runtime</title>
           <rect x="282" y="260" width="170" height="90" rx="6" class="c-mask"/>
           <rect x="282" y="260" width="170" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(288 266) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="367" y="303" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">_client_assembly</text>
-        <text data-detail="context" x="367" y="319" class="t-muted" font-size="9" text-anchor="middle">conditional construction</text>
+        <text data-detail="context" x="367" y="319" class="t-muted" font-size="9" text-anchor="middle">selects branch assembler</text>
         <text data-detail="fine" x="367" y="342" class="t-backend" font-size="7" text-anchor="middle">one primary runtime</text>
         </g>
 
-        <g id="node-webruntime" data-node-id="webruntime" data-node-label="WebRuntime" tabindex="0" role="button" aria-label="Focus WebRuntime, reqid · auth · kernel, Web-only runtime" aria-pressed="false" data-node-kind="backend" data-node-sublabel="reqid · auth · kernel" data-node-tag="transport · executor · uploader" data-node-context="Web-only runtime">
-          <title>WebRuntime · reqid · auth · kernel · Web-only runtime · transport · executor · uploader</title>
+        <g id="node-webruntime" data-node-id="webruntime" data-node-label="WebRuntime" tabindex="0" role="button" aria-label="Focus WebRuntime, reqid · session auth · kernel, Web-only runtime" aria-pressed="false" data-node-kind="backend" data-node-sublabel="reqid · session auth · kernel" data-node-tag="transport · executor · uploader" data-node-context="Web-only runtime">
+          <title>WebRuntime · reqid · session auth · kernel · Web-only runtime · transport · executor · uploader</title>
           <rect x="544" y="260" width="170" height="90" rx="6" class="c-mask"/>
           <rect x="544" y="260" width="170" height="90" rx="6" class="c-backend" stroke-width="1.5"/>
           <g aria-hidden="true" data-semantic-sigil="backend" class="semantic-sigil s-backend" transform="translate(550 266) scale(0.6875)">
             <path d="M6 3 3 8l3 5M10 3l3 5-3 5"/>
           </g>
           <text data-node-label="" data-detail-anchor="" x="629" y="303" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">WebRuntime</text>
-        <text data-detail="context" x="629" y="319" class="t-muted" font-size="9" text-anchor="middle">reqid · auth · kernel</text>
+        <text data-detail="context" x="629" y="319" class="t-muted" font-size="9" text-anchor="middle">reqid · session auth · kernel</text>
         <text data-detail="fine" x="629" y="342" class="t-backend" font-size="7" text-anchor="middle">transport · executor · uploader</text>
         </g>
 
@@ -5217,9 +5217,9 @@
           <rect x="966.4" y="148" width="101.2" height="14" rx="3" class="c-mask"/>
           <text x="1017" y="158" class="t-messagebus" font-size="8" text-anchor="middle">pre-registers proxy</text>
         </g>
-        <g data-detail="context" data-edge-from="assembly" data-edge-to="webruntime" data-edge-label="backend=web" data-edge-key="5" data-edge-id="assembly-web">
-          <rect x="466.6" y="285" width="62.8" height="14" rx="3" class="c-mask"/>
-          <text x="498" y="295" class="t-backend" font-size="8" text-anchor="middle">backend=web</text>
+        <g data-detail="context" data-edge-from="assembly" data-edge-to="webruntime" data-edge-label="via _web/assembly" data-edge-key="5" data-edge-id="assembly-web">
+          <rect x="452.2" y="285" width="91.6" height="14" rx="3" class="c-mask"/>
+          <text x="498" y="295" class="t-backend" font-size="8" text-anchor="middle">via _web/assembly</text>
         </g>
         <g data-detail="context" data-edge-from="webruntime" data-edge-to="composed" data-edge-label="binds once" data-edge-key="6" data-edge-id="web-composed">
           <rect x="731" y="285" width="58" height="14" rx="3" class="c-mask"/>
@@ -5229,9 +5229,9 @@
           <rect x="988" y="285" width="58" height="14" rx="3" class="c-mask"/>
           <text x="1017" y="295" class="t-muted" font-size="8" text-anchor="middle">owns chain</text>
         </g>
-        <g data-detail="context" data-edge-from="assembly" data-edge-to="androidruntime" data-edge-label="backend=android" data-edge-key="8" data-edge-id="assembly-android">
-          <rect x="326" y="395" width="82" height="14" rx="3" class="c-mask"/>
-          <text x="367" y="405" class="t-messagebus" font-size="8" text-anchor="middle">backend=android</text>
+        <g data-detail="context" data-edge-from="assembly" data-edge-to="androidruntime" data-edge-label="via _android/assembly" data-edge-key="8" data-edge-id="assembly-android">
+          <rect x="311.6" y="395" width="110.8" height="14" rx="3" class="c-mask"/>
+          <text x="367" y="405" class="t-messagebus" font-size="8" text-anchor="middle">via _android/assembly</text>
         </g>
         <g data-detail="context" data-edge-from="androidruntime" data-edge-to="session" data-edge-label="owns" data-edge-key="9" data-edge-id="android-session">
           <rect x="483" y="482" width="30" height="14" rx="3" class="c-mask"/>
@@ -5464,7 +5464,7 @@
         <ul>
           <li>&bull; RuntimeCollaborators remains only a private alias for neutral SharedRuntime</li>
           <li>&bull; WebRuntime and AndroidRuntime contain their backend-specific collaborators</li>
-          <li>&bull; Conditional assembly does not construct the unused primary backend runtime</li>
+          <li>&bull; The root selector imports only the chosen branch-local assembler</li>
         </ul>
       </div>
 
@@ -5487,8 +5487,8 @@
         </div>
         <ul>
           <li>&bull; Namespace operation scopes bind an epoch.py session-tagged ContextVar for nested Android calls</li>
-          <li>&bull; LazyWebSidecar is inert until deprecated rpc_call is used on an Android client</li>
-          <li>&bull; A materialised sidecar owns close and reopen but never installs keepalive</li>
+          <li>&bull; _client_compat.py alone installs the Android compatibility proxy</li>
+          <li>&bull; A materialised sidecar owns close and reopen but never installs keepalive or a drain hook</li>
         </ul>
       </div>
     </div>

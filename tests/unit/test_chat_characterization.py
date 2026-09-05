@@ -279,8 +279,8 @@ class TestChatAPI:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """A never-configured notebook returns null at nb_info[7] → DEFAULT/DEFAULT."""
-        nb_info = [0, 1, 2, 3, 4, 5, 6, None]
+        """Empty default components at nb_info[7] decode as DEFAULT/DEFAULT."""
+        nb_info = [0, 1, 2, 3, 4, 5, 6, [[], []]]
         response = build_rpc_response(RPCMethod.GET_NOTEBOOK, [nb_info])
         httpx_mock.add_response(content=response.encode())
         async with NotebookLMClient(auth_tokens) as client:

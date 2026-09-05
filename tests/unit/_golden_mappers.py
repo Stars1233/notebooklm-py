@@ -49,15 +49,23 @@ from notebooklm._types.labels import Label
 from notebooklm._types.notebooks import Notebook, PromptSuggestion
 from notebooklm._types.sharing import ShareStatus
 from notebooklm._types.sources import PlayBook, Source
-from notebooklm._web.rows.artifacts import ReportSuggestionRow, unwrap_artifact_rows
+from notebooklm._web.rows.artifacts import (
+    ReportSuggestionRow,
+    decode_artifact,
+    unwrap_artifact_rows,
+)
 from notebooklm._web.rows.chat import NextStepSuggestionRow
 from notebooklm._web.rows.customization import unwrap_customization_choices
+from notebooklm._web.rows.labels import decode_label
 from notebooklm._web.rows.notebooks import (
     PromptSuggestionRow,
+    decode_notebook,
     unwrap_next_step_suggestions,
     unwrap_prompt_suggestions,
 )
 from notebooklm._web.rows.play_books import decode_play_books_response
+from notebooklm._web.rows.sharing import decode_share_status
+from notebooklm._web.rows.source_models import decode_source
 from notebooklm.rpc.types import RPCMethod
 
 # Fixed notebook id used by the share-status / label mappers below. The
@@ -75,7 +83,7 @@ def list_notebooks(decoded: Any) -> list[Notebook]:
     the ``[[row, ...]]`` wrapped envelope, and each inner row is handed to
     :meth:`Notebook.from_api_response`.
     """
-    return [Notebook.from_api_response(row) for row in decoded[0]]
+    return [decode_notebook(Notebook, row) for row in decoded[0]]
 
 
 def get_notebook(decoded: Any) -> Notebook:
@@ -84,7 +92,7 @@ def get_notebook(decoded: Any) -> Notebook:
     Mirrors ``WebNotebooksAPI.get`` (``_web/notebooks.py``): ``decoded[0]`` is the
     notebook-info row passed to :meth:`Notebook.from_api_response`.
     """
-    return Notebook.from_api_response(decoded[0], include_chat_settings=True)
+    return decode_notebook(Notebook, decoded[0], include_chat_settings=True)
 
 
 def add_source(decoded: Any) -> Source:
@@ -93,7 +101,7 @@ def add_source(decoded: Any) -> Source:
     Mirrors ``_web/sources/add.py``: the decoded payload is handed straight to
     :meth:`Source.from_api_response` tagged with the ``ADD_SOURCE`` method id.
     """
-    return Source.from_api_response(decoded, method_id=RPCMethod.ADD_SOURCE.value)
+    return decode_source(Source, decoded, method_id=RPCMethod.ADD_SOURCE.value)
 
 
 def list_expert_intelligence(decoded: Any) -> list[PlayBook]:
@@ -122,7 +130,7 @@ def list_artifacts(decoded: Any) -> list[Artifact]:
         source="golden.list_artifacts",
     )
     return [
-        Artifact.from_api_response(row) for row in rows if isinstance(row, list) and len(row) > 0
+        decode_artifact(Artifact, row) for row in rows if isinstance(row, list) and len(row) > 0
     ]
 
 
@@ -135,7 +143,8 @@ def list_labels(decoded: Any) -> list[Label]:
     feature layer threads through.
     """
     return [
-        Label.from_api_response(
+        decode_label(
+            Label,
             tuple_,
             notebook_id=_NOTEBOOK_ID,
             method_id=RPCMethod.LIST_LABELS.value,
@@ -150,7 +159,7 @@ def get_share_status(decoded: Any) -> ShareStatus:
     Mirrors ``SharingAPI`` (``_sharing.py``): the decoded payload and the
     notebook id are handed to :meth:`ShareStatus.from_api_response`.
     """
-    return ShareStatus.from_api_response(decoded, _NOTEBOOK_ID)
+    return decode_share_status(ShareStatus, decoded, _NOTEBOOK_ID)
 
 
 def get_suggested_reports(decoded: Any) -> list[ReportSuggestion]:

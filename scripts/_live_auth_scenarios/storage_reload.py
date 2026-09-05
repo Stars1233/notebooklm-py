@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from notebooklm import NotebookLMClient
-from notebooklm._auth import session as auth_session
+from notebooklm._web.transport import session_auth as auth_session
 
 from ._contract import ScenarioError, ScenarioResult, require, run_scenario
 

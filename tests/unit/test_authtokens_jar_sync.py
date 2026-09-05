@@ -11,6 +11,8 @@ and persistence behavior does not read either projection after bootstrap.
 
 from __future__ import annotations
 
+import warnings
+
 import httpx
 import pytest
 
@@ -32,12 +34,14 @@ def _auth(**cookies: str) -> AuthTokens:
     )
 
 
-def test_replace_cookie_jar_updates_both_views() -> None:
+def test_internal_cookie_jar_sync_updates_both_views_without_warning() -> None:
     """The regression: rebinding the jar must refresh the derived map too."""
     auth = _auth(SID="old-sid")
     assert auth.cookies[("SID", ".google.com", "/")] == "old-sid"
 
-    auth.replace_cookie_jar(_jar(SID="fresh-sid"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        auth._sync_cookie_jar(_jar(SID="fresh-sid"))
 
     assert auth.cookies[("SID", ".google.com", "/")] == "fresh-sid", (
         "auth.cookies still describes the pre-refresh session"
@@ -53,7 +57,7 @@ def test_the_two_views_agree_after_a_rebind() -> None:
     the property the dual storage kept breaking.
     """
     auth = _auth(SID="s0", HSID="h0")
-    auth.replace_cookie_jar(_jar(SID="s1", HSID="h1", APISID="a1"))
+    auth._sync_cookie_jar(_jar(SID="s1", HSID="h1", APISID="a1"))
 
     from_map = {name: value for (name, _domain, _path), value in auth.cookies.items()}
     assert auth.cookie_jar is not None
@@ -68,7 +72,7 @@ def test_a_cookie_dropped_by_the_refresh_disappears_from_the_map() -> None:
     it would keep a retired cookie readable through the public surface.
     """
     auth = _auth(SID="s0", RETIRED="gone")
-    auth.replace_cookie_jar(_jar(SID="s1"))
+    auth._sync_cookie_jar(_jar(SID="s1"))
 
     assert ("RETIRED", ".google.com", "/") not in auth.cookies
     assert auth.cookies[("SID", ".google.com", "/")] == "s1"
@@ -84,7 +88,7 @@ def test_construction_still_syncs_the_two_views() -> None:
 def test_flat_cookies_reflects_the_refresh() -> None:
     """The legacy flat read is derived from ``cookies``, so it inherits the fix."""
     auth = _auth(SID="old")
-    auth.replace_cookie_jar(_jar(SID="new"))
+    auth._sync_cookie_jar(_jar(SID="new"))
     with pytest.warns(DeprecationWarning, match="flat_cookies"):
         assert auth.flat_cookies["SID"] == "new"
 
@@ -93,7 +97,7 @@ def test_flat_cookies_reflects_the_refresh() -> None:
 def test_rebind_handles_edge_case_values(value: str) -> None:
     """Empty and long values round-trip through the jar->map conversion."""
     auth = _auth(SID="seed")
-    auth.replace_cookie_jar(_jar(SID=value))
+    auth._sync_cookie_jar(_jar(SID=value))
     got = auth.cookies.get(("SID", ".google.com", "/"))
     # httpx drops an empty-valued cookie rather than storing it; either way the
     # two views must still agree, which is the invariant under test.
@@ -108,7 +112,7 @@ class TestJarProjection:
     def test_jar_reflects_the_current_compatibility_jar(self) -> None:
         auth = _auth(SID="old")
         assert auth.jar.names() == {"SID"}
-        auth.replace_cookie_jar(_jar(SID="new", HSID="h"))
+        auth._sync_cookie_jar(_jar(SID="new", HSID="h"))
         # Fresh projection each access — no staleness, unlike the old .cookies bug.
         assert auth.jar.names() == {"SID", "HSID"}
         assert auth.jar.to_domain_map()[("SID", ".google.com", "/")] == "new"

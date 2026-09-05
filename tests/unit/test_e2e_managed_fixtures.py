@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import warnings
 from types import SimpleNamespace
 
 import pytest
 
+from notebooklm import Artifact, UnknownTypeWarning
+from notebooklm._types.artifacts import _warned_artifact_types
 from tests.e2e import conftest as e2e
 from tests.e2e._artifact_helpers import (
     completed_download_candidates,
@@ -129,6 +132,20 @@ def test_url_backed_download_selectors_reject_inventory_only_artifacts() -> None
         )
         is True
     )
+
+
+def test_download_selector_skips_unclassified_type4_before_kind() -> None:
+    legacy = Artifact(id="legacy-type4", title="Legacy", _artifact_type=4, status=3)
+    downloadable = SimpleNamespace(
+        kind="audio", is_completed=True, url="https://asset.test", id="downloadable"
+    )
+    _warned_artifact_types.discard((4, None))
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UnknownTypeWarning)
+        candidates = completed_download_candidates([legacy, downloadable], "audio", backend="web")
+
+    assert candidates == [downloadable]
 
 
 def test_android_slide_deck_download_selectors_allow_backend_hydration() -> None:

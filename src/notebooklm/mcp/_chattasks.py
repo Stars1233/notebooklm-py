@@ -52,7 +52,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from .._loop_bound import LoopBoundPrimitive
+from .._adapter_support import LoopBoundPrimitive
 
 __all__ = [
     "ChatTaskCapacityError",

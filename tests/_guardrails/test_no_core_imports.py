@@ -21,7 +21,7 @@ The string ``"notebooklm._core"`` still survives as ``CORE_LOGGER_NAME``
 at ``src/notebooklm/_runtime/config.py`` — that's a logger name, not an
 import, and is intentional. Loggers don't trigger module load.
 
-``_auth/session.py`` additionally bans ``notebooklm.client`` (the
+``_web/transport/session_auth.py`` additionally bans ``notebooklm.client`` (the
 original per-file test caught both axes).
 """
 
@@ -41,7 +41,10 @@ GUARDED_MODULES: list[tuple[str, frozenset[str]]] = [
     ("src/notebooklm/_web/transport/streaming_post.py", frozenset()),
     ("src/notebooklm/_web/transport/errors.py", frozenset()),
     ("src/notebooklm/_web/transport/executor.py", frozenset()),
-    ("src/notebooklm/_auth/session.py", frozenset({"notebooklm.client", "client"})),
+    (
+        "src/notebooklm/_web/transport/session_auth.py",
+        frozenset({"notebooklm.client", "client"}),
+    ),
     ("src/notebooklm/_web/transport/cookie_persistence.py", frozenset()),
     ("src/notebooklm/_polling_registry.py", frozenset()),
 ]

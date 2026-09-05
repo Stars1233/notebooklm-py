@@ -6,11 +6,12 @@ public compatibility shadows during the v0.x runway. Assigning the jar directly
 would still leave those public projections describing different sessions, even
 though transport, routing, recovery, and persistence no longer read them.
 
-``replace_cookie_jar`` rebinds both. This gate keeps a future rebind from
+``_sync_cookie_jar`` rebinds both without warning. The deprecated public
+``replace_cookie_jar`` delegates to it after warning. This gate keeps a future rebind from
 reintroducing the public divergence and equality-pins every statically provable
 cookie-shadow read/write. Direct assignments are scanned anywhere under
 ``src/``, excluding ``_auth/tokens.py`` itself, which legitimately owns
-``__post_init__`` and ``replace_cookie_jar``.
+``__post_init__`` and ``_sync_cookie_jar``.
 """
 
 from __future__ import annotations
@@ -36,6 +37,7 @@ _COOKIE_SHADOWS = frozenset(
         "cookie_header_for",
     }
 )
+_COOKIE_REBINDS = frozenset({"_sync_cookie_jar", "replace_cookie_jar"})
 
 
 class _AuthTokensShadowVisitor(ast.NodeVisitor):
@@ -125,7 +127,7 @@ class _AuthTokensShadowVisitor(ast.NodeVisitor):
     def visit_Call(self, node: ast.Call) -> None:
         if (
             isinstance(node.func, ast.Attribute)
-            and node.func.attr == "replace_cookie_jar"
+            and node.func.attr in _COOKIE_REBINDS
             and self._is_auth_tokens_receiver(node.func.value)
         ):
             self._record(node.func, context="Call")
@@ -153,7 +155,7 @@ def _raw_cookie_shadow_candidates() -> set[tuple[str, str, str, str, str, int]]:
 _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = frozenset(
     {
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_headless_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -161,7 +163,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_master_token_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -169,7 +171,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_refresh_cmd_reauth",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -177,7 +179,7 @@ _NON_AUTHTOKENS_CANDIDATES: frozenset[tuple[str, str, str, str, str, int]] = fro
             1,
         ),
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_storage_cookie_reload",
             "kernel.get_http_client(expected_epoch=expected_epoch)",
             "cookies",
@@ -210,10 +212,10 @@ def _cookie_shadow_inventory() -> set[tuple[str, str, str, str, str, int]]:
 _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = frozenset(
     {
         (
-            "_auth/session.py",
+            "_web/transport/session_auth.py",
             "_try_storage_cookie_reload",
             "auth",
-            "replace_cookie_jar",
+            "_sync_cookie_jar",
             "Call",
             1,
         ),
@@ -227,7 +229,7 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
             "_auth/tokens.py",
             "AuthTokens._replace_profile_session",
             "self",
-            "replace_cookie_jar",
+            "_sync_cookie_jar",
             "Call",
             1,
         ),
@@ -250,7 +252,7 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
         ("_auth/tokens.py", "AuthTokens.jar", "self", "cookie_jar", "Load", 2),
         (
             "_auth/tokens.py",
-            "AuthTokens.replace_cookie_jar",
+            "AuthTokens._sync_cookie_jar",
             "self",
             "cookie_jar",
             "Store",
@@ -258,10 +260,18 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
         ),
         (
             "_auth/tokens.py",
-            "AuthTokens.replace_cookie_jar",
+            "AuthTokens._sync_cookie_jar",
             "self",
             "cookies",
             "Store",
+            1,
+        ),
+        (
+            "_auth/tokens.py",
+            "AuthTokens.replace_cookie_jar",
+            "self",
+            "_sync_cookie_jar",
+            "Call",
             1,
         ),
         ("_web/transport/kernel.py", "Kernel._bootstrap_cookies", "auth", "cookie_jar", "Load", 1),
@@ -270,7 +280,7 @@ _COOKIE_SHADOW_INVENTORY: frozenset[tuple[str, str, str, str, str, int]] = froze
             "_web/transport/auth.py",
             "AuthRefreshCoordinator.update_auth_headers",
             "auth",
-            "replace_cookie_jar",
+            "_sync_cookie_jar",
             "Call",
             1,
         ),
@@ -303,6 +313,12 @@ def test_cookie_shadow_inventory_is_exact() -> None:
             "def f(auth: AuthTokens, jar):\n auth.replace_cookie_jar(jar)\n",
             "auth",
             "replace_cookie_jar",
+            "Call",
+        ),
+        (
+            "def f(auth: AuthTokens, jar):\n auth._sync_cookie_jar(jar)\n",
+            "auth",
+            "_sync_cookie_jar",
             "Call",
         ),
     ],
@@ -345,19 +361,19 @@ _NON_AUTHTOKENS: frozenset[str] = frozenset()
 
 
 def test_no_direct_cookie_jar_rebind() -> None:
-    """A rebind must go through ``replace_cookie_jar`` so both views move."""
+    """A first-party rebind must use ``_sync_cookie_jar`` so both views move."""
     found = set(_direct_assignments()) - _NON_AUTHTOKENS
     assert not found, (
         "Direct ``.cookie_jar = ...`` assignment(s) outside _auth/tokens.py:\n"
         + "\n".join(f"  {h}" for h in sorted(found))
-        + "\n\nUse ``auth.replace_cookie_jar(jar)`` — assigning the field alone "
+        + "\n\nFirst-party code must use ``auth._sync_cookie_jar(jar)`` — assigning the field alone "
         "leaves the public ``auth.cookies`` describing the previous session.\n"
         "If the target is not an AuthTokens (a transport owning its own jar, "
         "say), add it to _NON_AUTHTOKENS with that reason."
     )
 
 
-def test_the_sanctioned_rebind_exists_and_sets_both() -> None:
+def test_the_internal_rebind_exists_and_sets_both() -> None:
     """The method the gate points callers at must actually set both views.
 
     Without this the gate could keep redirecting people to a method that had
@@ -370,11 +386,11 @@ def test_the_sanctioned_rebind_exists_and_sets_both() -> None:
         (
             n
             for n in ast.walk(tree)
-            if isinstance(n, ast.FunctionDef) and n.name == "replace_cookie_jar"
+            if isinstance(n, ast.FunctionDef) and n.name == "_sync_cookie_jar"
         ),
         None,
     )
-    assert fn is not None, "AuthTokens.replace_cookie_jar disappeared"
+    assert fn is not None, "AuthTokens._sync_cookie_jar disappeared"
 
     assigned = {
         t.attr
@@ -384,5 +400,5 @@ def test_the_sanctioned_rebind_exists_and_sets_both() -> None:
         if isinstance(t, ast.Attribute)
     }
     assert {"cookie_jar", "cookies"} <= assigned, (
-        f"replace_cookie_jar must set BOTH views; it sets {sorted(assigned)}"
+        f"_sync_cookie_jar must set BOTH views; it sets {sorted(assigned)}"
     )

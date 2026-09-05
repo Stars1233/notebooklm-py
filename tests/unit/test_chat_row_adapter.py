@@ -652,8 +652,9 @@ def _nb_info(block: object) -> list[object]:
 class TestUnwrapChatSettings:
     """``unwrap_chat_settings`` decodes the GET_NOTEBOOK chat-settings block (#1751).
 
-    Live-verified shapes (scratch-notebook probe): ``nb_info[7]`` is
-    ``[[goal, custom_prompt?], [length]]`` or ``null`` when never configured.
+    Live-verified shapes: ``nb_info[7]`` is ``[[goal, custom_prompt?], [length]]``;
+    a default component may be elided as ``[]``, and the whole slot may be
+    ``null`` when never configured.
     """
 
     def test_null_block_is_never_configured_defaults(self) -> None:
@@ -665,6 +666,22 @@ class TestUnwrapChatSettings:
     def test_default_default(self) -> None:
         row = unwrap_chat_settings(_nb_info([[1], [1]]), source="t")
         assert (row.goal_code, row.response_length_code, row.custom_prompt) == (1, 1, None)
+
+    @pytest.mark.parametrize(
+        ("block", "expected"),
+        [
+            ([[], []], (1, 1, None)),
+            ([[2, "persona text"], []], (2, 1, "persona text")),
+            ([[], [4]], (1, 4, None)),
+        ],
+    )
+    def test_empty_child_elides_that_components_default(
+        self,
+        block: list[object],
+        expected: tuple[int, int, str | None],
+    ) -> None:
+        row = unwrap_chat_settings(_nb_info(block), source="t")
+        assert (row.goal_code, row.response_length_code, row.custom_prompt) == expected
 
     def test_learning_guide_longer(self) -> None:
         row = unwrap_chat_settings(_nb_info([[3], [4]]), source="t")
@@ -715,8 +732,6 @@ class TestUnwrapChatSettings:
         [
             99,  # truthy non-list block
             "settings",  # truthy non-list block
-            [[], [1]],  # empty goal array
-            [[1], []],  # empty length array
             [[1], "x"],  # non-list length array
             ["x", [1]],  # non-list goal array
             [["notint"], [1]],  # non-int goal code

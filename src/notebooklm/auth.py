@@ -533,7 +533,7 @@ _REFRESH_ATTEMPTED_CONTEXT = _auth_refresh._REFRESH_ATTEMPTED_CONTEXT
 _AUTH_ERROR_SIGNALS = _auth_refresh._AUTH_ERROR_SIGNALS
 _coalesced_run_refresh_cmd = _auth_refresh._coalesced_run_refresh_cmd
 # L2.5 mid-session refresh-cmd rung adapter (c-PR4). Consumed by
-# ``_auth.session.refresh_auth_session``; exposed here for white-box tests.
+# ``_web.transport.session_auth.refresh_auth_session``; exposed here for white-box tests.
 try_refresh_cmd_reauth = _auth_refresh.try_refresh_cmd_reauth
 _midsession_refresh_cmd_enabled = _auth_refresh._midsession_refresh_cmd_enabled
 _should_try_refresh = _auth_refresh._should_try_refresh

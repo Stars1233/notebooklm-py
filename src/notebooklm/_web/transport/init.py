@@ -18,18 +18,14 @@ from ..._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     DEFAULT_TIMEOUT,
 )
-from ..._runtime.init import (
-    SharedRuntime,
-    ValidatedSessionConfig,
-    build_collaborators,
-    validate_constructor_args,
-)
+from ..._runtime.error_injection import _refuse_synthetic_error_outside_test_context
+from ..._runtime.init import SharedRuntime, SharedRuntimeConfig, build_collaborators
 from ...auth import AuthTokens
 from ..sources.upload import SourceUploadPipeline
 from .auth import AuthRefreshCoordinator
 from .composed import ClientComposed
+from .config import WebSessionConfig, validate_web_config
 from .cookie_persistence import CookiePersistence
-from .error_injection import _refuse_synthetic_error_outside_test_context
 from .executor import RpcExecutor
 from .kernel import Kernel
 from .lifecycle import (
@@ -44,6 +40,7 @@ from .middleware.core import Middleware, NextCall, build_chain
 from .reqid_counter import ReqidCounter
 from .runtime import RuntimeTransport
 from .seams import ClientSeams, resolve_client_seams
+from .session_auth import WebSessionAuth
 
 if TYPE_CHECKING:
     from ...types import ConnectionLimits, RpcTelemetryEvent
@@ -63,9 +60,22 @@ class WebRuntime:
     kernel: Kernel
     cookie_persistence: CookiePersistence
     web_transport: WebTransportLifecycle
+    session_auth: WebSessionAuth
     composed: ClientComposed
     executor: RpcExecutor
     source_uploader: SourceUploadPipeline
+
+    async def refresh_auth(
+        self,
+        *,
+        allow_headless: bool = False,
+        expected_epoch: int,
+    ) -> AuthTokens:
+        """Run this backend's bound Web refresh operation."""
+        return await self.session_auth.refresh(
+            allow_headless=allow_headless,
+            expected_epoch=expected_epoch,
+        )
 
 
 @dataclass(frozen=True)
@@ -83,6 +93,7 @@ class ClientInternals:
 
     collaborators: SharedRuntime
     web_runtime: WebRuntime
+    seams: ClientSeams
 
 
 def _resolve_async_client_factory(
@@ -173,23 +184,25 @@ def wire_middleware_chain(
 
 
 def _build_web_transport(
-    config: ValidatedSessionConfig,
+    config: WebSessionConfig,
     *,
     auth: AuthTokens,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    use_default_refresh_callback: bool,
     shared: SharedRuntime,
     cookie_saver: CookieSaver | None,
     cookie_rotator: CookieRotator | None,
-) -> tuple[ReqidCounter, AuthRefreshCoordinator, Kernel, CookiePersistence, WebTransportLifecycle]:
+) -> tuple[
+    ReqidCounter,
+    AuthRefreshCoordinator,
+    Kernel,
+    CookiePersistence,
+    WebTransportLifecycle,
+    WebSessionAuth,
+]:
     """Build the web-only leaf collaborators in dependency order."""
     # ReqidCounter captures this bound method so metrics must exist first.
     reqid = ReqidCounter(on_lock_wait=shared.metrics.record_lock_wait)
-    # Snapshot serialization is intentionally distinct from the refresh lock;
-    # combining them would reintroduce refresh reentrancy ambiguity.
-    auth_coord = AuthRefreshCoordinator(
-        refresh_callback=refresh_callback,
-        metrics=shared.metrics,
-    )
     # ADR-0032 bootstrap hand-off: after construction, first-party live and
     # closed-state readers use the kernel-owned jar rather than AuthTokens'
     # public compatibility shadows.
@@ -200,6 +213,21 @@ def _build_web_transport(
     cookie_persistence = CookiePersistence._from_store(
         ProfileStore(auth.storage_path) if auth.storage_path is not None else None,
         initial_snapshot=auth.cookie_snapshot,
+    )
+    session_auth = WebSessionAuth(
+        auth=auth,
+        kernel=kernel,
+        cookie_persistence=cookie_persistence,
+    )
+    # Snapshot serialization is intentionally distinct from the refresh lock;
+    # combining them would reintroduce refresh reentrancy ambiguity. Production
+    # defaults bind directly to the Web owner; explicit callable and explicit
+    # None remain distinguishable at the composition boundary.
+    auth_coord = AuthRefreshCoordinator(
+        refresh_callback=(
+            session_auth.refresh_base if use_default_refresh_callback else refresh_callback
+        ),
+        metrics=shared.metrics,
     )
     web_transport = WebTransportLifecycle(
         auth=auth,
@@ -215,7 +243,8 @@ def _build_web_transport(
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator or _default_cookie_rotator,
     )
-    return reqid, auth_coord, kernel, cookie_persistence, web_transport
+    session_auth.bind(auth_coord=auth_coord, web_transport=web_transport)
+    return reqid, auth_coord, kernel, cookie_persistence, web_transport, session_auth
 
 
 def compose_client_internals(
@@ -224,6 +253,7 @@ def compose_client_internals(
     timeout: float = DEFAULT_TIMEOUT,
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None = None,
+    use_default_refresh_callback: bool = False,
     refresh_retry_delay: float = 0.2,
     keepalive: float | None = None,
     keepalive_min_interval: float = DEFAULT_KEEPALIVE_MIN_INTERVAL,
@@ -243,6 +273,7 @@ def compose_client_internals(
     async_client_factory: Callable[..., httpx.AsyncClient] | None = None,
     seams: ClientSeams | None = None,
     composed: ClientComposed | None = None,
+    shared_config: SharedRuntimeConfig | None = None,
 ) -> ClientInternals:
     """Build the shared runtime and the complete web runtime bundle."""
     # MUST stay first — preserves the earliest-opportunity refusal that
@@ -257,7 +288,7 @@ def compose_client_internals(
     composed = composed or ClientComposed()
     async_client_factory = _resolve_async_client_factory(async_client_factory)
 
-    config = validate_constructor_args(
+    config, shared_config = validate_web_config(
         timeout=timeout,
         connect_timeout=connect_timeout,
         refresh_retry_delay=refresh_retry_delay,
@@ -274,12 +305,14 @@ def compose_client_internals(
         sleep=seams.sleep,
         is_auth_error=seams.is_auth_error,
         async_client_factory=async_client_factory,
+        shared_config=shared_config,
     )
-    shared = build_collaborators(config, on_rpc_event=on_rpc_event)
+    shared = build_collaborators(shared_config, on_rpc_event=on_rpc_event)
     web_runtime = build_web_runtime(
         config=config,
         auth=auth,
         refresh_callback=refresh_callback,
+        use_default_refresh_callback=use_default_refresh_callback,
         shared=shared,
         upload_timeout=upload_timeout,
         max_concurrent_uploads=max_concurrent_uploads,
@@ -288,14 +321,15 @@ def compose_client_internals(
         seams=seams,
         composed=composed,
     )
-    return ClientInternals(collaborators=shared, web_runtime=web_runtime)
+    return ClientInternals(collaborators=shared, web_runtime=web_runtime, seams=seams)
 
 
 def build_web_runtime(
     *,
-    config: ValidatedSessionConfig,
+    config: WebSessionConfig,
     auth: AuthTokens,
     refresh_callback: Callable[[int], Awaitable[AuthTokens]] | None,
+    use_default_refresh_callback: bool = False,
     shared: SharedRuntime,
     upload_timeout: httpx.Timeout | None,
     max_concurrent_uploads: int | None,
@@ -314,10 +348,18 @@ def build_web_runtime(
     """
 
     composed = composed or ClientComposed()
-    reqid, auth_coord, kernel, cookie_persistence, web_transport = _build_web_transport(
+    (
+        reqid,
+        auth_coord,
+        kernel,
+        cookie_persistence,
+        web_transport,
+        session_auth,
+    ) = _build_web_transport(
         config,
         auth=auth,
         refresh_callback=refresh_callback,
+        use_default_refresh_callback=use_default_refresh_callback,
         shared=shared,
         cookie_saver=cookie_saver,
         cookie_rotator=cookie_rotator,
@@ -386,6 +428,7 @@ def build_web_runtime(
         kernel=kernel,
         cookie_persistence=cookie_persistence,
         web_transport=web_transport,
+        session_auth=session_auth,
         composed=composed,
         executor=executor,
         source_uploader=source_uploader,

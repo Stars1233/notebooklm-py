@@ -1414,10 +1414,11 @@ def _forwarded_alias_variants(
     node: ast.AST,
     forwarded: dict[str, dict[str, tuple[str, ...]]],
 ) -> list[dict[str, str]]:
+    owner_forwarded = forwarded.get(owner)
+    if not owner_forwarded:
+        return [aliases]
     names = {child.id for child in ast.walk(node) if isinstance(child, ast.Name)}
-    substitutions = [
-        (name, values) for name, values in forwarded.get(owner, {}).items() if name in names
-    ]
+    substitutions = [(name, values) for name, values in owner_forwarded.items() if name in names]
     if not substitutions:
         return [aliases]
     result: list[dict[str, str]] = []
@@ -1757,6 +1758,10 @@ def collect_sites(
         except ValueError:
             rel = path.as_posix()
         for node in ast.walk(tree):
+            if not isinstance(
+                node, ast.Call | ast.Assign | ast.AugAssign | ast.AnnAssign | ast.Delete
+            ):
+                continue
             aliases = alias_context.get(id(node), {})
             context = f"{rel}:{getattr(node, 'lineno', 0)}"
             owner_qualname, owner_kind = owners.get(id(node), ("<module>", "helper"))

@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from enum import Enum, IntEnum
 
 from notebooklm._app.serialize import to_jsonable
+from notebooklm._web.rows.notebooks import decode_notebook
 from notebooklm.types import Notebook, SharePermission
 
 
@@ -166,7 +167,8 @@ def test_notebook_view_does_not_auto_expand_for_project_only_fields() -> None:
     """Python Project metadata must not silently change MCP/REST contracts."""
     from notebooklm._app.views import notebook_view
 
-    notebook = Notebook.from_api_response(
+    notebook = decode_notebook(
+        Notebook,
         [
             "N",
             None,

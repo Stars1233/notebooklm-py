@@ -20,7 +20,7 @@ recording therefore locks the actual wire for:
 
 Both rpcids are asserted on replay via :func:`_cassette_request_rpcids` so the
 assertion is **rotation-proof**: it pins the :class:`~notebooklm.rpc.RPCMethod`
-constants (``rpc/types.py`` is the single source of truth), not the obfuscated
+constants (``rpc/_identifiers.py`` is the single source of truth), not the obfuscated
 literals.
 
 Fast vs deep

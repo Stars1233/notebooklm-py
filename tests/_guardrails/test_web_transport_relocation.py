@@ -100,9 +100,66 @@ def test_current_docs_use_canonical_transport_paths_and_contract_homes() -> None
 
 
 def test_client_module_keeps_required_identity_attributes() -> None:
+    from notebooklm._android.raw import AndroidRawAPI
+    from notebooklm._android.runtime import AndroidRuntime
+    from notebooklm._client_compat import LazyWebSidecar
+    from notebooklm._web.mind_maps import NoteBackedMindMapService
+    from notebooklm._web.notes import NoteService
+    from notebooklm._web.raw import WebRawAPI
+    from notebooklm._web.transport.composed import ClientComposed
+    from notebooklm._web.transport.init import WebRuntime, compose_client_internals
+    from notebooklm._web.transport.sidecar import LazyWebSidecar as LegacyLazyWebSidecar
+
     assert client_module.ClientSeams is seams.ClientSeams
     assert client_module.resolve_client_seams is seams.resolve_client_seams
     assert client_module.RpcExecutor is executor.RpcExecutor
+    assert client_module.NoteBackedMindMapService is NoteBackedMindMapService
+    assert client_module.NoteService is NoteService
+    assert client_module.ClientComposed is ClientComposed
+    assert client_module.compose_client_internals is compose_client_internals
+    assert client_module.WebRuntime is WebRuntime
+    assert client_module.AndroidRuntime is AndroidRuntime
+    assert client_module.WebRawAPI is WebRawAPI
+    assert client_module.AndroidRawAPI is AndroidRawAPI
+    assert client_module.LazyWebSidecar is LazyWebSidecar is LegacyLazyWebSidecar
+    assert set(client_module.__all__) == {"NotebookLMClient"}
+    assert set(client_module._LAZY_COMPAT_EXPORTS) <= set(dir(client_module))
+
+
+def test_plain_client_import_does_not_load_backend_runtime_or_compat_implementations() -> None:
+    script = """
+import sys
+import typing
+import types
+
+package = types.ModuleType("notebooklm")
+package.__package__ = "notebooklm"
+package.__path__ = [sys.argv[1]]
+sys.modules["notebooklm"] = package
+
+import notebooklm.client as client
+
+typing.get_type_hints(client.NotebookLMClient)
+
+forbidden = {
+    "notebooklm._android.runtime",
+    "notebooklm._android.raw",
+}
+loaded = sorted(forbidden & sys.modules.keys())
+if loaded:
+    raise AssertionError(f"plain client import loaded backend implementations: {loaded}")
+loaded_web = sorted(name for name in sys.modules if name.startswith("notebooklm._web"))
+if loaded_web:
+    raise AssertionError(f"plain client import loaded Web modules: {loaded_web}")
+assert "ClientSeams" in dir(client)
+"""
+    subprocess.run(
+        [sys.executable, "-I", "-c", script, str(SRC_ROOT)],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=REPO_ROOT,
+    )
 
 
 def test_transport_and_contract_objects_report_canonical_modules() -> None:
