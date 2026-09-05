@@ -65,6 +65,7 @@ records and replays (`tests/_helpers/android_grpc_harness.py`):
 | Cassette | Public calls | Wire RPCs |
 |---|---|---|
 | `get_or_create_account` | `settings.get_user_settings()` | `GetOrCreateAccount` |
+| `usage_standard`, `usage_pro` | `settings.get_usage()` (separate explicit profiles; no scratch resource) | `GetAccount`, `ListQuotaSummary` |
 | `get_project_rich` | `notebooks.get()`, `sources.list()` | `GetProject` ×2 |
 | `load_source` | `sources.get_fulltext()` | `GetProject` ×2, `LoadSource` |
 | `retrieve_relevant_chunks` | `sources.search()`, `sources.search(..., source_ids=...)` | `GetProject`, `RetrieveRelevantChunks` ×2 |

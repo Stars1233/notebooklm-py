@@ -3,6 +3,8 @@
 import grpc
 import warnings
 
+from notebooklm._android.proto.google.internal.labs.tailwind.api.v1 import quota_pb2 as google_dot_internal_dot_labs_dot_tailwind_dot_api_dot_v1_dot_quota__pb2
+from notebooklm._android.proto.google.internal.labs.tailwind.metering.v1 import metering_pb2 as google_dot_internal_dot_labs_dot_tailwind_dot_metering_dot_v1_dot_metering__pb2
 from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import account_pb2 as google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2
 from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import artifacts_pb2 as google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_artifacts__pb2
 from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import chat_pb2 as google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_chat__pb2
@@ -62,6 +64,11 @@ class LabsTailwindOrchestrationServiceStub(object):
                 '/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/MutateAccount',
                 request_serializer=google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.MutateAccountRequest.SerializeToString,
                 response_deserializer=google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.Account.FromString,
+                _registered_method=True)
+        self.ListQuotaSummary = channel.unary_unary(
+                '/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/ListQuotaSummary',
+                request_serializer=google_dot_internal_dot_labs_dot_tailwind_dot_api_dot_v1_dot_quota__pb2.ListQuotaSummaryRequest.SerializeToString,
+                response_deserializer=google_dot_internal_dot_labs_dot_tailwind_dot_metering_dot_v1_dot_metering__pb2.ListQuotaSummaryResponse.FromString,
                 _registered_method=True)
         self.GetProject = channel.unary_unary(
                 '/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GetProject',
@@ -361,6 +368,14 @@ class LabsTailwindOrchestrationServiceServicer(object):
 
     def MutateAccount(self, request, context):
         """Missing associated documentation comment in .proto file."""
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ListQuotaSummary(self, request, context):
+        """Live-validated orchestration alias. The exact message identities come
+        from the APK's separate annotated HTTP QuotaService binding.
+        """
         context.set_code(grpc.StatusCode.UNIMPLEMENTED)
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
@@ -710,6 +725,11 @@ def add_LabsTailwindOrchestrationServiceServicer_to_server(servicer, server):
                     request_deserializer=google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.MutateAccountRequest.FromString,
                     response_serializer=google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.Account.SerializeToString,
             ),
+            'ListQuotaSummary': grpc.unary_unary_rpc_method_handler(
+                    servicer.ListQuotaSummary,
+                    request_deserializer=google_dot_internal_dot_labs_dot_tailwind_dot_api_dot_v1_dot_quota__pb2.ListQuotaSummaryRequest.FromString,
+                    response_serializer=google_dot_internal_dot_labs_dot_tailwind_dot_metering_dot_v1_dot_metering__pb2.ListQuotaSummaryResponse.SerializeToString,
+            ),
             'GetProject': grpc.unary_unary_rpc_method_handler(
                     servicer.GetProject,
                     request_deserializer=google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_read__pb2.GetProjectRequest.FromString,
@@ -1050,6 +1070,33 @@ class LabsTailwindOrchestrationService(object):
             '/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/MutateAccount',
             google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.MutateAccountRequest.SerializeToString,
             google_dot_internal_dot_labs_dot_tailwind_dot_orchestration_dot_v1_dot_account__pb2.Account.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ListQuotaSummary(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/ListQuotaSummary',
+            google_dot_internal_dot_labs_dot_tailwind_dot_api_dot_v1_dot_quota__pb2.ListQuotaSummaryRequest.SerializeToString,
+            google_dot_internal_dot_labs_dot_tailwind_dot_metering_dot_v1_dot_metering__pb2.ListQuotaSummaryResponse.FromString,
             options,
             channel_credentials,
             insecure,

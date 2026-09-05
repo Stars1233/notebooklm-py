@@ -1,8 +1,7 @@
 # Android protobuf evidence ledger
 
 **Status:** admitted read, notebook, source/upload, artifact, chat, notes/sharing,
-organization, Research, and public account-settings contracts; recovered usage-meter contract
-pending ADR-0037 implementation
+organization, Research, public account-settings, and live usage-meter contracts
 
 **Evidence snapshot:** 2026-09-04 (usage-meter messages recovered from Android `1.55.10` and the
 orchestration alias re-probed live)
@@ -12,7 +11,7 @@ source operations; artifact list/get/create/derive/update/delete, native note-ba
 generation, the generated web-derived report-suggestion closure, and exact representation payloads;
 chat sessions, turns, deletion, and streaming; note CRUD plus public-link and collaborator sharing;
 label and collection CRUD/membership; synchronous and asynchronous Research; native account
-language/limit settings; and the proposed live usage-meter read
+language/limit settings; and the live usage-meter read
 
 ## Account method ledger
 
@@ -105,9 +104,12 @@ plausible-looking flattened declarations. Chat follows the same rule: its exact-
 overlay admits only fields retained by the named Dart protobuf libraries and checked against
 captured wire tags. One cumulative `orchestration_service.proto` owns the exact orchestration
 service, while `labs/language/tailwind/sharing/sharing.proto` owns the separately evidenced exact
-sharing service. All implemented adapter paths are now generated and the machine-readable
-[`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) is empty. Seventeen
-conventional request/response signatures derived from the current web registry are kept explicit in
+sharing service. Every implemented adapter path is represented exactly once by a generated
+descriptor or the machine-readable schema-v2
+[`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json). Its sole
+`GetAccount` entry carries the wire-equivalent empty/envelope codecs because the remote FQNs remain
+unrecovered. Seventeen conventional request/response signatures derived from the current web
+registry plus the live-validated `ListQuotaSummary` cross-service binding are kept explicit in
 [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json).
 An exact remote signature may still use a local runtime parser when live-only fields, heterogeneous
 member bytes, scalar-presence semantics, or an exact field admitted through a cycle-free local
@@ -137,13 +139,13 @@ fixtures. Hashes prevent a later local checkout from silently changing what was 
 | [`grpc-capability-and-signature-evidence.md`](grpc-capability-and-signature-evidence.md) | `00091066e51b76c8e072100da8935de6b39cca30a8e7142ce11fb7a07b2ae15c` | consolidated signed-APK inventory, current authenticated Web-bundle signature inference, and mobile-backend route/semantic evidence; preserves the original report hashes and their distinct evidence boundaries |
 | [`latest_apk_grpc_paths.txt`](../../tests/fixtures/android/latest_apk_grpc_paths.txt) | `b5df4996f271e71ccc14e0ae0f8eaa13e1e337b4bc726b54a487a0c4f6d31697` | complete 53-path `1.55.10` generated-client inventory, including the path-only unresolved `UpsertArtifactUserState` entry |
 | [`latest_apk_grpc_signatures.csv`](../../tests/fixtures/android/latest_apk_grpc_signatures.csv) | `6381163929c18d51eb654bc677846061ea65e9d501b9beb9db3952b749b32b7c` | 52 exact `1.55.10` generated-client bindings with request/response FQNs and object-pool offsets |
-| [`external_method_manifest.csv`](../../tests/fixtures/android/external_method_manifest.csv) | `411129064d2528b7ea108571ab382bd786055ed434209d6e733e13f130d9ebbd` | version-scoped `1.46.7` binary inventory plus independently live/web-proven signatures used by the implemented-adapter admission gate |
+| [`external_method_manifest.csv`](../../tests/fixtures/android/external_method_manifest.csv) | `09c5cf112bbd194e1cd25c598c9fd7af000b060973a999fc16f1fedcfc6b0d92` | version-scoped `1.46.7` binary inventory plus independently live/web-proven signatures used by the implemented-adapter admission gate |
 | [`chat-session-control-evidence.md`](chat-session-control-evidence.md) | `d348a05caa9fd61aff63caef1d506a08835d555d37edab1323382f152fa342d6` | live Web/Android status transitions, exact APK cancel binding, authorization boundary, and WEB-client-type cancellation qualification |
 | [`public-api-audit.md`](public-api-audit.md) | `f2fbe716b0b95899737e3abda740009bc9a17fa8dd1a0b0702a18f07e06301b0` | dated 2026-08-29 public-adapter rejection inventory and disposable-copy validation; its three compatibility seams are superseded by the closure report |
 | [`artifact-contracts-and-live-validation.md`](artifact-contracts-and-live-validation.md) | `58af0bbeebdfa6a6a7366577d90a5479bdf971a1ed76fe3d6d7d0b8420f8454d` | consolidated artifact generation, representation, data-table, retry/export, mind-map, and transfer evidence; preserves all four source-report hashes and cleanup qualifications |
 | [`file-transfer-evidence.md`](file-transfer-evidence.md) | `3752ef8cf75e3fcafaca3522a28a323c01d931c4d9f4ca39eb2d5ddb0679d2b9` | official-app/headless PDF upload request, qualified CSV/DOCX compatibility boundary, and live artifact representation/direct infographic/slide transfer |
 | [`resource-lifecycle-and-public-qualification.md`](resource-lifecycle-and-public-qualification.md) | `bf66c01d168e2cb8f191a97670d767c796681610b9a649c891e8439a27117526` | consolidated notebook copy/metadata, note/mind-map, label/collection, membership, cleanup, and public-qualification evidence; preserves all four source-report hashes |
-| [`endpoints.md`](endpoints.md) | `ae6dfef159c4898b4fc2356bba5fd9957f6bfcce771b9b33262399134c90ee9e` | live request/response envelopes, route results, version-scoped APK inventories, captured note/sharing bytes, and the account-bootstrap replay boundary |
+| [`endpoints.md`](endpoints.md) | `1769a5120a958ae6710b72a8294aae2b99ad57a6226c359157db6c4e2fbabfd4` | live request/response envelopes, route results, version-scoped APK inventories, captured note/sharing bytes, and the account-bootstrap replay boundary |
 
 The recovery method and the warning about duplicate packages are committed in
 [`README.md`](README.md#caveats-that-will-bite-you). Live request/response shapes are documented in
@@ -156,13 +158,15 @@ The recovery method and the warning about duplicate packages are committed in
 | `/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GetProject` | `.google.internal.labs.tailwind.orchestration.v1.GetProjectRequest` | `.google.internal.labs.tailwind.orchestration.v1.GetProjectResponse` | unary/unary | `project_id #1`, `include_audio_overview_ids #2`; no `RequestContext` |
 | `/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/ListRecentlyViewedProjects` | `.google.internal.labs.tailwind.orchestration.v1.ListRecentlyViewedProjectsRequest` | `.google.internal.labs.tailwind.orchestration.v1.ListRecentlyViewedProjectsResponse` | unary/unary | `include_own_projects #2`, `include_audio_overview_ids #3`; no `RequestContext` |
 
-The two read signatures above and fifty-five later exact or web-derived signatures live in the sole
+The two read signatures above and fifty-six later exact or inferred signatures live in the sole
 `google/internal/labs/tailwind/orchestration/v1/orchestration_service.proto` service declaration.
 The individual message overlays remain service-free so protobuf never reopens one service across
-files. Its generated stub exposes 57 implemented methods. The exact sharing service adds
-`GetProjectDetails` and `ShareProject`, producing 59 generated paths across the two services. Seventeen
-signatures retain explicit web-derived type-name provenance; the signature-exception manifest is
-empty. The inference and runtime-parser manifests name each adapter seam and evidence link;
+files. Its generated stub exposes 58 implemented methods. The exact sharing service adds
+`GetProjectDetails` and `ShareProject`, producing 60 generated paths across the two services.
+Seventeen signatures retain explicit web-derived type-name provenance; `ListQuotaSummary` retains
+its distinct exact-message/cross-service inference, and path-only `GetAccount` is the sixty-first
+implemented adapter path. The inference, exception, and runtime-parser manifests name each adapter
+seam and evidence link;
 bidirectional descriptor/adapter/external-manifest equality is pinned by
 `tests/unit/android/test_grpc_service_manifest.py`.
 

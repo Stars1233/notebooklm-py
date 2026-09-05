@@ -26,6 +26,7 @@ from tests.cassette_patterns import _CREDENTIAL_DETECTORS
 
 from notebooklm._android.auth import BearerCredential
 from notebooklm._android.phenotype import CLIENT_TYPE_HEADER, EXPERIMENT_TOKEN_HEADER
+from notebooklm._android.proto.google.internal.labs.tailwind.api.v1 import quota_pb2
 from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 import (
     account_pb2,
     artifacts_pb2,
@@ -49,6 +50,7 @@ from notebooklm._android.proto.notebooklm.android.wire.v1 import (
 from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import (
     notebooks_pb2,
     source_content_pb2,
+    usage_pb2,
 )
 from notebooklm._android.session import ANDROID_GRPC_TARGET, AndroidSession
 from notebooklm._client_metrics import ClientMetrics
@@ -69,6 +71,9 @@ ANDROID_CASSETTES = Path(__file__).resolve().parents[2] / "cassettes" / "android
 # proves the mandatory redactor is already a no-op, so nothing escapes as
 # opaque base64.
 _CASSETTE_MESSAGE_TYPES = (
+    # 0. usage via path-only GetAccount and inferred ListQuotaSummary
+    quota_pb2.ListQuotaSummaryRequest,
+    usage_pb2.WireListQuotaSummaryResponse,
     # 1. settings via unary GetOrCreateAccount
     account_pb2.GetOrCreateAccountRequest,
     account_pb2.GetOrCreateAccountResponse,

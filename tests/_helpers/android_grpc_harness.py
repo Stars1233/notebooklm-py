@@ -251,6 +251,7 @@ async def android_cassette_client(
     question: str = QUESTION,
     phenotype_cassette_path: Path | None = None,
     on_recorded: RecordedCallback | None = None,
+    require_scratch: bool = True,
 ) -> AsyncIterator[tuple[NotebookLMClient, CassetteValues]]:
     """Open the public Android client bound to ``cassette_path`` in the current mode.
 
@@ -286,11 +287,13 @@ async def android_cassette_client(
 
         monkeypatch.setattr(android_assembly, "PhenotypeTokenProvider", cassette_provider)
     if record:
-        if scratch is None:
+        if scratch is None and require_scratch:
             raise RuntimeError("Recording requires the android_record_scratch fixture")
         values = bind_values(
             redactor,
-            notebook_id=scratch.notebook_id,
+            notebook_id=(
+                scratch.notebook_id if scratch is not None else "unused-account-scoped-notebook"
+            ),
             question=question,
             record=True,
             correlations=_fresh_correlations(),
