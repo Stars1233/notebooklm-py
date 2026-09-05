@@ -112,7 +112,7 @@ fixtures. Hashes prevent a later local checkout from silently changing what was 
 | [`artifact-contracts-and-live-validation.md`](artifact-contracts-and-live-validation.md) | `58af0bbeebdfa6a6a7366577d90a5479bdf971a1ed76fe3d6d7d0b8420f8454d` | consolidated artifact generation, representation, data-table, retry/export, mind-map, and transfer evidence; preserves all four source-report hashes and cleanup qualifications |
 | [`file-transfer-evidence.md`](file-transfer-evidence.md) | `3752ef8cf75e3fcafaca3522a28a323c01d931c4d9f4ca39eb2d5ddb0679d2b9` | official-app/headless PDF upload request, qualified CSV/DOCX compatibility boundary, and live artifact representation/direct infographic/slide transfer |
 | [`resource-lifecycle-and-public-qualification.md`](resource-lifecycle-and-public-qualification.md) | `bf66c01d168e2cb8f191a97670d767c796681610b9a649c891e8439a27117526` | consolidated notebook copy/metadata, note/mind-map, label/collection, membership, cleanup, and public-qualification evidence; preserves all four source-report hashes |
-| [`endpoints.md`](endpoints.md) | `f7842e7450380d233d84512dfc5b046a99730db346f4dd87315ebaf7ef84ab5c` | live request/response envelopes, route results, version-scoped APK inventories, captured note/sharing bytes, and the account-bootstrap replay boundary |
+| [`endpoints.md`](endpoints.md) | `ae6dfef159c4898b4fc2356bba5fd9957f6bfcce771b9b33262399134c90ee9e` | live request/response envelopes, route results, version-scoped APK inventories, captured note/sharing bytes, and the account-bootstrap replay boundary |
 
 The recovery method and the warning about duplicate packages are committed in
 [`README.md`](README.md#caveats-that-will-bite-you). Live request/response shapes are documented in
@@ -521,11 +521,12 @@ the nonnegative caller limit is filled or pagination ends. Its aggregate preserv
 continuation token when the requested snapshot truncates the stream, and repeated tokens fail
 loudly instead of hanging or double-counting history.
 
-Stream responses are cumulative snapshots. The adapter retains the latest frame whose response
-field 5 is true, never concatenates frames, and raises `ChatResponseParseError` when EOF arrives
-without that final marker. Nonempty field-6 suggestion lists use last-nonempty-wins semantics across
-all frames, matching the neutral Web stream contract, and preserve unknown suggestion type codes in
-public `NextStepSuggestion` values. `AskResult.raw_response` is a deterministic protobuf JSON
+Stream responses are cumulative snapshots. The adapter treats the first frame whose response field
+5 is true as authoritative, closes a wire stream that lingers beyond it, never concatenates frames,
+and raises `ChatResponseParseError` when EOF arrives without that final marker. Nonempty field-6
+suggestion lists use last-nonempty-wins semantics through that terminal frame, matching the neutral
+Web stream contract, and preserve unknown suggestion type codes in public `NextStepSuggestion`
+values. `AskResult.raw_response` is a deterministic protobuf JSON
 projection of the winning final typed frame; the neutral base retains its public 1000-character
 bound. Exact `EmptyAnswerReason #4` (`UNKNOWN`, `UNANSWERABLE`, or `FILTERED`) remains diagnostic
 rather than adding a backend-specific `AskResult` field, but is retained in that JSON if a future

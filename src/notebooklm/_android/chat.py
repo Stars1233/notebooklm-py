@@ -89,6 +89,12 @@ def _new_turn_id() -> str:
     return str(uuid4())
 
 
+def _is_final_chat_response(response: Any) -> bool:
+    """Stop the native stream once its protocol-level final snapshot arrives."""
+
+    return bool(response.is_final_response)
+
+
 def _cancellable_chat_request_context() -> Any:
     """Return the Android metadata envelope with Web chat semantics.
 
@@ -372,6 +378,7 @@ class AndroidChatAPI(ChatAPI):
             response_type=proto.GenerateFreeFormStreamedResponse,
             telemetry_method="chat.ask",
             max_response_bytes=self._chat_response_max_bytes,
+            stop_after=_is_final_chat_response,
         ):
             if response.HasField("next_step_suggestions"):
                 decoded_next_steps = [

@@ -55,15 +55,18 @@ class _ChatService:
         self,
         *,
         fail_auth_after_partial: bool = False,
+        stall_after_final: bool = False,
         final_answer: str = "Cumulative final",
         session_id: str = "conversation-1",
     ) -> None:
         self.asked = False
         self.fail_auth_after_partial = fail_auth_after_partial
+        self.stall_after_final = stall_after_final
         self.final_answer = final_answer
         self.session_id = session_id
         self.list_requests: list[Any] = []
         self.generate_requests: list[Any] = []
+        self.stream_cancel_seen = asyncio.Event()
 
     async def list_sessions(self, request: Any, context: Any) -> Any:
         del context
@@ -88,6 +91,12 @@ class _ChatService:
             answer=chat_pb2.AnswerResponse(response=self.final_answer),
             is_final_response=True,
         )
+        if self.stall_after_final:
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.stream_cancel_seen.set()
+                raise
 
 
 def _handler(service: _ChatService) -> Any:
@@ -196,6 +205,21 @@ async def test_base_ask_over_real_android_session_and_fake_grpc_server() -> None
     snapshot = supervisor._metrics.snapshot()
     assert snapshot.rpc_calls_started == 3
     assert snapshot.rpc_calls_succeeded == 3
+
+
+@pytest.mark.asyncio
+async def test_final_frame_completes_without_waiting_for_stream_eof() -> None:
+    service = _ChatService(stall_after_final=True)
+    async with _running_api(service) as (api, supervisor, _bearer):
+        result = await asyncio.wait_for(api.ask("notebook-1", "Question?"), timeout=2.0)
+        await asyncio.wait_for(service.stream_cancel_seen.wait(), timeout=2.0)
+
+        assert result.answer == "Cumulative final"
+        assert supervisor._current is not None
+        assert supervisor._current.in_flight == 0
+        snapshot = supervisor._metrics.snapshot()
+        assert snapshot.rpc_calls_started == 3
+        assert snapshot.rpc_calls_succeeded == 3
 
 
 @pytest.mark.asyncio

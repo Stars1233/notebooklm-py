@@ -85,8 +85,11 @@ class FakeSession:
 
     async def stream(self, method: str, request: Any, **kwargs: Any) -> AsyncIterator[Any]:
         self.stream_calls.append((method, request, kwargs))
+        stop_after = kwargs.get("stop_after")
         for response in self.stream_responses.pop(0):
             yield response
+            if stop_after is not None and stop_after(response):
+                break
 
 
 @dataclass(frozen=True)
@@ -723,7 +726,7 @@ async def test_list_turns_zero_limit_skips_transport_and_token_cycle_fails() -> 
 
 
 @pytest.mark.asyncio
-async def test_base_ask_uses_latest_cumulative_final_without_concatenating_frames() -> None:
+async def test_base_ask_stops_at_authoritative_cumulative_final_without_concatenating() -> None:
     fake = FakeSession()
     fake.unary_responses[LIST_CHAT_SESSIONS_METHOD] = [
         chat_pb2.ListChatSessionsResponse(),
@@ -734,8 +737,8 @@ async def test_base_ask_uses_latest_cumulative_final_without_concatenating_frame
     fake.stream_responses = [
         [
             _frame("Part", final=False),
-            _frame("Superseded final", final=True),
             _frame("Final answer [2]", final=True),
+            _frame("Must not be consumed", final=False),
         ]
     ]
     api, guard, notebooks = _api(fake, source_ids=["source-1", "source-2"])
@@ -785,6 +788,10 @@ async def test_base_ask_uses_latest_cumulative_final_without_concatenating_frame
         origin=chat_pb2.QUERY_ORIGIN_CHAT_TEXT_BOX,
     )
     assert request.request_context.client_type == 2
+    stop_after = kwargs.pop("stop_after")
+    assert callable(stop_after)
+    assert stop_after(_frame("done", final=True)) is True
+    assert stop_after(_frame("partial", final=False)) is False
     assert kwargs == {
         "replay_safe": False,
         "timeout": 180.0,

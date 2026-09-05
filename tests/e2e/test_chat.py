@@ -17,6 +17,7 @@ from .conftest import (
 
 @pytest.mark.e2e
 @pytest.mark.live_chat_ask
+@pytest.mark.timeout(300)
 @requires_auth
 class TestChatE2E:
     """E2E tests for chat API."""
@@ -83,6 +84,7 @@ class TestChatE2E:
             assert len(ref.cited_text) > 0
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(480)
     async def test_ask_follow_up_conversation(self, client, multi_source_notebook_id):
         """Test follow-up questions use the same conversation."""
         # First question
@@ -104,6 +106,7 @@ class TestChatE2E:
         assert result2.turn_number > result1.turn_number
 
     @pytest.mark.asyncio
+    @pytest.mark.timeout(480)
     async def test_delete_conversation_forces_fresh_next_ask(
         self, client, multi_source_notebook_id
     ):
@@ -381,6 +384,7 @@ class TestChatHistoryE2E:
 
 @pytest.mark.e2e
 @pytest.mark.live_chat_ask
+@pytest.mark.timeout(300)
 @requires_auth
 class TestChatReferencesE2E:
     """E2E tests specifically for chat references and citations."""
