@@ -119,6 +119,7 @@ def test_main_default_patterns_preserve_the_complete_historical_scope(
     dump_root = tmp_path / "dump"
     asm_root = dump_root / "asm"
     for directory, message_name in (
+        ("google.internal.labs.tailwind.metering.v1", "MeteringEmpty"),
         ("google.internal.labs.tailwind.orchestration.v1", "OrchestrationEmpty"),
         ("labs.language.tailwind.common.protos", "CommonEmpty"),
         ("logs.proto.labs_tailwind.metadata", "LoggingEmpty"),
@@ -135,11 +136,12 @@ def test_main_default_patterns_preserve_the_complete_historical_scope(
     parse_pbschema.main([str(asm_root)])
 
     captured = capsys.readouterr()
+    assert "message MeteringEmpty {\n}" in captured.out
     assert "message OrchestrationEmpty {\n}" in captured.out
     assert "message CommonEmpty {\n}" in captured.out
     assert "message LoggingEmpty {\n}" in captured.out
-    assert "parsed 3 messages, 0 fields from 3 files" in captured.err
-    assert "resolved 3/3 protobuf FQNs" in captured.err
+    assert "parsed 4 messages, 0 fields from 4 files" in captured.err
+    assert "resolved 4/4 protobuf FQNs" in captured.err
 
 
 def test_nested_message_keeps_its_dotted_builder_name_as_the_fqn(tmp_path: Path) -> None:

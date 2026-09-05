@@ -1029,7 +1029,7 @@ into `docs/`:
 
 | file | what it pins |
 |---|---|
-| `android/schema.proto` | 323 messages / 868 fields with real names and tag numbers |
+| `android/schema.proto` | 326 messages / 879 fields with real names and tag numbers |
 | `android/enums.txt` | 104 library-scoped enum blocks (94 class names) / 2180 values with exact integers |
 
 Both come from the official Android app, which speaks the *same backend messages*

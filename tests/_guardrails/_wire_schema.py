@@ -34,7 +34,7 @@ Caveats baked into the parsers
   matches rather than silently picking one.
 * **``fieldType`` is a parser artifact.** The upstream extraction emits the
   literal placeholder ``fieldType`` where it failed to recover a real name
-  (11 of 767 fields). Those are exposed as-is; do not treat them as real names.
+  (11 of 879 fields). Those are exposed as-is; do not treat them as real names.
 """
 
 from __future__ import annotations

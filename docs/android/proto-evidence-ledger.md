@@ -1,16 +1,18 @@
 # Android protobuf evidence ledger
 
 **Status:** admitted read, notebook, source/upload, artifact, chat, notes/sharing,
-organization, Research, and public account-settings contracts
+organization, Research, and public account-settings contracts; recovered usage-meter contract
+pending ADR-0037 implementation
 
-**Evidence snapshot:** 2026-08-31 (`GenerateDocumentGuides` echo and derived-read existence policing re-probed live)
+**Evidence snapshot:** 2026-09-04 (usage-meter messages recovered from Android `1.55.10` and the
+orchestration alias re-probed live)
 
 **Scope:** project/source reads; notebook operations; URL, maintenance, content, and generic file
 source operations; artifact list/get/create/derive/update/delete, native note-backed mind-map
 generation, the generated web-derived report-suggestion closure, and exact representation payloads;
 chat sessions, turns, deletion, and streaming; note CRUD plus public-link and collaborator sharing;
-label and collection CRUD/membership; synchronous and asynchronous Research; and native account
-language/limit settings
+label and collection CRUD/membership; synchronous and asynchronous Research; native account
+language/limit settings; and the proposed live usage-meter read
 
 ## Account method ledger
 
@@ -38,6 +40,32 @@ nonempty language, wrote and read back a temporary value, restored the original 
 verified restoration with a fresh native `GetOrCreateAccount` call. Positive quota integers are
 projected into the public limits model; raw optional values are preserved without inventing enum
 semantics.
+
+### Usage-meter recovery
+
+The exact Android message boundary for `ListQuotaSummary` is split across two packages:
+
+| Message | Exact fields retained by Android `1.55.10` |
+| --- | --- |
+| `google.internal.labs.tailwind.api.v1.ListQuotaSummaryRequest` | `RequestContext request_context #1` |
+| `google.internal.labs.tailwind.metering.v1.ListQuotaSummaryResponse` | `Status status #1`; repeated `QuotaSummaryEntry summaries #2`; repeated `UserAction out_of_quota_actions #3`; repeated `UserActionQuotaSummary action_quota_summaries #4` |
+| `google.internal.labs.tailwind.metering.v1.QuotaSummaryEntry` | `QuotaRefreshWindow window #5`; `Timestamp next_refresh_time #6`; `double used_micros_percent #7` |
+| `google.internal.labs.tailwind.metering.v1.UserActionQuotaSummary` | `UserAction action #1`; `bool has_sufficient_quota #2`; `ActionCostTier cost_tier #4`; `double estimated_cost_pct_of_budget #6` |
+
+The official app binds those exact request/response types to annotated protobuf HTTP service
+`google.internal.labs.tailwind.api.v1.QuotaService`, method `ListQuotaSummary`, route
+`GET v1/quota:listQuotaSummary`. That service path is `UNIMPLEMENTED` on the native gRPC endpoint.
+The separate orchestration gRPC alias accepts the exact context request and returns this response;
+its signature is therefore live-proven and cross-service-inferred rather than an APK-extracted gRPC
+binding. Newer live fields `QuotaSummaryEntry #8` and `UserActionQuotaSummary #3/#5` exceed the APK
+subset and require a local response overlay. See
+[`usage-quota-evidence.md`](usage-quota-evidence.md#android-static-and-route-recovery).
+
+`GetAccount` accepts empty bytes and returns the same semantic envelope as exact-package
+`GetOrCreateAccountResponse`, including `PremiumUserInfo.compute_metering_enabled #7`. The method is
+absent from the signed APK and server reflection is disabled, so its exact request/response FQNs
+remain unrecovered. ADR-0037 therefore requires a single path-only signature exception rather than
+inventing descriptor types.
 
 ## Research method ledger
 
@@ -99,10 +127,13 @@ fixtures. Hashes prevent a later local checkout from silently changing what was 
 | exact-package `source_settings.proto` | `becd695c4281e23064c16fc1441c61117e5dc2a44c52cadf44af9e31c7cb8b18` | separate settings package, fields #2/#4, complete enums |
 | exact-package sharing `supported.proto` | `f966dfebebe5eee213ad53607d2fddd44c8c33892f2a338d734491d9fb7b4309` | sharing service/message FQNs, tags, cardinality, and common-protos import |
 | exact-package common `common.proto` | `0a2a7acbeebf3a97ad0fffa8b7496cb119c9f0fffb731011c47e9dba43313044` | exact `ChatSession` and `ProjectPublicSettings` message closure without duplicate declarations |
-| [`schema.proto`](schema.proto) | `4d546eadc76aeca5b41e350ca11d11a943d7f2f89be9ff0de1f3d37eaf65eb07` | flattened Dart recovery used to identify gaps, never as a compile input; retains 15 zero-field messages and exact per-message package/library provenance |
+| [`schema.proto`](schema.proto) | `a5982ada714d231462625b87cbb71b8b6b87db19c02e15a1dfe294d065d0c4fb` | flattened Dart recovery used to identify gaps, never as a compile input; retains 15 zero-field messages plus the metering response family and exact per-message package/library provenance |
 | [`enums.txt`](enums.txt) | `fb138adfec1d701932f7efaee9f20f4fbb43b3df27acb00de91c169e659c5401` | exhaustive enum names and integers |
 | blutter `pp.txt` | `2fc0bad6bee700cb628deb9ac1922eeea3d1255b51d8d2e1f63c5537d98965b0` | adjacent generated-client method paths, request/response generic bindings, and response constructors for the six formerly empty-response exceptions |
 | blutter `ida_script/addNames.py` | `982fcbf1c5ef1d7d0aa9d5d0ae8af3c6e6a7c575af9bdba1fc3d7469aa8bc511` | exact protobuf Dart-library identity for `Empty`, `DeleteNotesResponse`, and `ShareProjectResponse`; summarized in [`blutter-grpc-signature-evidence.md`](blutter-grpc-signature-evidence.md) |
+| Android `1.55.10` blutter `pp.txt` | `c2b64fd7d08a64f833b343f54bc697520096dfaef10740ebcbcd66a5c8e24b9a` | exact quota request/response generic binding, HTTP annotation, stable response fields, and enum associations |
+| Android `1.55.10` blutter `ida_script/addNames.py` | `b75adf9f8bb92085c853dd30d231d533aec987024cf0e442f7cafc03dab24518` | exact quota request/response Dart protobuf library identities |
+| Android `1.55.10` blutter `objs.txt` | `d7227558df36ccff9f48bd2240aecd2c883ca6537c6f63f6ef545dc5a0695f17` | exact metering package objects plus complete status, window, cost-tier, and user-action enum values |
 | [`grpc-capability-and-signature-evidence.md`](grpc-capability-and-signature-evidence.md) | `00091066e51b76c8e072100da8935de6b39cca30a8e7142ce11fb7a07b2ae15c` | consolidated signed-APK inventory, current authenticated Web-bundle signature inference, and mobile-backend route/semantic evidence; preserves the original report hashes and their distinct evidence boundaries |
 | [`latest_apk_grpc_paths.txt`](../../tests/fixtures/android/latest_apk_grpc_paths.txt) | `b5df4996f271e71ccc14e0ae0f8eaa13e1e337b4bc726b54a487a0c4f6d31697` | complete 53-path `1.55.10` generated-client inventory, including the path-only unresolved `UpsertArtifactUserState` entry |
 | [`latest_apk_grpc_signatures.csv`](../../tests/fixtures/android/latest_apk_grpc_signatures.csv) | `6381163929c18d51eb654bc677846061ea65e9d501b9beb9db3952b749b32b7c` | 52 exact `1.55.10` generated-client bindings with request/response FQNs and object-pool offsets |
