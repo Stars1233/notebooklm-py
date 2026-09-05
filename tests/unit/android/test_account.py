@@ -71,7 +71,10 @@ def test_exact_account_proto_package_fields_and_wire_are_minimal() -> None:
         "output_language": (5, message, f"{package}.OutputLanguage"),
         "is_eea_user": (9, boolean, None),
     }
-    assert _fields(account_pb2.PremiumUserInfo) == {"is_premium_user": (1, boolean, None)}
+    assert _fields(account_pb2.PremiumUserInfo) == {
+        "is_premium_user": (1, boolean, None),
+        "compute_metering_enabled": (7, boolean, None),
+    }
     assert _fields(account_pb2.TierLimits) == {
         "account_type": (1, int32, None),
         "max_projects": (2, int32, None),

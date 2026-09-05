@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import hashlib
+import importlib
 import json
 import re
 from pathlib import Path
@@ -45,7 +46,11 @@ from notebooklm._android.proto.notebooklm.android.wire.v1 import (
 from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import (
     notebooks_pb2 as wire_notebooks_pb2,
 )
-from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import source_content_pb2
+from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import (
+    source_content_pb2,
+    usage_pb2,
+)
+from notebooklm._android.retry_policy import ANDROID_RETRY_MANIFEST
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 EXCEPTION_MANIFEST = REPO_ROOT / "docs" / "android" / "grpc-service-signature-exceptions.json"
@@ -54,7 +59,7 @@ PARSER_OVERRIDE_MANIFEST = REPO_ROOT / "docs" / "android" / "grpc-runtime-parser
 EXTERNAL_METHOD_MANIFEST = (
     REPO_ROOT / "tests" / "fixtures" / "android" / "external_method_manifest.csv"
 )
-EXTERNAL_METHOD_MANIFEST_SHA256 = "411129064d2528b7ea108571ab382bd786055ed434209d6e733e13f130d9ebbd"
+EXTERNAL_METHOD_MANIFEST_SHA256 = "09c5cf112bbd194e1cd25c598c9fd7af000b060973a999fc16f1fedcfc6b0d92"
 LATEST_APK_GRPC_SIGNATURES = (
     REPO_ROOT / "tests" / "fixtures" / "android" / "latest_apk_grpc_signatures.csv"
 )
@@ -89,6 +94,11 @@ _EXPECTED_ORCHESTRATION_SIGNATURES = {
     "MutateAccount": (
         f"{ORCHESTRATION_PACKAGE}.MutateAccountRequest",
         f"{ORCHESTRATION_PACKAGE}.Account",
+        False,
+    ),
+    "ListQuotaSummary": (
+        "google.internal.labs.tailwind.api.v1.ListQuotaSummaryRequest",
+        "google.internal.labs.tailwind.metering.v1.ListQuotaSummaryResponse",
         False,
     ),
     "GetProject": (
@@ -387,6 +397,7 @@ _LOCAL_PARSER_TYPES = {
     source_content_pb2.WireLoadSourceResponse.DESCRIPTOR.full_name,
     organization_mutations_pb2.GetLabelsWireResponse.DESCRIPTOR.full_name,
     wire_sharing_pb2.GetProjectDetailsResponse.DESCRIPTOR.full_name,
+    usage_pb2.WireListQuotaSummaryResponse.DESCRIPTOR.full_name,
 }
 
 
@@ -428,7 +439,7 @@ def _descriptor_signatures() -> dict[str, tuple[str, str, str]]:
 
 def _manifest_entries() -> list[dict[str, Any]]:
     payload = json.loads(EXCEPTION_MANIFEST.read_text(encoding="utf-8"))
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     return payload["exceptions"]
 
 
@@ -442,7 +453,7 @@ def _inference_entries() -> list[dict[str, Any]]:
     payload = json.loads(INFERENCE_MANIFEST.read_text(encoding="utf-8"))
     assert payload["schema_version"] == 1
     assert payload["bundle_sha256"] == (
-        "8cc2569196b28083ba58a33319df79af97ec1832f442c4a182289894edf5eaef"
+        "4069cbdb867f64b3e6a937bf97d38adcb9f0b9b428429895ab04d77265059521"
     )
     return payload["inferences"]
 
@@ -450,7 +461,7 @@ def _inference_entries() -> list[dict[str, Any]]:
 def _external_method_entries() -> dict[str, dict[str, str]]:
     with EXTERNAL_METHOD_MANIFEST.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == 71
+    assert len(rows) == 72
     entries = {row["path"]: row for row in rows}
     assert len(entries) == len(rows)
     return entries
@@ -525,13 +536,15 @@ def test_service_descriptor_and_generated_stub_expose_all_admitted_paths() -> No
     assert set(channel.calls.values()) == {"unary_unary", "unary_stream"}
 
 
-def test_adapter_paths_equal_generated_descriptor_with_no_omitted_exceptions() -> None:
+def test_adapter_paths_equal_descriptor_plus_path_only_exceptions() -> None:
     entries = _manifest_entries()
-    assert entries == []
-    assert _adapter_paths() == _descriptor_paths()
-    assert len(_adapter_paths()) == 59
-    assert len(_descriptor_paths()) == 59
-    assert sum(path.startswith(f"/{ORCHESTRATION_SERVICE}/") for path in _descriptor_paths()) == 57
+    exception_paths = {entry["path"] for entry in entries}
+    assert len(entries) == 1
+    assert _adapter_paths() == _descriptor_paths() | exception_paths
+    assert _descriptor_paths().isdisjoint(exception_paths)
+    assert len(_adapter_paths()) == 61
+    assert len(_descriptor_paths()) == 60
+    assert sum(path.startswith(f"/{ORCHESTRATION_SERVICE}/") for path in _descriptor_paths()) == 58
     assert sum(path.startswith(f"/{SHARING_SERVICE}/") for path in _descriptor_paths()) == 2
 
     sharing_paths = {path for path in _adapter_paths() if path.startswith(f"/{SHARING_SERVICE}/")}
@@ -542,9 +555,55 @@ def test_adapter_paths_equal_generated_descriptor_with_no_omitted_exceptions() -
     assert sharing_paths <= _descriptor_paths()
 
 
+def _import_codec(path: str) -> type[Any]:
+    parts = path.split(".")
+    for split in range(len(parts) - 1, 0, -1):
+        try:
+            value: Any = importlib.import_module(".".join(parts[:split]))
+        except ModuleNotFoundError:
+            continue
+        for part in parts[split:]:
+            value = getattr(value, part)
+        return value
+    raise AssertionError(f"codec is not importable: {path}")
+
+
+def test_path_only_exceptions_are_narrow_importable_and_byte_pinned() -> None:
+    (entry,) = _manifest_entries()
+    assert set(entry) == {
+        "path",
+        "request_codec",
+        "response_codec",
+        "reason_code",
+        "evidence",
+        "replay_safe",
+    }
+    assert entry["reason_code"] in {"remote_fqn_unrecovered"}
+    assert entry["replay_safe"] is True
+    assert ANDROID_RETRY_MANIFEST[entry["path"]] is entry["replay_safe"]
+    assert entry["path"] not in {row["path"] for row in _parser_override_entries()}
+
+    request_codec = _import_codec(entry["request_codec"])
+    response_codec = _import_codec(entry["response_codec"])
+    fixture = json.loads(
+        (REPO_ROOT / "tests/fixtures/android/usage_wire.json").read_text(encoding="utf-8")
+    )
+    assert request_codec().SerializeToString().hex() == fixture["get_account_request_hex"]
+    response_wire = bytes.fromhex(fixture["get_account_response_hex"])
+    response = response_codec.FromString(response_wire)
+    assert response.SerializeToString() == response_wire
+    assert response.account.premium_user_info.compute_metering_enabled is True
+
+    document, separator, anchor = entry["evidence"].partition("#")
+    assert separator and anchor
+    evidence_path = REPO_ROOT / document
+    assert evidence_path.is_file()
+    assert anchor in _markdown_anchors(evidence_path)
+
+
 def test_web_derived_signature_inferences_are_explicit_and_generated() -> None:
     entries = _inference_entries()
-    assert len(entries) == 17
+    assert len(entries) == 18
     assert all(
         set(entry) == {"path", "request_type", "response_type", "confidence", "evidence"}
         for entry in entries
@@ -576,7 +635,7 @@ def test_external_manifest_and_implemented_signature_inventory_are_bidirectional
     )
     external = _external_method_entries()
     signatures = _descriptor_signatures()
-    assert len(external) == 71
+    assert len(external) == 72
 
     for path, (request_type, response_type, cardinality) in signatures.items():
         row = external[path]
@@ -585,7 +644,7 @@ def test_external_manifest_and_implemented_signature_inventory_are_bidirectional
         assert row["response_type"].removeprefix(".") == response_type
         assert row["cardinality"] == cardinality
 
-    for path in _adapter_paths():
+    for path in _adapter_paths() - {entry["path"] for entry in _manifest_entries()}:
         row = external[path]
         assert row["response_type"] not in {"NORMALIZED_EMPTY", "UNRESOLVED_PRIVATE"}
         assert path in signatures
@@ -635,7 +694,7 @@ def test_latest_signed_apk_inventory_is_complete_exact_and_version_scoped() -> N
 
 def test_runtime_local_parser_overrides_are_explicit_exact_path_exceptions() -> None:
     entries = _parser_override_entries()
-    assert len(entries) == 6
+    assert len(entries) == 7
     assert all(
         set(entry)
         == {

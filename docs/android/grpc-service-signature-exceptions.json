@@ -1,5 +1,14 @@
 {
-  "schema_version": 1,
-  "description": "Implemented Android gRPC paths omitted from the generated orchestration service. Empty after the web-derived signature promotion on 2026-08-29.",
-  "exceptions": []
+  "schema_version": 2,
+  "description": "Implemented Android gRPC paths whose remote protobuf FQNs remain unrecovered. Each path is admitted only with importable local codecs, replay classification, linked evidence, and exact synthetic bytes.",
+  "exceptions": [
+    {
+      "path": "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/GetAccount",
+      "request_codec": "google.protobuf.empty_pb2.Empty",
+      "response_codec": "notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1.account_pb2.GetOrCreateAccountResponse",
+      "reason_code": "remote_fqn_unrecovered",
+      "evidence": "docs/android/usage-quota-evidence.md#android-static-and-route-recovery",
+      "replay_safe": true
+    }
+  ]
 }

@@ -114,6 +114,43 @@ def android_grpc_cassette(
             print(f"Discarded recording for {target.name}: the test did not pass.")
 
 
+@pytest.fixture
+def android_usage_grpc_cassette(
+    request: pytest.FixtureRequest,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Iterator[Callable[[str], Any]]:
+    """Bind account-scoped read-only cassettes without creating a scratch notebook."""
+
+    from tests._helpers.android_grpc_harness import (
+        android_cassette_client,
+        discard_recording,
+        promote_recording,
+    )
+
+    recorded: list[tuple[Path, Path]] = []
+
+    def bind(name: str) -> Any:
+        path = ANDROID_CASSETTES_DIR / f"{name}_recorded.grpc.json"
+        return android_cassette_client(
+            path,
+            monkeypatch=monkeypatch,
+            scratch=None,
+            require_scratch=False,
+            on_recorded=lambda staging, target: recorded.append((staging, target)),
+        )
+
+    yield bind
+
+    report = getattr(request.node, "rep_call", None)
+    passed = report is not None and report.passed
+    for staging, target in recorded:
+        if passed:
+            promote_recording(staging, target)
+        else:
+            discard_recording(staging)
+            print(f"Discarded recording for {target.name}: the test did not pass.")
+
+
 # =============================================================================
 # VCR Cassette Availability Check
 # =============================================================================

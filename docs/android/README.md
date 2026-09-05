@@ -94,8 +94,8 @@ consolidated document rather than encoded in filenames.
 | [`proto-evidence-ledger.md`](proto-evidence-ledger.md) | exact/local compile closure, replay policy, hashes, and admission decisions |
 | [`schema.proto`](schema.proto) | generated 326-message / 879-field Dart-AOT recovery parsed by CI |
 | [`enums.txt`](enums.txt) | generated 104-block (94 enum names) integer inventory parsed by CI |
-| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | seventeen Web-derived signatures with conventional request/response type names |
-| [`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) | empty implemented-path exception manifest |
+| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | seventeen Web-derived signatures plus the live-validated quota cross-service alias |
+| [`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) | schema-v2 path-only exceptions with importable codecs and replay policy |
 | [`grpc-runtime-parser-overrides.json`](grpc-runtime-parser-overrides.json) | exact paths intentionally decoded through local live-field overlays |
 
 ### Consolidated evidence
@@ -175,12 +175,13 @@ this regeneration is not yet captured as a patch.
 The reduced compile inputs used by the internal Android adapters live under
 `src/notebooklm/_android/proto_src/`. Regenerate their checked-in Python modules and the full
 descriptor fixture with `python scripts/regenerate_android_protos.py --write`; use `--check` in CI.
-The cumulative `orchestration_service.proto` owns the 57-method orchestration service;
+The cumulative `orchestration_service.proto` owns the 58-method orchestration service;
 `sharing.proto` owns the separately proven two-method exact sharing service, and individual
 orchestration message overlays remain service-free. Seventeen orchestration signatures are explicitly
-marked as web-derived conventional-name inferences; all other generated signatures are exact.
-The 59 generated methods exhaustively equal the 59 implemented adapter paths, and the signature
-exception manifest is empty. Generated descriptors, adapter paths, inference provenance, and the
+marked as web-derived conventional-name inferences, and `ListQuotaSummary` is separately marked as
+an exact-message, cross-service binding inferred from the live orchestration alias.
+The 60 generated methods plus the single path-only `GetAccount` exception exhaustively equal the 61
+implemented adapter paths. Generated descriptors, adapter paths, inference provenance, and the
 hash-pinned external method manifest are checked in both
 directions, so a locally repeated claim cannot admit a normalized or unresolved response type.
 The package and generated protos remain private implementation details. Explicit

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "description": "Generated Android gRPC signatures whose conventional protobuf type names are inferred from current NotebookLM web registrations while their wire shapes are pinned by mobile-backend routing, validation, or successful calls.",
-  "bundle_sha256": "8cc2569196b28083ba58a33319df79af97ec1832f442c4a182289894edf5eaef",
+  "bundle_sha256": "4069cbdb867f64b3e6a937bf97d38adcb9f0b9b428429895ab04d77265059521",
   "inferences": [
     {
       "path": "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/CopyProject",
@@ -121,6 +121,13 @@
       "response_type": "google.internal.labs.tailwind.orchestration.v1.RetrieveRelevantChunksResponse",
       "confidence": "type_names_inferred_wire_shape_and_mobile_live_pinned",
       "evidence": "docs/android/source-search-evidence.md#wire-layout"
+    },
+    {
+      "path": "/google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestrationService/ListQuotaSummary",
+      "request_type": "google.internal.labs.tailwind.api.v1.ListQuotaSummaryRequest",
+      "response_type": "google.internal.labs.tailwind.metering.v1.ListQuotaSummaryResponse",
+      "confidence": "exact_cross_service_messages_and_live_orchestration_alias",
+      "evidence": "docs/android/usage-quota-evidence.md#android-static-and-route-recovery"
     }
   ]
 }
