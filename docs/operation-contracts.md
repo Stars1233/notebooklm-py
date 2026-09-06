@@ -85,6 +85,21 @@ same-task scope. Do not assume that arbitrary tasks created inside it inherit
 the deadline. Give independent tasks their own explicit operation scopes and
 budgets.
 
+### Lease, action completion, and upstream completion
+
+An `OperationLease` proves admission to one client epoch and carries the task-owned deadline and
+journal context. It is a runtime ownership token, not evidence that an upstream mutation committed.
+Leaving the operation scope normally means the local action and its required result construction
+finished. It does not by itself prove that an accepted artifact or research job reached a terminal
+state.
+
+Operations that wait for completion must observe the domain terminal state through the owning poll
+or readback contract. A timeout or caller cancellation stops that local wait and preserves any known
+task or resource IDs; it does not cancel accepted upstream work. Conversely, a confirmed mutation
+followed by failed hydration remains `CONFIRMED` with failed-readback evidence. Callers decide what
+to do from the domain result and `OperationMetadata`, never from lease exit or exception category
+alone.
+
 ## Cancellation attribution
 
 The operation timer requests cancellation of its owning task, then translates
@@ -257,8 +272,8 @@ cannot upgrade ambiguous evidence into a retryable failure or success.
 
 ## Evidence and guardrails
 
-The implementation and its most direct tests are pinned at revision
-`719378b8af7023b8eca0c33d2de6d44d35db3434`:
+The implementation and its most direct tests were re-audited at revision
+`bd1647fbb023bdeea5e8c5fe74a25f9af3478a4a`:
 
 | Contract | Implementation | Tests |
 |---|---|---|
@@ -268,6 +283,7 @@ The implementation and its most direct tests are pinned at revision
 | Journal and recovery vocabulary | [`_idempotency.py`](../src/notebooklm/_idempotency.py), [`outcomes.py`](../src/notebooklm/outcomes.py) | [`test_operation_journal.py`](../tests/unit/test_operation_journal.py) |
 | Complete source-batch settlement | [`_source/batch.py`](../src/notebooklm/_source/batch.py), [`_web/sources/batch.py`](../src/notebooklm/_web/sources/batch.py), [`_android/source_batch.py`](../src/notebooklm/_android/source_batch.py) | [`test_source_batch_outcomes.py`](../tests/unit/test_source_batch_outcomes.py), [`test_source_batch_parity.py`](../tests/server/test_source_batch_parity.py) |
 | Structural ownership inventory | [`test_client_operation_contract_inventory.py`](../tests/_guardrails/test_client_operation_contract_inventory.py) | The inventory is executable and rejects unowned migration rows |
+| Adapter surface inventory | [`test_manifest.py`](../tests/unit/mcp/test_manifest.py), [`test_tool_eval.py`](../tests/unit/mcp/test_tool_eval.py), [`test_route_manifest.py`](../tests/server/test_route_manifest.py) | MCP names/count/schema budgets and REST method/path pairs stay explicit |
 | Typed facade boundary | [`test_no_raw_positional_rpc_indexing.py`](../tests/_guardrails/test_no_raw_positional_rpc_indexing.py) | Raw payload ingress above the facade and unbaselined positional decoding fail CI |
 
 The updated

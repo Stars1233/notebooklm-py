@@ -2,7 +2,7 @@
 
 **Status:** Active baseline  
 **Last Updated:** 2026-09-06  
-**Source baseline:** `f31f0f9d1db225242ac8f7754f955444b0fcff46`
+**Source baseline:** `bd1647fbb023bdeea5e8c5fe74a25f9af3478a4a`
 
 The CLI, MCP server, and REST server are curated adapters over the same public client and neutral
 application workflows. Shared core logic does not imply identical product surfaces. “No” below
@@ -28,9 +28,15 @@ to owning coverage. A change to the table must follow those live inventories rat
 support from similarly named client methods.
 
 REST route modules are explicit under `src/notebooklm/server/routes/`, with route behavior covered
-by the corresponding `tests/server/test_*.py` modules. REST remains an experimental local/personal
-automation surface. Absence from the table means no supported HTTP route even when the Python
-client or another adapter can perform the operation.
+by the corresponding `tests/server/test_*.py` modules. The exact 43-method route manifest is pinned
+by `tests/server/test_route_manifest.py`; adding, removing, or changing a method/path pair requires
+an explicit inventory update. REST remains an experimental local/personal automation surface.
+Absence from the table means no supported HTTP route even when the Python client or another adapter
+can perform the operation.
+
+The current typed application-operation and prepared-download identity work does not add MCP tools
+or REST routes. Public Python capabilities and similarly named application helpers do not expand an
+adapter surface unless its manifest or route inventory changes.
 
 ## Hosting and persistence limits
 
@@ -74,6 +80,12 @@ inner transport policies. Their expiry does not reset or widen the outer operati
 default aggregate timeout is `None`; this baseline does not introduce an automatic retry or default
 timeout change.
 
+Adapters do not expose an operation lease as a commit receipt. A lease proves that local work was
+admitted to one client generation and deadline context. A successful adapter response means the
+owned application action returned; a `202` generation or research response may still identify an
+upstream job that has not reached a terminal state. Job completion, mutation commit evidence, and
+local action completion remain separate facts.
+
 ## Evidence owners
 
 | Contract | Executable/source evidence |
@@ -81,7 +93,8 @@ timeout change.
 | CLI capability | Click command groups under `src/notebooklm/cli/`; command and adapter tests under `tests/unit/cli/` |
 | MCP exact manifest and budget | `tests/unit/mcp/test_manifest.py`, `tests/unit/mcp/test_tool_eval.py`, `tests/e2e/test_mcp.py` |
 | MCP chat history | `src/notebooklm/mcp/tools/chat.py` history branch and MCP chat tests |
-| REST route surface | `src/notebooklm/server/routes/` and `tests/server/` |
+| REST route surface | `src/notebooklm/server/routes/`, `tests/server/test_route_manifest.py`, and the route behavior tests under `tests/server/` |
+| Adapter dependency boundaries | `tests/_guardrails/test_adapter_import_scanner.py`, `test_cli_boundary.py`, `test_mcp_boundary.py`, and `test_server_boundary.py` |
 | Single-tenant/process-lifetime REST provenance | `src/notebooklm/server/_pending.py` and `tests/server/test_hardening.py` |
 | Detached MCP task lifetime | `src/notebooklm/mcp/_chattasks.py` and `tests/unit/mcp/test_chat_start.py` |
 | Mutation evidence and deadlines | `docs/operation-contracts.md` and its linked implementation/test matrix |
