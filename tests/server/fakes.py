@@ -14,6 +14,8 @@ record the calls each namespace received.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -32,6 +34,7 @@ from notebooklm._types.research import (
 )
 from notebooklm._types.sharing import SharedUser, ShareStatus
 from notebooklm._types.sources import Source, SourceFulltext
+from notebooklm.downloads import resolve_download_format
 from notebooklm.exceptions import (
     ArtifactNotFoundError,
     NetworkError,
@@ -43,6 +46,7 @@ from notebooklm.exceptions import (
     SourceProcessingError,
     SourceTimeoutError,
 )
+from notebooklm.options import UseDefault
 from notebooklm.outcomes import SourceBatchItemOutcome
 from notebooklm.rpc.types import (
     ChatGoal,
@@ -51,6 +55,14 @@ from notebooklm.rpc.types import (
     SharePermission,
     ShareViewLevel,
     SourceStatus,
+)
+from notebooklm.types import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+    ArtifactListing,
+    ArtifactLookup,
+    ArtifactLookupStatus,
 )
 
 #: download-spec kind -> internal artifact type-code.
@@ -359,6 +371,16 @@ class FakeArtifacts:
     async def list(self, notebook_id: str, *args: Any, **kwargs: Any) -> list[Artifact]:
         return list(self._s.artifacts_store.get(notebook_id, {}).values())
 
+    async def list_with_status(self, notebook_id: str) -> ArtifactListing:
+        """Return complete aggregate evidence for the fake's single in-memory store."""
+        return ArtifactListing(items=tuple(await self.list(notebook_id)), is_complete=True)
+
+    async def lookup(self, notebook_id: str, artifact_id: str) -> ArtifactLookup:
+        artifact = self._s.artifacts_store.get(notebook_id, {}).get(artifact_id)
+        if artifact is None:
+            return ArtifactLookup(status=ArtifactLookupStatus.MISSING)
+        return ArtifactLookup(status=ArtifactLookupStatus.FOUND, artifact=artifact)
+
     async def poll_status(self, notebook_id: str, task_id: str) -> GenerationStatus:
         state = self._s.poll_states.get((notebook_id, task_id), GenerationState.NOT_FOUND)
         return GenerationStatus(
@@ -401,7 +423,10 @@ class FakeArtifacts:
         )
         return GenerationStatus(task_id=artifact_id, status=status)
 
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self, notebook_id: str, artifact_id: str, *, require_complete: bool = False
+    ) -> str | None:
+        self._s.last_prompt_require_complete = require_complete
         if (notebook_id, artifact_id) in self._s.prompts_store:
             return self._s.prompts_store[(notebook_id, artifact_id)]
         if artifact_id in self._s.artifacts_store.get(notebook_id, {}):
@@ -437,6 +462,36 @@ class FakeArtifacts:
         self, notebook_id: str, output_path: str, artifact_id: str | None = None, **kwargs: Any
     ) -> str:
         # A format-bearing download kind (output_format → pdf/pptx).
+        return await self._do_download(output_path)
+
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare immutable typed selections from one complete fake snapshot."""
+        self._s.last_download_request = request
+        representation, format_spec = resolve_download_format(request.kind, request.output_format)
+        selections: list[ArtifactDownloadSelection] = []
+        for artifact in self._s.artifacts_store.get(request.notebook_id, {}).values():
+            if artifact.kind is not request.kind or not artifact.is_completed:
+                continue
+            selection = ArtifactDownloadSelection(
+                notebook_id=request.notebook_id,
+                artifact_id=artifact.id,
+                kind=request.kind,
+                title=artifact.title,
+                created_at=artifact.created_at,
+                representation=representation,
+                extension=format_spec.extension,
+                mime_type=format_spec.mime_type,
+                last_modified_at=artifact.last_modified_at,
+            )
+            self._s.prepared_downloads.add(selection)
+            selections.append(selection)
+        return ArtifactDownloadListing(selections=tuple(selections), is_complete=True)
+
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Consume only an identity prepared by this fake artifact namespace."""
+        if selection not in self._s.prepared_downloads:
+            raise ValueError("download selection was not prepared by this client")
+        self._s.downloaded_selections.append(selection)
         return await self._do_download(output_path)
 
     async def _do_download(self, output_path: str) -> str:
@@ -666,6 +721,7 @@ class FakeClient:
         self.cancelled_research: list[tuple[str, str]] = []
         self.imported_research: list[tuple[str, str, list[Any]]] = []
         self.prompts_store: dict[tuple[str, str], str | None] = {}
+        self.last_prompt_require_complete: bool | None = None
         self.note_backed_mind_maps: dict[str, list[Any]] = {}
         self.mind_maps_store: dict[str, list[Any]] = {}
         self.renamed_mind_maps: list[tuple[str, str, str, Any]] = []
@@ -697,6 +753,9 @@ class FakeClient:
         self.hide_new_sources: bool = False
         self.download_bytes: bytes = b"FAKE-ARTIFACT-BYTES"
         self.download_return_path: str | None = None
+        self.prepared_downloads: set[ArtifactDownloadSelection] = set()
+        self.last_download_request: ArtifactDownloadRequest | None = None
+        self.downloaded_selections: list[ArtifactDownloadSelection] = []
         self.chat_error: Exception | None = None
         # ConversationTurnKey handed back on the next ask (#2122). ``None`` is
         # the default because most streams a test builds carry no key.
@@ -730,6 +789,13 @@ class FakeClient:
         self.research = FakeResearch(self)
         self.mind_maps = FakeMindMaps(self)
         self.settings = FakeSettings(self)
+
+    @asynccontextmanager
+    async def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AsyncIterator[FakeClient]:
+        """Mirror an admitted client operation without adding fake timing policy."""
+        yield self
 
     async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
         return self.account_email
