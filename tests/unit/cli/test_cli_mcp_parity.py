@@ -41,9 +41,9 @@ from notebooklm.mcp.server import create_server  # noqa: E402
 from notebooklm.mcp.tools.studio import _passthrough_sources  # noqa: E402
 from notebooklm.notebooklm_cli import cli  # noqa: E402
 from notebooklm.types import Artifact, GenerationState  # noqa: E402
+from tests._helpers.downloads import configure_prepared_artifact_downloads  # noqa: E402
 
 from .conftest import (  # noqa: E402
-    configure_prepared_artifact_downloads,
     create_mock_client,
     inject_client,
 )
