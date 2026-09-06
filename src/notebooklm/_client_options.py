@@ -6,12 +6,13 @@ import contextlib
 import os
 from collections.abc import Callable, Iterator
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, TypeVar, cast
 
 import httpx
 
 from ._client_contracts import BackendName
+from ._request_policy import ResolvedWebPolicy, resolve_web_policy
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
@@ -77,6 +78,7 @@ class NormalizedClientOptions:
     typed_config: bool
     # Exact identity retained only for the historical WebSourcesAPI attribute.
     legacy_upload_timeout: httpx.Timeout | None
+    request_policy: ResolvedWebPolicy | None = field(default=None, repr=False)
 
 
 @dataclass
@@ -86,6 +88,7 @@ class _StorageConstructionContext:
     preference: BackendPreference
     target_type: type[Any]
     target_auth: object
+    options: NormalizedClientOptions | None = None
     target_instance: object | None = None
     consumed: bool = False
     allocation_depth: int = 0
@@ -102,11 +105,12 @@ def client_construction_context(
     *,
     target_type: type[Any],
     target_auth: object,
+    options: NormalizedClientOptions | None = None,
 ) -> Iterator[None]:
     """Carry a frozen preference for one stored-auth class call."""
 
     token: Token[_StorageConstructionContext | None] = _CONSTRUCTION_CONTEXT.set(
-        _StorageConstructionContext(preference, target_type, target_auth)
+        _StorageConstructionContext(preference, target_type, target_auth, options)
     )
     try:
         yield
@@ -172,6 +176,14 @@ def consume_storage_construction_preference(
         return None
     context.consumed = True
     return context.preference
+
+
+def stored_construction_options(client: object, auth: object) -> NormalizedClientOptions | None:
+    """Return only the exact claimed instance's already-resolved policy handoff."""
+    context = _CONSTRUCTION_CONTEXT.get()
+    if context is None or client is not context.target_instance or auth is not context.target_auth:
+        return None
+    return context.options
 
 
 def _legacy_argument_names(
@@ -288,6 +300,7 @@ def normalize_legacy_client_options(
     backend: BackendName | None = None,
     config: ClientConfig | None = None,
     preference: BackendPreference | None = None,
+    stored_options: NormalizedClientOptions | None = None,
 ) -> NormalizedClientOptions:
     """Normalize every public flat tuning option at the sole compatibility boundary."""
 
@@ -335,7 +348,14 @@ def normalize_legacy_client_options(
         if config.backend is not None and config.backend.kind != preference.preferred:
             raise ValueError("The frozen backend preference does not match config.backend.kind")
         resolved = _resolved_config(config, preference)
-        return NormalizedClientOptions(resolved, preference, (), (), True, None)
+        request_policy = (
+            stored_options.request_policy
+            if stored_options is not None
+            else resolve_web_policy(resolved.backend.request)
+            if isinstance(resolved.backend, WebBackendConfig)
+            else None
+        )
+        return NormalizedClientOptions(resolved, preference, (), (), True, None, request_policy)
 
     normalized_upload = _timeout_options(upload_timeout) if upload_timeout is not None else None
     # Preserve the exact private sentinel identity on the compatibility path;

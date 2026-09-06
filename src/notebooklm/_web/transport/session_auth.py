@@ -17,6 +17,7 @@ from ..._auth.recovery import (
 from ..._auth.refresh import try_refresh_cmd_reauth
 from ..._auth.tokens import AuthTokens
 from ..._env import get_base_url
+from ..._request_policy import RequestPolicyOwner, request_scoped
 from ..._url_utils import is_google_auth_redirect
 from ...exceptions import AuthExtractionError
 from ...paths import profile_from_storage_path
@@ -26,7 +27,7 @@ from .kernel import Kernel
 from .lifecycle import WebTransportLifecycle
 
 
-class WebSessionAuth:
+class WebSessionAuth(RequestPolicyOwner):
     """Own the concrete collaborators for one managed Web auth session."""
 
     def __init__(
@@ -82,6 +83,7 @@ class WebSessionAuth:
             return await self._refresh(allow_headless=True, expected_epoch=expected_epoch)
         return self._auth
 
+    @request_scoped
     async def _refresh(
         self,
         *,

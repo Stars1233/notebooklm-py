@@ -273,20 +273,15 @@ def _default_factory(
 ) -> AbstractAsyncContextManager[NotebookLMClient]:
     # ``from_storage`` returns a dual awaitable / async-context-manager; we use
     # only the async-context-manager protocol (the canonical, non-deprecated path).
-    if backend is None:
-        return cast(
-            "AbstractAsyncContextManager[NotebookLMClient]",
-            NotebookLMClient.from_storage(
-                profile=profile,
-                keepalive=DEFAULT_SERVER_KEEPALIVE_INTERVAL,
-            ),
-        )
+    from .._app.client_config import adapter_client_config
+
     return cast(
         "AbstractAsyncContextManager[NotebookLMClient]",
         NotebookLMClient.from_storage(
             profile=profile,
-            keepalive=DEFAULT_SERVER_KEEPALIVE_INTERVAL,
-            backend=backend,
+            config=adapter_client_config(
+                backend=backend, keepalive=DEFAULT_SERVER_KEEPALIVE_INTERVAL
+            ),
         ),
     )
 

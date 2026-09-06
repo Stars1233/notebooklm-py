@@ -90,6 +90,7 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
         "USE_DEFAULT",
         "UseDefault",
         "WebBackendConfig",
+        "WebRequestOptions",
         "WebSessionHooks",
         "WebSessionOptions",
         "WebTransportOptions",

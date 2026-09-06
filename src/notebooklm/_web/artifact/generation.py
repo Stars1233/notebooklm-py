@@ -22,6 +22,7 @@ from ..._idempotency import (
     call_unconfirmed_on_transport_loss,
     claim_generation_entry,
 )
+from ..._request_policy import RequestPolicyOwner, request_scoped
 from ..._types.artifacts import _status_from_code
 from ..._types.enums import (
     AudioFormat,
@@ -75,7 +76,7 @@ from ..rows import artifacts as _artifact_rows
 logger = logging.getLogger("notebooklm._artifact.generation")
 
 
-class ArtifactGenerationService:
+class ArtifactGenerationService(RequestPolicyOwner):
     """Generation kickoff operations extracted from :class:`ArtifactsAPI`.
 
     Peer to :class:`~notebooklm._web.artifact.downloads.ArtifactDownloadService`
@@ -95,6 +96,7 @@ class ArtifactGenerationService:
         self._notebooks = notebooks
         self._note_service = note_service
 
+    @request_scoped
     async def generate_audio(
         self,
         notebook_id: str,
@@ -124,6 +126,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="audio",
         )
 
+    @request_scoped
     async def generate_video(
         self,
         notebook_id: str,
@@ -156,6 +159,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="video",
         )
 
+    @request_scoped
     async def generate_cinematic_video(
         self,
         notebook_id: str,
@@ -181,6 +185,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="cinematic video",
         )
 
+    @request_scoped
     async def generate_report(
         self,
         notebook_id: str,
@@ -228,6 +233,7 @@ class ArtifactGenerationService:
             extra_instructions=extra_instructions,
         )
 
+    @request_scoped
     async def generate_quiz(
         self,
         notebook_id: str,
@@ -253,6 +259,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="quiz",
         )
 
+    @request_scoped
     async def generate_flashcards(
         self,
         notebook_id: str,
@@ -278,6 +285,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="flashcards",
         )
 
+    @request_scoped
     async def generate_infographic(
         self,
         notebook_id: str,
@@ -309,6 +317,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="infographic",
         )
 
+    @request_scoped
     async def generate_slide_deck(
         self,
         notebook_id: str,
@@ -436,6 +445,7 @@ class ArtifactGenerationService:
             )
         return status
 
+    @request_scoped
     async def generate_data_table(
         self,
         notebook_id: str,
@@ -461,6 +471,7 @@ class ArtifactGenerationService:
             null_result_artifact_type="data table",
         )
 
+    @request_scoped
     async def generate_mind_map(
         self,
         notebook_id: str,

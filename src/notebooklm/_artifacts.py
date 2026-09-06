@@ -310,8 +310,7 @@ class ArtifactsAPI(ABC):
             await self._notebooks.get_source_ids(notebook_id) if source_ids is None else source_ids
         )
 
-    @staticmethod
-    def _resolve_language(language: str | None) -> str:
+    def _resolve_language(self, language: str | None) -> str:
         return get_default_language() if language is None else language
 
     async def generate_audio(

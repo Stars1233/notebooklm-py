@@ -19,6 +19,7 @@ from .._artifact.downloads import AssetDownloadService
 from .._artifacts import ArtifactsAPI, _ArtifactCopyResult
 from .._idempotency import call_unconfirmed_on_transport_loss, unresolved_commit_error
 from .._notebook_metadata import NotebookSourceIdProvider
+from .._request_policy import RequestPolicyOwner, request_scoped
 from .._types.artifact_download import (
     ArtifactDownloadListing,
     ArtifactDownloadRequest,
@@ -80,7 +81,7 @@ class _PreparedWebDownload:
     is_note_backed_mind_map: bool
 
 
-class WebArtifactsAPI(ArtifactsAPI):
+class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
     """Operations on NotebookLM artifacts (studio content).
 
     Artifacts are AI-generated content: Audio/Video Overviews, Reports,
@@ -160,6 +161,10 @@ class WebArtifactsAPI(ArtifactsAPI):
         self._prepared_downloads: PreparedDownloadCache[_PreparedWebDownload] = (
             PreparedDownloadCache()
         )
+
+    @request_scoped
+    def _resolve_language(self, language: str | None) -> str:
+        return super()._resolve_language(language)
 
     async def _send_create_artifact(
         self,

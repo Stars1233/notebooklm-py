@@ -362,6 +362,37 @@ open, drain, close, and rollback states. The
 [retry-policy workflow](https://teng-lin.github.io/notebooklm-py/diagrams/20-retry-policy-workflow.html) complements the
 idempotency discussion by showing the decision path for one call.
 
+### Bound Web request and recovery policy
+
+`WebBackendConfig.request=WebRequestOptions(...)` selects an additive bound policy.
+The normalizer resolves it when construction or `from_storage` is called and
+carries the same private value through deferred authentication and assembly.
+`None` preserves the 0.x dynamic Python default. First-party adapters opt in via
+the public options API. Android and its compatibility sidecar remain independent.
+
+`_request_policy.py` owns immutable resolution and redacted, process-salted policy
+identity. Web assembly injects that value into the executor, authenticated
+transport, session-auth owner, chat, generation, upload, and asset participants.
+Each owner establishes `_request_context.py`'s task-local scope for shared auth
+and endpoint helpers; scopes never mutate process environment. A legacy owner
+explicitly establishes dynamic scope, so nested calls cannot inherit another
+client's policy. Notebook/share codecs receive the bound base URL directly.
+Transport factories and fingerprint selection resolve within the same scope;
+Drive's dedicated guarded streaming download remains fixed httpx.
+
+The context contains no credentials. Auth snapshots, kernel cookies, account
+adoption, lifecycle admission, and transfer publication keep their existing live
+owners. Recovery commands, shell/headless decisions, and relevant child environment
+settings are captured privately; only the selected keys overlay the environment
+at subprocess spawn. Cold, refresh-command, and headless flights and successful
+recovery markers include an opaque compatible-policy identity. Profile file locks,
+cookie compare-and-swap transactions, and storage paths remain shared across
+policies. A contending bound command waits for the physical lock and executes its
+own policy rather than treating another policy's command as success.
+
+The full dynamic-control inventory and the independent, unshipped C4-01 default
+migration are documented in [configuration.md](configuration.md#bound-web-request-policy-additive-preview).
+
 ### Loop affinity (ADR-0004)
 
 **Why we need it.** The client is built on `httpx.AsyncClient` plus a

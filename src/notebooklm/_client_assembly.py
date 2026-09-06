@@ -299,6 +299,7 @@ def _assemble_client(
             transfers=transfer_options,
             features=feature_options,
             shared_config=shared_config,
+            request_policy=options.request_policy,
         ),
         credentials=WebCredentials(
             auth=auth,

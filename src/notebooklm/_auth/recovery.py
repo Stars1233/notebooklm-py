@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import httpx
 
+from .._request_context import policy_key
 from . import single_flight as _single_flight
 from .cookie_types import CookieJar
 from .paths import canonical_storage_key
@@ -60,7 +61,7 @@ class ColdRecoveryState:
             asyncio.AbstractEventLoop, weakref.WeakValueDictionary[Path, asyncio.Lock]
         ] = weakref.WeakKeyDictionary()
         self._success_generations: weakref.WeakKeyDictionary[
-            asyncio.AbstractEventLoop, dict[Path, int]
+            asyncio.AbstractEventLoop, dict[str, int]
         ] = weakref.WeakKeyDictionary()
 
     @classmethod
@@ -83,13 +84,14 @@ class ColdRecoveryState:
     def success_generation(self, path: Path) -> int:
         loop = asyncio.get_running_loop()
         with self._lock:
-            return self._success_generations.get(loop, {}).get(path, 0)
+            return self._success_generations.get(loop, {}).get(policy_key(str(path)), 0)
 
     def note_success(self, path: Path) -> None:
         loop = asyncio.get_running_loop()
         with self._lock:
             generations = self._success_generations.setdefault(loop, {})
-            generations[path] = generations.get(path, 0) + 1
+            key = policy_key(str(path))
+            generations[key] = generations.get(key, 0) + 1
 
     def _reset_for_tests(self) -> None:
         with self._lock:
@@ -290,7 +292,7 @@ class ColdRecoveryCoordinator:
 
         canonical_path = canonical_storage_key(storage_path)
         assert canonical_path is not None
-        flight_key = (str(canonical_path), ("cold", allow_headless))
+        flight_key = (policy_key(str(canonical_path)), ("cold", allow_headless))
 
         async def _factory() -> ColdRecoveryResult | _ColdRecoveryExhaustion:
             try:

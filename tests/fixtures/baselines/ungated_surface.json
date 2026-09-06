@@ -295,6 +295,7 @@
     "USE_DEFAULT",
     "UseDefault",
     "WebBackendConfig",
+    "WebRequestOptions",
     "WebSessionHooks",
     "WebSessionOptions",
     "WebTransportOptions"

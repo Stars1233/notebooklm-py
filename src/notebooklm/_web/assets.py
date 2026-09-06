@@ -17,11 +17,12 @@ from .._artifact.downloads import AssetDownloadService, DownloadResult
 from .._hop_credentials import CredentialPolicy, HopCredentials
 from .._loop_affinity import assert_bound_loop
 from .._loop_bound import EpochFenced
+from .._request_policy import RequestPolicyOwner, request_scoped
 from .._runtime.call_supervisor import CallSupervisor
 from ..exceptions import AuthError
 
 
-class WebAssetDownloadService(EpochFenced, AssetDownloadService):
+class WebAssetDownloadService(RequestPolicyOwner, EpochFenced, AssetDownloadService):
     """Own admitted transfers, HTTP resources, and publication through settlement."""
 
     name = "web-assets"
@@ -145,10 +146,12 @@ class WebAssetDownloadService(EpochFenced, AssetDownloadService):
             finally:
                 self._clients.discard(client)
 
+    @request_scoped
     async def download_url(self, url: str, output_path: str) -> str:
         async with self._operation():
             return await super().download_url(url, output_path)
 
+    @request_scoped
     async def download_urls_batch(
         self,
         urls_and_paths: list[tuple[str, str]],
@@ -161,6 +164,7 @@ class WebAssetDownloadService(EpochFenced, AssetDownloadService):
         async with self._operation():
             return await super().download_urls_batch(urls_and_paths, on_auth_error=on_auth_error)
 
+    @request_scoped
     async def write_file(self, output_path: str, writer: Callable[[Path], object]) -> str:
         async with self._operation():
             return await super().write_file(output_path, writer)

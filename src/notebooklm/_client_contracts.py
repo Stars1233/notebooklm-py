@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Awaitable, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from ._mind_maps_api import MindMapsAPI
     from ._notebooks import NotebooksAPI
     from ._notes import NotesAPI
+    from ._request_policy import ResolvedWebPolicy
     from ._research import BaseResearchAPI
     from ._runtime.init import SharedRuntime, SharedRuntimeConfig
     from ._settings import SettingsAPI
@@ -125,6 +126,7 @@ class WebAssemblyConfig:
     transfers: TransferOptions
     features: FeatureOptions
     shared_config: SharedRuntimeConfig
+    request_policy: ResolvedWebPolicy | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True)

@@ -185,9 +185,9 @@ class CompletionProvider:
         root = ctx.find_root() if hasattr(ctx, "find_root") else ctx
         obj = getattr(root, "obj", None)
         backend = obj.get("backend") if isinstance(obj, dict) else None
-        if backend is None:
-            return NotebookLMClient(auth)
-        return NotebookLMClient(auth, backend=backend)
+        from .._app.client_config import adapter_client_config
+
+        return NotebookLMClient(auth, config=adapter_client_config(backend=backend))
 
     def _run(self, awaitable: Awaitable[Any]) -> Any:
         try:

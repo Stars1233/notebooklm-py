@@ -14,6 +14,7 @@ from .._client_contracts import (
     WebDependencies,
     installed_backend_map,
 )
+from .._request_context import request_policy_scope
 from .._runtime.config import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_KEEPALIVE_MIN_INTERVAL,
@@ -59,6 +60,20 @@ def _http_timeout(options: TimeoutOptions | None) -> httpx.Timeout | None:
 
 
 def assemble_web_backend(
+    *,
+    shared: SharedRuntime,
+    config: WebAssemblyConfig,
+    credentials: WebCredentials,
+    deps: WebDependencies,
+) -> WebAssembly:
+    """Build the selected graph under its captured policy before installation."""
+    with request_policy_scope(config.request_policy):
+        return _assemble_web_backend(
+            shared=shared, config=config, credentials=credentials, deps=deps
+        )
+
+
+def _assemble_web_backend(
     *,
     shared: SharedRuntime,
     config: WebAssemblyConfig,
@@ -185,6 +200,28 @@ def assemble_web_backend(
         list_notebooks=notebooks.list,
         supervisor=shared.call_supervisor,
     )
+
+    for owner in (
+        web.executor,
+        web.composed.transport,
+        web.source_uploader,
+        web.session_auth,
+        assets,
+        chat,
+        artifacts,
+        artifacts._generation,
+    ):
+        owner.request_policy = config.request_policy
+    if config.request_policy is not None:
+        from .._notebooks import build_share_url
+
+        base_url = config.request_policy.base_url
+
+        def share_url(notebook_id: str, artifact_id: str | None = None) -> str:
+            return build_share_url(base_url, notebook_id, artifact_id)
+
+        notebooks._share_url_builder = share_url
+        sharing._base_url = config.request_policy.base_url
 
     namespaces = FeatureNamespaces(
         notebooks=notebooks,

@@ -3,7 +3,7 @@
     "PRIVATE_SYMBOL_ALLOWANCES": 53
   },
   "tests/_guardrails/_public_import_manifest.py": {
-    "_DOCUMENTED_PUBLIC_IMPORTS": 102
+    "_DOCUMENTED_PUBLIC_IMPORTS": 104
   },
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,
@@ -19,7 +19,7 @@
     "ALLOWLIST": 21
   },
   "tests/_guardrails/test_auth_cold_recovery_coordinator_boundary.py": {
-    "_EXPECTED_IMPORTS": 215
+    "_EXPECTED_IMPORTS": 220
   },
   "tests/_guardrails/test_auth_cookie_docs.py": {
     "AUTH_COOKIE_DEPRECATION_ROWS": 25
@@ -104,7 +104,7 @@
     "RETRY_CALL_INVENTORY": 24,
     "RETRY_INVENTORY": 36,
     "WORKFLOW_INVENTORY": 132,
-    "WORKFLOW_SCOPE_CALL_INVENTORY": 222
+    "WORKFLOW_SCOPE_CALL_INVENTORY": 225
   },
   "tests/_guardrails/test_error_contract_catch_ordering.py": {
     "EXCLUDED_FROM_REQUIRED": 28

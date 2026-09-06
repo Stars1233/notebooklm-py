@@ -28,6 +28,12 @@ from notebooklm.mcp.server import (  # noqa: E402 - after importorskip guard
     SERVER_NAME,
     create_server,
 )
+from notebooklm.options import (  # noqa: E402
+    AndroidBackendConfig,
+    ClientConfig,
+    WebBackendConfig,
+    WebRequestOptions,
+)
 
 
 def test_create_server_returns_fastmcp(mock_client: MagicMock) -> None:
@@ -108,7 +114,13 @@ async def test_default_factory_enables_keepalive(monkeypatch: pytest.MonkeyPatch
     async with Client(create_server(profile="work")):
         pass
 
-    assert seen == {"profile": "work", "keepalive": 600.0}
+    assert seen["profile"] == "work"
+    config = seen["config"]
+    assert isinstance(config, ClientConfig)
+    assert isinstance(config.backend, WebBackendConfig)
+    assert isinstance(config.backend.request, WebRequestOptions)
+    assert config.backend.session.keepalive_interval == 600.0
+    assert set(seen) == {"profile", "config"}
 
 
 async def test_default_factory_threads_explicit_backend(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,7 +138,11 @@ async def test_default_factory_threads_explicit_backend(monkeypatch: pytest.Monk
     async with Client(create_server(profile="work", backend="android")):
         pass
 
-    assert seen == {"profile": "work", "keepalive": 600.0, "backend": "android"}
+    assert seen["profile"] == "work"
+    config = seen["config"]
+    assert isinstance(config, ClientConfig)
+    assert isinstance(config.backend, AndroidBackendConfig)
+    assert set(seen) == {"profile", "config"}
 
 
 async def test_backend_does_not_reparameterize_injected_factory(

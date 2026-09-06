@@ -11,10 +11,11 @@ of endpoint/language helpers from here.
 
 from __future__ import annotations
 
-import os
 import re
 from datetime import date, datetime
 from urllib.parse import urlparse
+
+from ._request_context import policy_env
 
 DEFAULT_BASE_URL = "https://notebook.google.com"
 PERSONAL_BASE_HOST = "notebook.google.com"
@@ -64,7 +65,11 @@ def get_base_url() -> str:
     ``NOTEBOOKLM_BASE_URL`` is constrained to known Google-owned NotebookLM hosts
     because the value is used for authenticated requests.
     """
-    configured = os.environ.get("NOTEBOOKLM_BASE_URL")
+    return validate_base_url(policy_env("NOTEBOOKLM_BASE_URL"))
+
+
+def validate_base_url(configured: str | None) -> str:
+    """Validate an explicit host using the same authenticated-endpoint allowlist."""
     raw = (configured.strip() if configured is not None else DEFAULT_BASE_URL).rstrip("/")
     if not raw:
         raw = DEFAULT_BASE_URL
@@ -201,7 +206,7 @@ def get_default_bl() -> str:
     always compares the *committed* :data:`DEFAULT_BL` against what the app shell
     serves, because that constant is what ships to every user.
     """
-    raw = os.environ.get("NOTEBOOKLM_BL", "") or ""
+    raw = policy_env("NOTEBOOKLM_BL", "") or ""
     return raw.strip() or DEFAULT_BL
 
 
@@ -221,5 +226,5 @@ def get_default_language() -> str:
       ``language`` in the public Python API keeps the historical ``"en"``
       artifact-language default.
     """
-    raw = os.environ.get("NOTEBOOKLM_HL", "") or ""
+    raw = policy_env("NOTEBOOKLM_HL", "") or ""
     return raw.strip() or "en"

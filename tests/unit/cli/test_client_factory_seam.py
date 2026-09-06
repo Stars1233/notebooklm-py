@@ -13,10 +13,11 @@ import json
 from unittest.mock import AsyncMock
 
 import click
+import pytest
 
 from notebooklm.cli.auth_runtime import resolve_client_factory
-from notebooklm.client import NotebookLMClient
 from notebooklm.notebooklm_cli import cli
+from notebooklm.options import ClientConfig, WebBackendConfig, WebRequestOptions
 from notebooklm.types import Label, Source
 
 from .conftest import create_mock_client, inject_client
@@ -38,29 +39,40 @@ def test_resolve_prefers_injected_factory():
     assert resolve_client_factory(_ctx({"client_factory": sentinel}), default=str) is sentinel
 
 
-def test_resolve_falls_back_to_call_site_default():
-    # No injected factory -> the module-level default (still-patchable name).
-    assert resolve_client_factory(_ctx({}), default=str) is str
+@pytest.mark.parametrize("ctx", [_ctx({}), _ctx(None), None, _ctx({"client_factory": None})])
+def test_default_factory_binds_web_policy_and_preserves_budgets(ctx):
+    calls = []
+
+    def default(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "client"
+
+    factory = resolve_client_factory(ctx, default=default)
+    assert factory("auth", timeout=75, chat_timeout=None) == "client"
+    args, kwargs = calls[0]
+    assert args == ("auth",)
+    config = kwargs.pop("config")
+    assert not kwargs
+    assert isinstance(config.backend, WebBackendConfig)
+    assert isinstance(config.backend.request, WebRequestOptions)
+    assert config.backend.transport.read_timeout == 75
+    assert config.features.chat_timeout is None
 
 
-def test_resolve_lazy_real_client_when_no_default():
-    # Post-cleanup shape: no default supplied -> lazy real NotebookLMClient.
-    assert resolve_client_factory(_ctx({}), default=None) is NotebookLMClient
+def test_resolve_lazy_real_client_when_no_default(monkeypatch):
+    from notebooklm import client as client_module
+
+    calls = []
+    monkeypatch.setattr(client_module, "NotebookLMClient", lambda *a, **k: calls.append(k))
+    resolve_client_factory(_ctx({}))("auth")
+    assert isinstance(calls[0]["config"].backend.request, WebRequestOptions)
 
 
-def test_resolve_null_safe_when_ctx_obj_none():
-    # A bare ``click.Context`` has ``obj is None`` -- must not raise.
-    assert resolve_client_factory(_ctx(None), default=str) is str
-
-
-def test_resolve_null_safe_when_ctx_none():
-    assert resolve_client_factory(None, default=str) is str
-
-
-def test_resolve_ignores_none_injected_value():
-    # The root group seeds ``client_factory=None`` via setdefault; that must fall
-    # through to the default, not be returned as the factory.
-    assert resolve_client_factory(_ctx({"client_factory": None}), default=str) is str
+def test_explicit_configuration_is_preserved(monkeypatch):
+    explicit = ClientConfig()
+    monkeypatch.setenv("NOTEBOOKLM_BACKEND", "invalid-ignored-with-explicit-config")
+    factory = resolve_client_factory(None, default=lambda **kwargs: kwargs)
+    assert factory(config=explicit) == {"config": explicit}
 
 
 # ---------------------------------------------------------------------------

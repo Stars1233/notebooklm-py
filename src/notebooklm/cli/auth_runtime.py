@@ -303,11 +303,17 @@ def resolve_client_factory(
         default = NotebookLMClient
 
     backend = ctx.obj.get("backend") if ctx is not None and isinstance(ctx.obj, dict) else None
-    if backend is None:
-        return default
 
     def selected_factory(*args: Any, **kwargs: Any) -> AbstractAsyncContextManager[Any]:
-        kwargs.setdefault("backend", backend)
+        from .._app.client_config import adapter_client_config
+        from ..options import AUTO
+
+        if "config" not in kwargs:
+            kwargs["config"] = adapter_client_config(
+                backend=kwargs.pop("backend", backend),
+                timeout=kwargs.pop("timeout", 30.0),
+                chat_timeout=kwargs.pop("chat_timeout", AUTO),
+            )
         return default(*args, **kwargs)
 
     return selected_factory

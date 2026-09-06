@@ -24,6 +24,7 @@ from .._idempotency import (
 )
 from .._logging import get_request_id, reset_request_id, set_request_id
 from .._notebook_metadata import CreatedChatSessionProvider, NotebookSourceIdProvider
+from .._request_policy import RequestPolicyOwner, request_scoped
 from .._runtime.config import (
     DEFAULT_CHAT_RESPONSE_MAX_BYTES,
     DEFAULT_CHAT_TIMEOUT,
@@ -132,7 +133,7 @@ async def save_chat_answer_as_note(
     )
 
 
-class WebChatAPI(ChatAPI):
+class WebChatAPI(RequestPolicyOwner, ChatAPI):
     """Operations for notebook chat/conversations.
 
     Provides methods for asking questions to notebooks and managing
@@ -219,6 +220,7 @@ class WebChatAPI(ChatAPI):
             created_chat_sessions=created_chat_sessions,
         )
 
+    @request_scoped
     async def _stream_answer(
         self,
         *,
@@ -564,6 +566,7 @@ class WebChatAPI(ChatAPI):
         """Compatibility helper for tests and advanced internal callers."""
         return self._build_history_from_turns(self.get_cached_turns(conversation_id))
 
+    @request_scoped
     def _build_chat_request(
         self,
         *,

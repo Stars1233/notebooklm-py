@@ -57,6 +57,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 
 from ..._idempotency import bound_operation_journal_entries
+from ..._request_policy import RequestPolicyOwner, request_scoped
 from ...outcomes import CommitState
 from .errors import raise_mapped_post_error
 from .middleware.context import (
@@ -89,7 +90,7 @@ if TYPE_CHECKING:
     from .kernel import Kernel
 
 
-class RuntimeTransport:
+class RuntimeTransport(RequestPolicyOwner):
     """Authed POST chain leaf and entry-point collaborator.
 
     Owns the three authed-POST hot-path methods.
@@ -143,6 +144,7 @@ class RuntimeTransport:
         """Capture auth only through a generation-bearing resource proof."""
         return await self._snapshot_provider(expected_epoch)
 
+    @request_scoped
     async def refresh_request_for_current_auth(self, request: RpcRequest) -> RpcRequest:
         """Rebuild the envelope from the current auth snapshot before every POST.
 
@@ -275,6 +277,7 @@ class RuntimeTransport:
             )
         return RpcResponse(response=response, context=context)
 
+    @request_scoped
     async def perform_authed_post(
         self,
         *,

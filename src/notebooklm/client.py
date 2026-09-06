@@ -59,6 +59,7 @@ from ._client_options import (
     normalize_legacy_client_options,
     resolve_backend_preference,
     storage_construction_allocation,
+    stored_construction_options,
 )
 from ._collections import CollectionsAPI
 from ._deprecation import warn_deprecated, warn_registered_deprecation
@@ -67,6 +68,7 @@ from ._labels import LabelsAPI
 from ._mind_maps_api import MindMapsAPI
 from ._notebooks import NotebooksAPI
 from ._notes import NotesAPI
+from ._request_policy import RequestPolicyOwner, request_scoped
 from ._research import BaseResearchAPI
 from ._runtime.config import (
     AUTO_READ_TIMEOUT,
@@ -446,6 +448,7 @@ class NotebookLMClient:
             backend=backend,
             config=config,
             preference=storage_preference,
+            stored_options=stored_construction_options(self, auth),
         )
         if normalized.legacy_arguments and storage_preference is None:
             detail = f"Offending arguments: {', '.join(normalized.legacy_arguments)}."
@@ -1091,7 +1094,7 @@ class NotebookLMClient:
             live_fallback=False,
             get_cookies=web.kernel.get_cookies,
             get_http_client=web.kernel.get_http_client,
-            probe=_probe_authuser,
+            probe=web.session_auth.scoped(_probe_authuser),
             to_thread=asyncio.to_thread,
         )
         self._account_email_cache = cached_email
@@ -1112,7 +1115,7 @@ class NotebookLMClient:
                 live_fallback=True,
                 get_cookies=lambda: web.kernel.get_cookies(expected_epoch=lease.epoch),
                 get_http_client=lambda: web.kernel.get_http_client(expected_epoch=lease.epoch),
-                probe=_probe_authuser,
+                probe=web.session_auth.scoped(_probe_authuser),
                 to_thread=asyncio.to_thread,
             )
             web.kernel.assert_epoch(lease.epoch)
@@ -1121,7 +1124,7 @@ class NotebookLMClient:
             return email
 
 
-class _FromStorageContext:
+class _FromStorageContext(RequestPolicyOwner):
     """Awaitable async-context-manager wrapper for ``NotebookLMClient.from_storage``.
 
     Supports two usage patterns so users get a friendly fix-it path off the
@@ -1155,9 +1158,12 @@ class _FromStorageContext:
     ) -> None:
         self._cls = cls
         self._kwargs = kwargs
+        normalized = kwargs.get("normalized_options")
+        self.request_policy = normalized.request_policy if normalized is not None else None
         self._client: NotebookLMClient | None = None
         self._owns_close = False
 
+    @request_scoped
     async def _build(self) -> NotebookLMClient:
         """Load auth and instantiate a cached, not-yet-open client.
 
@@ -1192,6 +1198,7 @@ class _FromStorageContext:
             preference,
             target_type=self._cls,
             target_auth=auth,
+            options=normalized_options,
         ):
             if normalized_options is not None:
                 client = self._cls(
