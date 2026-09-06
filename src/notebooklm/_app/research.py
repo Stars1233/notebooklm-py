@@ -452,7 +452,9 @@ async def import_research_sources(
     already_present: Sequence[dict[str, str]] = []
     if isinstance(imported, _ResearchImportReceipt):
         already_present = imported.already_present
-    return ResearchImportOutcome(newly_imported=list(imported), already_present=list(already_present))
+    return ResearchImportOutcome(
+        newly_imported=list(imported), already_present=list(already_present)
+    )
 
 
 # ===========================================================================

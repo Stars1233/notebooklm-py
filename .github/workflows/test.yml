@@ -387,6 +387,11 @@ jobs:
         tests/_guardrails/test_client_composition.py::test_android_rpc_call_materializes_sidecar_inside_operation_lease
         tests/_guardrails/test_backend_boundaries.py::test_backend_direct_import_boundaries
         tests/_guardrails/test_cookie_persistence_boundary.py::test_client_registration_requires_exact_sequential_constructor_provenance
+        tests/_guardrails/test_cli_boundary.py::test_no_private_module_imports_in_cli
+        tests/_guardrails/test_mcp_boundary.py
+        tests/_guardrails/test_server_boundary.py
+        tests/_guardrails/test_adapter_import_scanner.py
+        tests/_guardrails/test_adapter_support_boundary.py
 
     - name: Run tests without coverage
       # Every required compatibility cell runs the ordinary suite exactly once.

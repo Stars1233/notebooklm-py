@@ -25,9 +25,7 @@ __all__ = [
 ]
 
 
-async def passthrough_notebook_id(
-    _client: NotebookLMClient, notebook_id: str
-) -> str:
+async def passthrough_notebook_id(_client: NotebookLMClient, notebook_id: str) -> str:
     """Return ``notebook_id`` unchanged (the REST adapter works in full ids)."""
     return notebook_id
 

@@ -29,9 +29,7 @@ if TYPE_CHECKING:
 __all__ = ["passthrough_child_id", "passthrough_notebook_id"]
 
 
-async def passthrough_notebook_id(
-    _client: NotebookLMClient, notebook_id: str
-) -> str:
+async def passthrough_notebook_id(_client: NotebookLMClient, notebook_id: str) -> str:
     """Return ``notebook_id`` unchanged (MCP resolves refs before the executor)."""
     return notebook_id
 

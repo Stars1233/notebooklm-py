@@ -35,7 +35,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from ._adapter_import_boundary import scan_source
+from ._adapter_import_boundary import adapter_violations, scan_path, scan_source
 
 CLI_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "notebooklm" / "cli"
 HELPERS_PATH = CLI_ROOT / "helpers.py"
@@ -526,6 +526,11 @@ def test_no_private_module_imports_in_cli():
     for path in sorted(CLI_ROOT.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         bad = _violations(tree)
+        bad.extend(
+            adapter_violations(
+                scan_path(path), relative=f"cli/{path.relative_to(CLI_ROOT).as_posix()}"
+            )
+        )
         if bad:
             offenders.append((str(path.relative_to(CLI_ROOT.parent)), bad))
     assert not offenders, (
@@ -901,8 +906,6 @@ def test_cli_boundary_blocks_all_auth_and_browser_private_imports(
 )
 def test_cli_scanner_resolves_relative_type_only_and_literal_dynamic_edges(source: str) -> None:
     """The shared resolver covers forms the legacy AST matcher cannot classify alone."""
-    targets = {item.target for item in scan_source(source, package="notebooklm.cli")}
-    assert any(
-        target.startswith(("notebooklm._", "notebooklm.mcp", "notebooklm.server"))
-        for target in targets
+    assert adapter_violations(
+        scan_source(source, package="notebooklm.cli"), relative="cli/source.py"
     )

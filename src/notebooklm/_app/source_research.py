@@ -36,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
 from ..options import USE_DEFAULT, UseDefault
-from ..types import ResearchStart, ResearchTask
+from ..types import CitedSourceSelection, ResearchStart, ResearchTask
 from .research import ResearchValidationError
 
 SearchSource = Literal["web", "drive"]
@@ -73,7 +73,7 @@ class ResearchImportOutcome(Protocol):
     def sources(self) -> list[dict[str, Any]]: ...
 
     @property
-    def cited_selection(self) -> Any: ...
+    def cited_selection(self) -> CitedSourceSelection | None: ...
 
 
 class _ResearchNamespace(Protocol):
