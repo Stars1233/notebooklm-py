@@ -84,9 +84,10 @@ root compatibility-sidecar, shared source workflow, and guarded-transfer refacto
 affected diagrams without adding external systems, RPC ids, or wire shapes.
 Diagrams 31–33 add the previously missing cold-authentication recovery sequence, MCP provider
 open/recovery sequence, and detached-task lifecycle, where concurrency and cleanup ordering matter.
-Diagrams 34–38 document the client ownership model, construction and shutdown lifecycle,
+Diagrams 34–38 document the client ownership model, construction-to-lifecycle handoff,
 whole-operation deadline and cancellation contract, mutation journal and recovery evidence, and
-the adapter prepare/confirm/execute boundary introduced by the September 2026 ownership refactor.
+the adapter prepare/confirm/execute boundary introduced by the September 2026 ownership refactor;
+Diagram 19 exclusively covers runtime open, drain, close, rollback, and reopen transitions.
 
 Some views are deliberately not generated:
 
