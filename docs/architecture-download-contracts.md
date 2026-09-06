@@ -56,7 +56,8 @@ note hydration; equivalent results do not imply identical Web and Android RPC
 counts. Client close/reopen invalidates earlier selections.
 
 The nine existing per-kind methods retain their signatures and defaults and
-now delegate through preparation and typed download. Default mind-map selection
+delegate to backend compatibility adapters. First-party application actions use
+the additive preparation and typed download operations. Default mind-map selection
 retains note-backed priority; Android retains its last-modified ordering. Raw
 prefetch keywords remain accepted by compatibility adapters and emit the
 registered `artifact_raw_download_prefetch` warning only when supplied. The new

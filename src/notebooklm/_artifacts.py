@@ -36,8 +36,7 @@ from ._types.enums import (
     VideoStyle,
 )
 from ._types.research import MindMapResult
-from .downloads import resolve_download_format
-from .exceptions import ArtifactNotFoundError, ArtifactNotReadyError, RPCError, ValidationError
+from .exceptions import ArtifactNotFoundError, RPCError, ValidationError
 from .types import (
     Artifact,
     ArtifactCustomizationChoices,
@@ -615,15 +614,6 @@ class ArtifactsAPI(ABC):
     ) -> str:
         """Backend-owned compatibility adapter for existing raw-prefetch kwargs."""
 
-    def _download_sort_key(self, selection: ArtifactDownloadSelection) -> float:
-        return selection.created_at.timestamp() if selection.created_at is not None else 0.0
-
-    def _select_download_default(
-        self, selections: tuple[ArtifactDownloadSelection, ...], *, epoch: int
-    ) -> ArtifactDownloadSelection:
-        """Backend-overridable legacy SDK default; application selection is separate."""
-        return max(selections, key=self._download_sort_key)
-
     async def _download_per_kind(
         self,
         request: ArtifactDownloadRequest,
@@ -634,50 +624,21 @@ class ArtifactsAPI(ABC):
         mind_maps: builtins.list[Any] | None = None,
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
-        async with self._operation_scope(f"artifacts.download_{request.kind.value}") as lease:
-            legacy_prefetch = any(
-                value is not None for value in (artifacts_data, mind_maps, artifacts)
-            )
-            if legacy_prefetch:
+        # Legacy methods keep backend-specific selection, lazy-read ordering,
+        # format validation, and exception precedence. The additive typed API
+        # is used by first-party orchestration; routing legacy calls through
+        # its aggregate selection would change these established contracts.
+        async with self._operation_scope(f"artifacts.download_{request.kind.value}"):
+            if any(value is not None for value in (artifacts_data, mind_maps, artifacts)):
                 warn_registered_deprecation("artifact_raw_download_prefetch")
-            try:
-                resolve_download_format(request.kind, request.output_format)
-            except ValidationError:
-                # The new typed preparation API is strict. Keep historical
-                # per-kind error/ignored-format behavior in its compatibility
-                # adapter instead of introducing an incidental breaking change.
-                return await self._download_with_legacy_prefetch(
-                    request,
-                    output_path,
-                    artifact_id,
-                    artifacts_data=artifacts_data,
-                    mind_maps=mind_maps,
-                    artifacts=artifacts,
-                )
-            if legacy_prefetch:
-                return await self._download_with_legacy_prefetch(
-                    request,
-                    output_path,
-                    artifact_id,
-                    artifacts_data=artifacts_data,
-                    mind_maps=mind_maps,
-                    artifacts=artifacts,
-                )
-            listing = await self.prepare_downloads(request)
-            selected = (
-                next((item for item in listing.selections if item.artifact_id == artifact_id), None)
-                if artifact_id is not None
-                else None
+            return await self._download_with_legacy_prefetch(
+                request,
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+                mind_maps=mind_maps,
+                artifacts=artifacts,
             )
-            if selected is None:
-                if not listing.is_complete:
-                    raise _incomplete_lookup_error(listing.failures)
-                if artifact_id is not None or not listing.selections:
-                    raise ArtifactNotReadyError(request.kind.value, artifact_id=artifact_id)
-                if lease is None:
-                    raise RuntimeError("Download preparation requires an active operation lease")
-                selected = self._select_download_default(listing.selections, epoch=lease.epoch)
-            return await self.download(selected, output_path)
 
     async def download_audio(
         self,

@@ -707,25 +707,6 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifacts=[snapshot.artifact],
             )
 
-    def _download_sort_key(self, selection: ArtifactDownloadSelection) -> float:
-        """Android has always treated the last native modification as newest."""
-        return (
-            selection.last_modified_at.timestamp()
-            if selection.last_modified_at is not None
-            else 0.0
-        )
-
-    def _select_download_default(
-        self, selections: tuple[ArtifactDownloadSelection, ...], *, epoch: int
-    ) -> ArtifactDownloadSelection:
-        """Keep Android's note-backed mind-map default ahead of Studio rows."""
-        if selections and selections[0].kind is ArtifactType.MIND_MAP:
-            for selection in selections:
-                snapshot = self._prepared_downloads.require(selection, epoch=epoch)
-                if snapshot.is_note_backed_mind_map:
-                    return selection
-        return super()._select_download_default(selections, epoch=epoch)
-
     async def _download_with_legacy_prefetch(
         self,
         request: ArtifactDownloadRequest,
