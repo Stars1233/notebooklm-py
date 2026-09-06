@@ -205,14 +205,14 @@ def _display_results(report: DoctorReport):
             # missing __Secure-1PSIDTS, so real RPCs may still fail (#1753).
             # Printing the green "All checks passed." here would greenlight the
             # exact unusable state this check is meant to surface — render an
-            # auth-specific advisory instead (the Auth row carries the full
-            # Firefox / master-token remediation). The exit code stays 0: a warn
+            # auth-specific advisory instead (the guidance after the table carries
+            # the full Firefox / master-token remediation). The exit code stays 0: a warn
             # is not a hard failure, and the cookie can still be re-minted at
             # runtime. Other benign warns (optional headless re-auth, profile-dir
             # permissions) keep the green footer, unchanged.
             console.print(
                 "\n[yellow]Auth check raised a warning: the session may not be "
-                "usable. See the Auth row above for how to fix it.[/yellow]"
+                "usable. See the authentication guidance above for how to fix it.[/yellow]"
             )
         else:
             console.print("\n[green]All checks passed.[/green]")

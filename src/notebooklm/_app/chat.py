@@ -278,12 +278,12 @@ async def save_answer_as_note(
 
     Semantic events are emitted into the optional sink.
     """
-    async with client.operation(timeout=USE_DEFAULT):
-        if not result.answer:
-            _emit(progress, ChatEvent("NOTE_NO_ANSWER"))
-            return SaveNoteOutcome(error="No answer to save as note")
+    try:
+        async with client.operation(timeout=USE_DEFAULT):
+            if not result.answer:
+                _emit(progress, ChatEvent("NOTE_NO_ANSWER"))
+                return SaveNoteOutcome(error="No answer to save as note")
 
-        try:
             title = note_title or f"Chat: {question[:50].strip().replace(chr(10), ' ')}"
             plain_text_fallback = False
             if result.references:
@@ -301,12 +301,13 @@ async def save_answer_as_note(
                 note={"id": note.id, "title": note.title},
                 plain_text_fallback=plain_text_fallback,
             )
-        except Exception as e:
-            # Non-fatal: the chat response payload must still print, so the error is
-            # returned (not raised) for the adapter to render as a warning.
-            detail = redact_operation_text(e)
-            _emit(progress, ChatEvent("NOTE_SAVE_FAILED", detail=detail))
-            return SaveNoteOutcome(error=detail, failure=e)
+    except Exception as e:
+        # Catch scope-exit failures too: an owned deadline becomes a timeout only
+        # after operation settlement has attached the complete mutation evidence.
+        # External cancellation still propagates, since it is not an Exception.
+        detail = redact_operation_text(e)
+        _emit(progress, ChatEvent("NOTE_SAVE_FAILED", detail=detail))
+        return SaveNoteOutcome(error=detail, failure=e)
 
 
 # ---------------------------------------------------------------------------

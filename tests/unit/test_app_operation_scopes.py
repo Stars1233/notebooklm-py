@@ -179,3 +179,74 @@ async def test_saved_note_failure_retains_commit_evidence():
     assert result.failure is failure
     assert result.failure.operation_metadata.known_resource_ids == ("note-accepted",)
     await supervisor.wait_for_idle(1, 0)
+
+
+async def test_saved_note_owned_timeout_returns_settled_commit_evidence():
+    from notebooklm._app.chat import save_answer_as_note
+    from notebooklm._runtime.operation_context import adopt_operation_journal_entry
+    from notebooklm.outcomes import CommitState
+    from notebooklm.types import AskResult
+
+    client, supervisor = _client(0.01)
+
+    async def create(*args):
+        entry = adopt_operation_journal_entry(
+            supervisor, method="CREATE_NOTE", operation="notes.create"
+        )
+        assert entry is not None
+        entry.mark_dispatched()
+        entry.record(
+            CommitState.CONFIRMED,
+            "decoded creation response",
+            known_resource_ids=("note-created",),
+        )
+        # The note exists, but required readback has not completed when the
+        # real operation timer expires. Saving remains an optional action.
+        await asyncio.Event().wait()
+
+    client.notes = SimpleNamespace(create=create)
+    outcome = await save_answer_as_note(
+        client,
+        "nb",
+        AskResult(answer="answer", conversation_id="c", turn_number=1, is_follow_up=False),
+        note_title=None,
+        question="question",
+    )
+
+    assert outcome.note is None
+    assert outcome.error
+    assert isinstance(outcome.failure, OperationTimeoutError)
+    metadata = outcome.failure.operation_metadata
+    assert metadata is not None
+    assert metadata.commit_state is CommitState.CONFIRMED
+    assert metadata.known_resource_ids == ("note-created",)
+    assert metadata.entries[0].operation == "notes.create"
+    await supervisor.wait_for_idle(1, 0)
+
+
+async def test_saved_note_external_cancellation_propagates():
+    from notebooklm._app.chat import save_answer_as_note
+    from notebooklm.types import AskResult
+
+    client, supervisor = _client()
+    started = asyncio.Event()
+
+    async def create(*args):
+        started.set()
+        await asyncio.Event().wait()
+
+    client.notes = SimpleNamespace(create=create)
+    action = asyncio.create_task(
+        save_answer_as_note(
+            client,
+            "nb",
+            AskResult(answer="answer", conversation_id="c", turn_number=1, is_follow_up=False),
+            note_title=None,
+            question="question",
+        )
+    )
+    await started.wait()
+    action.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await action
+    await supervisor.wait_for_idle(1, 0)
