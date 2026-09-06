@@ -68,6 +68,9 @@ class _ConcreteArtifacts(ArtifactsAPI):
 
     _list_studio = _unsupported
     _send_create_artifact = _unsupported
+    _download_with_legacy_prefetch = _unsupported
+    prepare_downloads = _unsupported
+    download = _unsupported
     delete = _unsupported
     download_audio = _unsupported
     download_data_table = _unsupported
