@@ -144,5 +144,8 @@
   },
   "tests/_guardrails/test_unconfirmed_contract.py": {
     "UNCONFIRMED_METHOD_MANIFEST": 63
+  },
+  "tests/_guardrails/test_web_android_public_behavior_inventory.py": {
+    "REQUIRED_ROWS": 70
   }
 }

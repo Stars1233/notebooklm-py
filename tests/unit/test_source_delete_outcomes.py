@@ -172,8 +172,15 @@ async def test_cancel_settles_children_and_keeps_unattempted_tail():
 
 
 @pytest.mark.parametrize("with_journal", [False, True])
-async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal):
+async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal, monkeypatch):
+    loop = asyncio.get_running_loop()
+    now = loop.time()
+    expiry = now + 0.02
+    monkeypatch.setattr(loop, "time", lambda: now)
+    first_done = asyncio.Event()
+
     async def delete(nb, sid):
+        nonlocal now
         entry = (
             adopt_operation_journal_entry(
                 supervisor, method="DeleteSources", operation="sources.delete"
@@ -186,7 +193,12 @@ async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal):
         if sid == "0":
             if entry is not None:
                 entry.record(CommitState.CONFIRMED, "server accepted deletion")
+            first_done.set()
             return
+        await first_done.wait()
+        # Expire only after a sibling has confirmed, so the test always reaches
+        # the evidence-preservation path even under Windows scheduling jitter.
+        now = expiry
         await asyncio.Event().wait()
 
     client, supervisor = _client(delete, timeout=0.01)

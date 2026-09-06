@@ -239,7 +239,8 @@ profile isolated as described in the repository agent guidance and inspect the f
 The Android projection preserves only evidenced semantics: unknown creation time is `None`, raw
 mind-map rows contain the public contract's supported `[id, content]` prefix, and exact absence after
 deletion returns `None`. The Web soft-delete tombstone is a storage leak rather than a documented
-`get_or_none` guarantee, so Android does not fabricate it.
+`get_or_none` guarantee, so Android does not fabricate it. The classified public split is in the
+[Web vs Android public-behavior inventory](../web-android-public-behavior.md).
 
 ## Caveats that will bite you
 
