@@ -80,7 +80,7 @@ _CHAT_DOCSTRING_SHA256 = {
     (
         "WebChatAPI",
         "get_history",
-    ): "05fc7448600335aa9c7f548b2e12723c3836f1f75ad8ca04c86f25008bdb7526",
+    ): "7cc98cd418871411c59ba570d1f73709662774a3e491172fec63d4a180aae192",
     (
         "ChatAPI",
         "configure",

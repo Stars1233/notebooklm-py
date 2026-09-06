@@ -46,6 +46,7 @@ from notebooklm.exceptions import (
     ChatError,
     ChatResponseParseError,
     DecodingError,
+    NetworkError,
     UnknownRPCMethodError,
     ValidationError,
 )
@@ -703,6 +704,39 @@ async def test_history_uses_response_document_when_legacy_answer_text_is_empty()
     api, _, _ = _api(fake)
 
     assert await api.get_history("notebook-1", limit=1) == [("Document answer?", "Final answer")]
+
+
+@pytest.mark.asyncio
+async def test_get_history_returns_empty_when_no_conversation() -> None:
+    """No chat session is a real empty history, not a swallowed fetch failure (#2384)."""
+    fake = FakeSession()
+    fake.unary_responses[LIST_CHAT_SESSIONS_METHOD] = [chat_pb2.ListChatSessionsResponse()]
+    api, _, _ = _api(fake)
+
+    assert await api.get_history("notebook-1") == []
+    assert [call[0] for call in fake.unary_calls] == [LIST_CHAT_SESSIONS_METHOD]
+
+
+@pytest.mark.parametrize(
+    ("exc_type", "message"),
+    [
+        (ChatError, "API error"),
+        (NetworkError, "connection error"),
+    ],
+    ids=["chat_error", "network_error"],
+)
+@pytest.mark.asyncio
+async def test_get_history_raises_on_turns_rpc_error(
+    exc_type: type[Exception],
+    message: str,
+) -> None:
+    """Turn-fetch ChatError/NetworkError from ListChatTurns propagates (#2384)."""
+    fake = FakeSession()
+    fake.unary_responses[LIST_CHAT_TURNS_METHOD] = [exc_type(message)]
+    api, _, _ = _api(fake)
+
+    with pytest.raises(exc_type, match=message):
+        await api.get_history("notebook-1")
 
 
 @pytest.mark.asyncio
