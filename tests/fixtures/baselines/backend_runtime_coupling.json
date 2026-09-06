@@ -46,7 +46,7 @@
           "module_counts": {
             "android": 49,
             "auth": 33,
-            "root": 66,
+            "root": 70,
             "runtime": 10,
             "types": 18
           },
@@ -106,6 +106,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -281,7 +285,7 @@
           "module_counts": {
             "android": 49,
             "auth": 33,
-            "root": 66,
+            "root": 70,
             "runtime": 10,
             "types": 18
           },
@@ -341,6 +345,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -532,11 +540,11 @@
           "module_counts": {
             "android": 74,
             "auth": 33,
-            "root": 66,
+            "root": 70,
             "rpc": 3,
             "runtime": 10,
             "types": 18,
-            "web": 93
+            "web": 94
           },
           "module_delta": [
             "notebooklm",
@@ -619,6 +627,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -752,6 +764,7 @@
             "notebooklm._web.params.chat_session",
             "notebooklm._web.params.chat_stream",
             "notebooklm._web.params.collections",
+            "notebooklm._web.params.creation",
             "notebooklm._web.params.labels",
             "notebooklm._web.params.notebooks",
             "notebooklm._web.params.sources",
@@ -916,7 +929,7 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 63,
+            "root": 66,
             "runtime": 9,
             "types": 18
           },
@@ -927,6 +940,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
             "notebooklm._artifact.polling",
@@ -1035,7 +1052,6 @@
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
-            "notebooklm.downloads",
             "notebooklm.exceptions",
             "notebooklm.options",
             "notebooklm.outcomes",
@@ -1093,7 +1109,7 @@
           "module_counts": {
             "android": 74,
             "auth": 33,
-            "root": 66,
+            "root": 70,
             "runtime": 10,
             "types": 18
           },
@@ -1178,6 +1194,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1409,7 +1429,7 @@
           "module_counts": {
             "android": 74,
             "auth": 33,
-            "root": 66,
+            "root": 70,
             "runtime": 10,
             "types": 18
           },
@@ -1494,6 +1514,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1754,11 +1778,11 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 65,
+            "root": 69,
             "rpc": 3,
             "runtime": 10,
             "types": 18,
-            "web": 93
+            "web": 94
           },
           "module_delta": [
             "notebooklm",
@@ -1767,6 +1791,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1899,6 +1927,7 @@
             "notebooklm._web.params.chat_session",
             "notebooklm._web.params.chat_stream",
             "notebooklm._web.params.collections",
+            "notebooklm._web.params.creation",
             "notebooklm._web.params.labels",
             "notebooklm._web.params.notebooks",
             "notebooklm._web.params.sources",
@@ -2061,11 +2090,11 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 65,
+            "root": 69,
             "rpc": 3,
             "runtime": 10,
             "types": 18,
-            "web": 93
+            "web": 94
           },
           "module_delta": [
             "notebooklm",
@@ -2074,6 +2103,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2206,6 +2239,7 @@
             "notebooklm._web.params.chat_session",
             "notebooklm._web.params.chat_stream",
             "notebooklm._web.params.collections",
+            "notebooklm._web.params.creation",
             "notebooklm._web.params.labels",
             "notebooklm._web.params.notebooks",
             "notebooklm._web.params.sources",
@@ -2304,7 +2338,7 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 63,
+            "root": 66,
             "runtime": 9,
             "types": 18
           },
@@ -2315,6 +2349,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
             "notebooklm._artifact.polling",
@@ -2423,7 +2461,6 @@
             "notebooklm._version_check",
             "notebooklm.auth",
             "notebooklm.client",
-            "notebooklm.downloads",
             "notebooklm.exceptions",
             "notebooklm.options",
             "notebooklm.outcomes",
@@ -2504,11 +2541,11 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 65,
+            "root": 69,
             "rpc": 3,
             "runtime": 10,
             "types": 18,
-            "web": 93
+            "web": 94
           },
           "module_delta": [
             "notebooklm",
@@ -2517,6 +2554,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2649,6 +2690,7 @@
             "notebooklm._web.params.chat_session",
             "notebooklm._web.params.chat_stream",
             "notebooklm._web.params.collections",
+            "notebooklm._web.params.creation",
             "notebooklm._web.params.labels",
             "notebooklm._web.params.notebooks",
             "notebooklm._web.params.sources",
@@ -2813,11 +2855,11 @@
           },
           "module_counts": {
             "auth": 33,
-            "root": 65,
+            "root": 69,
             "rpc": 3,
             "runtime": 10,
             "types": 18,
-            "web": 93
+            "web": 94
           },
           "module_delta": [
             "notebooklm",
@@ -2826,6 +2868,10 @@
             "notebooklm._artifact._guarded_transfer",
             "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
+            "notebooklm._artifact.creation",
+            "notebooklm._artifact.creation_normalized",
+            "notebooklm._artifact.creation_policy",
+            "notebooklm._artifact.creation_reports",
             "notebooklm._artifact.download_selection",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2958,6 +3004,7 @@
             "notebooklm._web.params.chat_session",
             "notebooklm._web.params.chat_stream",
             "notebooklm._web.params.collections",
+            "notebooklm._web.params.creation",
             "notebooklm._web.params.labels",
             "notebooklm._web.params.notebooks",
             "notebooklm._web.params.sources",
@@ -3065,7 +3112,7 @@
       "module_counts": {
         "android": 4,
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "runtime": 9,
         "types": 18
       },
@@ -3080,6 +3127,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3188,7 +3239,6 @@
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",
@@ -3203,7 +3253,7 @@
     "client_reexport": {
       "module_counts": {
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "runtime": 9,
         "types": 18
       },
@@ -3214,6 +3264,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3322,7 +3376,6 @@
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",
@@ -3337,7 +3390,7 @@
     "legacy_client_attribute": {
       "module_counts": {
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "runtime": 9,
         "types": 18,
         "web": 3
@@ -3349,6 +3402,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3460,7 +3517,6 @@
         "notebooklm._web.transport.seams",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",
@@ -3475,7 +3531,7 @@
     "package": {
       "module_counts": {
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "runtime": 9,
         "types": 18
       },
@@ -3486,6 +3542,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3594,7 +3654,6 @@
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",
@@ -3609,7 +3668,7 @@
     "raw_module": {
       "module_counts": {
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "runtime": 9,
         "types": 18
       },
@@ -3620,6 +3679,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3728,7 +3791,6 @@
         "notebooklm._version_check",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",
@@ -3743,7 +3805,7 @@
     "web_raw_api": {
       "module_counts": {
         "auth": 33,
-        "root": 63,
+        "root": 66,
         "rpc": 3,
         "runtime": 9,
         "types": 18,
@@ -3756,6 +3818,10 @@
         "notebooklm._artifact._guarded_transfer",
         "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
+        "notebooklm._artifact.creation",
+        "notebooklm._artifact.creation_normalized",
+        "notebooklm._artifact.creation_policy",
+        "notebooklm._artifact.creation_reports",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
         "notebooklm._artifact.polling",
@@ -3866,7 +3932,6 @@
         "notebooklm._web.raw",
         "notebooklm.auth",
         "notebooklm.client",
-        "notebooklm.downloads",
         "notebooklm.exceptions",
         "notebooklm.options",
         "notebooklm.outcomes",

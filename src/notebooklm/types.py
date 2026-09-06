@@ -29,6 +29,7 @@ from ._types.artifact_download import (
 )
 from ._types.artifacts import (
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
     ArtifactListing,
     ArtifactListingComponent,
@@ -279,6 +280,7 @@ __all__ = [
     "CustomizationChoice",
     "ReportPreset",
     "ArtifactCustomizationChoices",
+    "ArtifactCreationCapability",
     "Note",
     "Label",
     "Collection",
@@ -398,6 +400,7 @@ for _public_moved_type in (
     ArtifactDownloadRequest,
     ArtifactDownloadSelection,
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
     ArtifactListing,
     ArtifactListingComponent,

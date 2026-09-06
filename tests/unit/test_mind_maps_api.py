@@ -15,12 +15,13 @@ from notebooklm._web.notes import NoteRowKind, NoteService
 from notebooklm.exceptions import (
     ArtifactError,
     ArtifactFeatureUnavailableError,
+    ArtifactNotReadyError,
     MindMapNotFoundError,
     NotFoundError,
     UnknownRPCMethodError,
 )
 from notebooklm.rpc.types import RPCMethod
-from notebooklm.types import Artifact, MindMapKind, MindMapResult
+from notebooklm.types import Artifact, GenerationStatus, MindMapKind, MindMapResult
 from tests._fixtures.fake_core import make_fake_core
 
 
@@ -50,7 +51,9 @@ def _make_api(*, note_rows=None, interactive=None):
     artifacts.rename = AsyncMock()
     artifacts.delete = AsyncMock(return_value=True)
     artifacts.generate_mind_map = AsyncMock()
-    artifacts.wait_for_completion = AsyncMock()
+    artifacts.wait_for_completion = AsyncMock(
+        return_value=GenerationStatus(task_id="new_int", status="completed")
+    )
     notebooks = MagicMock()
     notebooks.get_source_ids = AsyncMock(return_value=["s1"])
     notes = MagicMock()
@@ -326,6 +329,32 @@ async def test_generate_interactive_wait_false_skips_tree():
     assert mm.tree is None  # pending; no tree fetched
     artifacts.wait_for_completion.assert_not_awaited()
     assert rpc.rpc_call.await_count == 1  # only CREATE_ARTIFACT, no get_tree
+
+
+@pytest.mark.asyncio
+async def test_generate_interactive_strict_policy_rejects_failed_terminal_before_hydration():
+    api, rpc, _, artifacts, _ = _make_api(interactive=[_interactive_artifact("new_int")])
+    rpc.configure_mock(rpc_call=AsyncMock(return_value=[["new_int", "T", 4]]))
+    artifacts.wait_for_completion = AsyncMock(
+        return_value=GenerationStatus(task_id="new_int", status="failed")
+    )
+
+    with pytest.raises(ArtifactNotReadyError):
+        await api.generate("nb", ["s1"], kind=MindMapKind.INTERACTIVE, failure_policy="raise")
+    assert rpc.rpc_call.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_web_legacy_policy_warns_before_continuing_failed_terminal_hydration():
+    api, rpc, _, artifacts, _ = _make_api(interactive=[_interactive_artifact("new_int")])
+    rpc.configure_mock(rpc_call=AsyncMock(side_effect=[[["new_int", "T", 4]], None]))
+    artifacts.wait_for_completion = AsyncMock(
+        return_value=GenerationStatus(task_id="new_int", status="removed")
+    )
+
+    with pytest.warns(DeprecationWarning, match="failure_policy='raise'"):
+        result = await api.generate("nb", ["s1"], kind=MindMapKind.INTERACTIVE)
+    assert result.id == "new_int"
 
 
 @pytest.mark.asyncio

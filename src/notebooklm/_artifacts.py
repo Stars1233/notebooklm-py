@@ -13,6 +13,24 @@ from typing import TYPE_CHECKING, Any
 from ._artifact import formatters as _artifact_formatters  # noqa: F401
 from ._artifact import polling as _artifact_polling  # noqa: F401
 from ._artifact import validation as _artifact_validation  # noqa: F401
+from ._artifact.creation import (
+    ArtifactCreationRequest,
+    AudioCreationRequest,
+    CinematicVideoCreationRequest,
+    DataTableCreationRequest,
+    FlashcardsCreationRequest,
+    InfographicCreationRequest,
+    QuizCreationRequest,
+    ReportCreationRequest,
+    SlideDeckCreationRequest,
+    VideoCreationRequest,
+)
+from ._artifact.creation_normalized import NormalizedArtifactCreationRequest
+from ._artifact.creation_policy import (
+    WEB_CREATION_POLICY,
+    normalize_creation,
+    normalize_video_prompt,
+)
 from ._artifact.downloads import AssetDownloadService, DownloadResult
 from ._artifact.polling import ArtifactPollingService
 from ._deprecation import warn_registered_deprecation
@@ -39,6 +57,7 @@ from ._types.research import MindMapResult
 from .exceptions import ArtifactNotFoundError, RPCError, ValidationError
 from .types import (
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
     ArtifactDownloadListing,
     ArtifactDownloadRequest,
@@ -144,6 +163,35 @@ class ArtifactsAPI(ABC):
         self._polling = ArtifactPollingService(
             supervisor=self._supervisor,
             poll_registry=self._poll_registry,
+        )
+
+    @property
+    def creation_capabilities(self) -> tuple[ArtifactCreationCapability, ...]:
+        """Return immutable backend implementation support metadata.
+
+        It is deliberately not an entitlement probe: an account may still lack
+        an advertised feature or have it temporarily unavailable upstream.
+        """
+        return (
+            ArtifactCreationCapability(
+                "audio", ("language", "instructions", "audio_format", "audio_length")
+            ),
+            ArtifactCreationCapability(
+                "video", ("language", "instructions", "video_format", "video_style", "style_prompt")
+            ),
+            ArtifactCreationCapability("cinematic_video", ("language", "instructions")),
+            ArtifactCreationCapability(
+                "report", ("report_format", "language", "custom_prompt", "extra_instructions")
+            ),
+            ArtifactCreationCapability("quiz", ("instructions", "quantity", "difficulty")),
+            ArtifactCreationCapability("flashcards", ("instructions", "quantity", "difficulty")),
+            ArtifactCreationCapability(
+                "infographic", ("language", "instructions", "orientation", "detail_level", "style")
+            ),
+            ArtifactCreationCapability(
+                "slide_deck", ("language", "instructions", "slide_format", "slide_length")
+            ),
+            ArtifactCreationCapability("data_table", ("language", "instructions")),
         )
 
     @abstractmethod
@@ -295,12 +343,19 @@ class ArtifactsAPI(ABC):
     @abstractmethod
     async def _send_create_artifact(
         self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str],
-        **options: Any,
+        request: NormalizedArtifactCreationRequest,
     ) -> GenerationStatus:
-        """Send one backend-specific artifact creation request."""
+        """Encode and send one normalized backend creation request."""
+
+    _creation_policy = WEB_CREATION_POLICY
+
+    def _normalize_creation_request(
+        self, request: ArtifactCreationRequest
+    ) -> NormalizedArtifactCreationRequest:
+        return normalize_creation(request, self._creation_policy)
+
+    async def _create_artifact(self, request: ArtifactCreationRequest) -> GenerationStatus:
+        return await self._send_create_artifact(self._normalize_creation_request(request))
 
     async def _resolve_source_ids(
         self, notebook_id: str, source_ids: builtins.list[str] | None
@@ -325,14 +380,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_audio"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "audio",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                audio_format=audio_format,
-                audio_length=audio_length,
+            return await self._create_artifact(
+                AudioCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    audio_format,
+                    audio_length,
+                )
             )
 
     async def generate_video(
@@ -347,34 +403,19 @@ class ArtifactsAPI(ABC):
     ) -> GenerationStatus:
         """Generate a Video Overview."""
         language = self._resolve_language(language)
-        if style_prompt is not None and not isinstance(style_prompt, str):
-            raise ValidationError("style_prompt must be a string or None")
-        normalized_style_prompt = style_prompt.strip() if style_prompt is not None else None
-        if video_format == VideoFormat.CINEMATIC and normalized_style_prompt:
-            raise ValidationError("style_prompt is not supported for cinematic videos")
-        if video_format == VideoFormat.SHORT and (
-            (video_style is not None and video_style != VideoStyle.AUTO_SELECT)
-            or normalized_style_prompt
-        ):
-            raise ValidationError(
-                "video_style and style_prompt are not supported for short videos "
-                "(short has a fixed visual style)"
-            )
-        if video_style == VideoStyle.CUSTOM and not normalized_style_prompt:
-            raise ValidationError("style_prompt is required when video_style is CUSTOM")
-        if normalized_style_prompt and video_style != VideoStyle.CUSTOM:
-            raise ValidationError("style_prompt requires video_style=VideoStyle.CUSTOM")
+        normalized_style_prompt = normalize_video_prompt(video_format, video_style, style_prompt)
         async with self._operation_scope("artifacts.generate_video"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "video",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                video_format=video_format,
-                video_style=video_style,
-                style_prompt=normalized_style_prompt,
+            return await self._create_artifact(
+                VideoCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    video_format,
+                    video_style,
+                    normalized_style_prompt,
+                )
             )
 
     async def generate_cinematic_video(
@@ -388,12 +429,10 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_cinematic_video"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "cinematic_video",
-                source_ids,
-                language=language,
-                instructions=instructions,
+            return await self._create_artifact(
+                CinematicVideoCreationRequest(
+                    notebook_id, tuple(source_ids), language, instructions
+                )
             )
 
     async def generate_report(
@@ -410,14 +449,15 @@ class ArtifactsAPI(ABC):
             report_format = _artifact_validation.coerce_report_format(report_format)
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "report",
-                source_ids,
-                report_format=report_format,
-                language=language,
-                custom_prompt=custom_prompt,
-                extra_instructions=extra_instructions,
+            return await self._create_artifact(
+                ReportCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    report_format,
+                    language,
+                    custom_prompt,
+                    extra_instructions,
+                )
             )
 
     async def generate_study_guide(
@@ -431,14 +471,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_study_guide"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "report",
-                source_ids,
-                report_format=ReportFormat.STUDY_GUIDE,
-                language=language,
-                custom_prompt=None,
-                extra_instructions=extra_instructions,
+            return await self._create_artifact(
+                ReportCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    ReportFormat.STUDY_GUIDE,
+                    language,
+                    None,
+                    extra_instructions,
+                )
             )
 
     async def generate_quiz(
@@ -452,13 +493,10 @@ class ArtifactsAPI(ABC):
         """Generate a quiz."""
         async with self._operation_scope("artifacts.generate_quiz"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "quiz",
-                source_ids,
-                instructions=instructions,
-                quantity=quantity,
-                difficulty=difficulty,
+            return await self._create_artifact(
+                QuizCreationRequest(
+                    notebook_id, tuple(source_ids), instructions, quantity, difficulty
+                )
             )
 
     async def generate_flashcards(
@@ -472,13 +510,10 @@ class ArtifactsAPI(ABC):
         """Generate flashcards."""
         async with self._operation_scope("artifacts.generate_flashcards"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "flashcards",
-                source_ids,
-                instructions=instructions,
-                quantity=quantity,
-                difficulty=difficulty,
+            return await self._create_artifact(
+                FlashcardsCreationRequest(
+                    notebook_id, tuple(source_ids), instructions, quantity, difficulty
+                )
             )
 
     async def generate_infographic(
@@ -495,15 +530,16 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_infographic"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "infographic",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                orientation=orientation,
-                detail_level=detail_level,
-                style=style,
+            return await self._create_artifact(
+                InfographicCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    orientation,
+                    detail_level,
+                    style,
+                )
             )
 
     async def generate_slide_deck(
@@ -519,14 +555,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_slide_deck"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "slide_deck",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                slide_format=slide_format,
-                slide_length=slide_length,
+            return await self._create_artifact(
+                SlideDeckCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    slide_format,
+                    slide_length,
+                )
             )
 
     async def generate_data_table(
@@ -540,12 +577,8 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_data_table"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "data_table",
-                source_ids,
-                language=language,
-                instructions=instructions,
+            return await self._create_artifact(
+                DataTableCreationRequest(notebook_id, tuple(source_ids), language, instructions)
             )
 
     @abstractmethod

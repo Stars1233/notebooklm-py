@@ -234,9 +234,16 @@ def _install_registered_tree(
             replacement='"notebooklm.NotebookLMClient.sources"',
         ),
     ]
+    entries.append(
+        _spec_entry(
+            "mind_map_legacy_terminal_hydration",
+            replacement='"notebooklm.NotebookLMClient.mind_maps"',
+        )
+    )
     calls = calls or [
         'warn_registered_deprecation("artifact_raw_download_prefetch")',
         'warn_registered_deprecation("artifact_ambiguous_absence")',
+        'warn_registered_deprecation("mind_map_legacy_terminal_hydration")',
         'warn_registered_deprecation("auth_tokens_flat_cookies")',
         'warn_registered_deprecation("auth_tokens_from_storage")',
         'warn_registered_deprecation("auth_tokens_replace_cookie_jar")',
@@ -265,6 +272,7 @@ def _install_registered_tree(
             class NotebookLMClient:
                 auth: object
                 artifacts: object
+                mind_maps: object
                 collections: object
                 labels: object
                 notebooks: object

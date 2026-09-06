@@ -1,6 +1,7 @@
 {
   "notebooklm": [
     "SourceDeleteOutcome",
+    "ArtifactCreationCapability",
     "__version__",
     "NotebookLMClient",
     "AuthTokens",

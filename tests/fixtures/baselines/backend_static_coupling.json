@@ -131,16 +131,16 @@
     },
     {
       "kind": "from",
-      "lineno": 9,
+      "lineno": 11,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifact_creation",
-      "target": "notebooklm._artifact.validation",
+      "target": "notebooklm._artifact.creation_normalized",
       "type_only": false
     },
     {
       "kind": "from",
-      "lineno": 10,
+      "lineno": 12,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifact_creation",
@@ -149,7 +149,7 @@
     },
     {
       "kind": "from",
-      "lineno": 15,
+      "lineno": 17,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifact_creation",
@@ -158,7 +158,7 @@
     },
     {
       "kind": "from",
-      "lineno": 28,
+      "lineno": 21,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifact_creation",
@@ -333,7 +333,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
-      "target": "notebooklm._artifact.download_selection",
+      "target": "notebooklm._artifact.creation",
       "type_only": false
     },
     {
@@ -342,7 +342,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
-      "target": "notebooklm._artifacts",
+      "target": "notebooklm._artifact.creation_normalized",
       "type_only": false
     },
     {
@@ -351,12 +351,39 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
+      "target": "notebooklm._artifact.creation_policy",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 19,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._android.artifacts",
+      "target": "notebooklm._artifact.download_selection",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 20,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._android.artifacts",
+      "target": "notebooklm._artifacts",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 21,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._android.artifacts",
       "target": "notebooklm._idempotency",
       "type_only": false
     },
     {
       "kind": "from",
-      "lineno": 25,
+      "lineno": 28,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -365,7 +392,7 @@
     },
     {
       "kind": "from",
-      "lineno": 26,
+      "lineno": 29,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -374,7 +401,7 @@
     },
     {
       "kind": "from",
-      "lineno": 27,
+      "lineno": 30,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -383,7 +410,7 @@
     },
     {
       "kind": "from",
-      "lineno": 32,
+      "lineno": 35,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -392,7 +419,7 @@
     },
     {
       "kind": "from",
-      "lineno": 33,
+      "lineno": 36,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -401,7 +428,7 @@
     },
     {
       "kind": "from",
-      "lineno": 40,
+      "lineno": 41,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -410,7 +437,7 @@
     },
     {
       "kind": "from",
-      "lineno": 41,
+      "lineno": 42,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -419,7 +446,7 @@
     },
     {
       "kind": "from",
-      "lineno": 42,
+      "lineno": 43,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -428,7 +455,7 @@
     },
     {
       "kind": "from",
-      "lineno": 52,
+      "lineno": 53,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -437,7 +464,7 @@
     },
     {
       "kind": "from",
-      "lineno": 53,
+      "lineno": 54,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._android.artifacts",
@@ -2984,6 +3011,33 @@
     },
     {
       "kind": "from",
+      "lineno": 12,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._artifact.creation",
+      "target": "notebooklm._types.enums",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 16,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._artifact.creation_policy",
+      "target": "notebooklm._types.enums",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 3,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._artifact.creation_reports",
+      "target": "notebooklm._types.enums",
+      "type_only": false
+    },
+    {
+      "kind": "from",
       "lineno": 14,
       "scope": null,
       "scope_kind": "module",
@@ -3056,7 +3110,7 @@
     },
     {
       "kind": "from",
-      "lineno": 22,
+      "lineno": 40,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._artifacts",
@@ -3065,7 +3119,7 @@
     },
     {
       "kind": "from",
-      "lineno": 23,
+      "lineno": 41,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._artifacts",
@@ -3074,7 +3128,7 @@
     },
     {
       "kind": "from",
-      "lineno": 38,
+      "lineno": 56,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._artifacts",
@@ -3083,7 +3137,7 @@
     },
     {
       "kind": "from",
-      "lineno": 58,
+      "lineno": 76,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._artifacts",
@@ -3092,7 +3146,7 @@
     },
     {
       "kind": "from",
-      "lineno": 94,
+      "lineno": 112,
       "scope": "__getattr__",
       "scope_kind": "function",
       "source": "notebooklm._artifacts",
@@ -3713,7 +3767,7 @@
     },
     {
       "kind": "from",
-      "lineno": 11,
+      "lineno": 13,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._mind_maps_api",
@@ -3722,7 +3776,7 @@
     },
     {
       "kind": "from",
-      "lineno": 12,
+      "lineno": 14,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._mind_maps_api",
@@ -4518,7 +4572,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._artifact.download_selection",
+      "target": "notebooklm._artifact.creation_normalized",
       "type_only": false
     },
     {
@@ -4527,7 +4581,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._artifact.downloads",
+      "target": "notebooklm._artifact.download_selection",
       "type_only": false
     },
     {
@@ -4536,7 +4590,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._artifacts",
+      "target": "notebooklm._artifact.downloads",
       "type_only": false
     },
     {
@@ -4545,7 +4599,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._idempotency",
+      "target": "notebooklm._artifacts",
       "type_only": false
     },
     {
@@ -4554,7 +4608,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._notebook_metadata",
+      "target": "notebooklm._idempotency",
       "type_only": false
     },
     {
@@ -4563,7 +4617,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
-      "target": "notebooklm._request_policy",
+      "target": "notebooklm._notebook_metadata",
       "type_only": false
     },
     {
@@ -4572,12 +4626,21 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
+      "target": "notebooklm._request_policy",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 24,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.artifacts",
       "target": "notebooklm._types.artifact_download",
       "type_only": false
     },
     {
       "kind": "from",
-      "lineno": 28,
+      "lineno": 29,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4586,7 +4649,7 @@
     },
     {
       "kind": "from",
-      "lineno": 32,
+      "lineno": 33,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4595,7 +4658,7 @@
     },
     {
       "kind": "from",
-      "lineno": 33,
+      "lineno": 34,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4604,7 +4667,7 @@
     },
     {
       "kind": "from",
-      "lineno": 34,
+      "lineno": 35,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4613,7 +4676,7 @@
     },
     {
       "kind": "from",
-      "lineno": 41,
+      "lineno": 42,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4622,7 +4685,7 @@
     },
     {
       "kind": "from",
-      "lineno": 42,
+      "lineno": 43,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -4631,7 +4694,7 @@
     },
     {
       "kind": "from",
-      "lineno": 69,
+      "lineno": 72,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.artifacts",
@@ -5040,7 +5103,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
-      "target": "notebooklm._idempotency",
+      "target": "notebooklm._artifact.creation",
       "type_only": false
     },
     {
@@ -5049,7 +5112,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
-      "target": "notebooklm._mind_maps_api",
+      "target": "notebooklm._artifact.creation_policy",
       "type_only": false
     },
     {
@@ -5058,7 +5121,7 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
-      "target": "notebooklm._types.mind_maps",
+      "target": "notebooklm._idempotency",
       "type_only": false
     },
     {
@@ -5067,12 +5130,30 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
+      "target": "notebooklm._mind_maps_api",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 23,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.mind_maps",
+      "target": "notebooklm._types.mind_maps",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 24,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.mind_maps",
       "target": "notebooklm.exceptions",
       "type_only": false
     },
     {
       "kind": "from",
-      "lineno": 26,
+      "lineno": 28,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5081,7 +5162,7 @@
     },
     {
       "kind": "from",
-      "lineno": 27,
+      "lineno": 29,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5090,7 +5171,7 @@
     },
     {
       "kind": "from",
-      "lineno": 33,
+      "lineno": 35,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5099,7 +5180,7 @@
     },
     {
       "kind": "from",
-      "lineno": 34,
+      "lineno": 36,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5108,7 +5189,7 @@
     },
     {
       "kind": "from",
-      "lineno": 35,
+      "lineno": 37,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5117,7 +5198,7 @@
     },
     {
       "kind": "from",
-      "lineno": 36,
+      "lineno": 38,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.mind_maps",
@@ -5292,12 +5373,30 @@
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.params.artifacts",
+      "target": "notebooklm._artifact.creation",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 8,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.params.artifacts",
+      "target": "notebooklm._artifact.creation_policy",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 11,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.params.artifacts",
       "target": "notebooklm._types.enums",
       "type_only": false
     },
     {
       "kind": "from",
-      "lineno": 23,
+      "lineno": 25,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.params.artifacts",
@@ -5306,7 +5405,7 @@
     },
     {
       "kind": "from",
-      "lineno": 24,
+      "lineno": 26,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._web.params.artifacts",
@@ -5356,6 +5455,33 @@
       "scope_kind": "module",
       "source": "notebooklm._web.params.chat_stream",
       "target": "notebooklm.rpc.types",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 9,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.params.creation",
+      "target": "notebooklm._artifact.creation_normalized",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 10,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.params.creation",
+      "target": "notebooklm._types.enums",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 11,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._web.params.creation",
+      "target": "notebooklm.rpc",
       "type_only": false
     },
     {
@@ -11030,7 +11156,7 @@
     },
     {
       "kind": "from",
-      "lineno": 46,
+      "lineno": 47,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11039,7 +11165,7 @@
     },
     {
       "kind": "from",
-      "lineno": 56,
+      "lineno": 57,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11048,7 +11174,7 @@
     },
     {
       "kind": "from",
-      "lineno": 66,
+      "lineno": 67,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11057,7 +11183,7 @@
     },
     {
       "kind": "from",
-      "lineno": 78,
+      "lineno": 79,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11066,7 +11192,7 @@
     },
     {
       "kind": "from",
-      "lineno": 122,
+      "lineno": 123,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11075,7 +11201,7 @@
     },
     {
       "kind": "from",
-      "lineno": 123,
+      "lineno": 124,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11084,7 +11210,7 @@
     },
     {
       "kind": "from",
-      "lineno": 124,
+      "lineno": 125,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11093,7 +11219,7 @@
     },
     {
       "kind": "from",
-      "lineno": 134,
+      "lineno": 135,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11102,7 +11228,7 @@
     },
     {
       "kind": "from",
-      "lineno": 135,
+      "lineno": 136,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11111,7 +11237,7 @@
     },
     {
       "kind": "from",
-      "lineno": 145,
+      "lineno": 146,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11120,7 +11246,7 @@
     },
     {
       "kind": "from",
-      "lineno": 146,
+      "lineno": 147,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11129,7 +11255,7 @@
     },
     {
       "kind": "from",
-      "lineno": 157,
+      "lineno": 158,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.types",
@@ -11148,11 +11274,11 @@
   ],
   "subsystems": {
     "android": {
-      "lines": 16618,
+      "lines": 16341,
       "modules": 53
     },
     "app": {
-      "lines": 13018,
+      "lines": 13019,
       "modules": 40
     },
     "auth": {
@@ -11168,8 +11294,8 @@
       "modules": 38
     },
     "root": {
-      "lines": 26348,
-      "modules": 85
+      "lines": 26891,
+      "modules": 89
     },
     "rpc": {
       "lines": 385,
@@ -11184,22 +11310,22 @@
       "modules": 19
     },
     "types": {
-      "lines": 5704,
+      "lines": 5718,
       "modules": 18
     },
     "web": {
-      "lines": 33686,
-      "modules": 96
+      "lines": 33446,
+      "modules": 97
     }
   },
   "summary": {
-    "authored_lines": 149840,
-    "authored_modules": 471,
+    "authored_lines": 149881,
+    "authored_modules": 476,
     "class_local_edges": 0,
-    "cross_subsystem_edges": 1227,
+    "cross_subsystem_edges": 1241,
     "dynamic_import_calls": 10,
     "function_local_edges": 86,
-    "module_level_edges": 1141,
+    "module_level_edges": 1155,
     "type_only_edges": 132
   },
   "version": 1

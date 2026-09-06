@@ -59,6 +59,7 @@ def _auth_tokens() -> AuthTokens:
 
 def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None:
     assert tuple(DEPRECATION_SPECS) == (
+        "mind_map_legacy_terminal_hydration",
         "auth_tokens_from_storage",
         "auth_tokens_sync_storage_construction",
         "auth_tokens_flat_cookies",
@@ -257,6 +258,16 @@ def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None
             4,
         ),
     }
+    expected["mind_map_legacy_terminal_hydration"] = (
+        "Continuing Web interactive mind-map hydration after failed/removed completion "
+        "is deprecated; pass failure_policy='raise' to reject before hydration. "
+        "The legacy default will change only after this warning's own stable release "
+        "and migration interval. The earliest target is v1.0, conditional on that "
+        "interval having elapsed; v1.0 alone does not authorize the change.",
+        "notebooklm.NotebookLMClient.mind_maps",
+        "0.9.0",
+        3,
+    )
     for key, spec in DEPRECATION_SPECS.items():
         message, replacement, since, stacklevel = expected[key]
         assert spec == DeprecationSpec(

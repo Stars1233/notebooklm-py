@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .._artifact import polling as _artifact_polling
+from .._artifact.creation_normalized import NormalizedArtifactCreationRequest
 from .._artifact.download_selection import PreparedDownloadCache
 from .._artifact.downloads import AssetDownloadService
 from .._artifacts import ArtifactsAPI, _ArtifactCopyResult
@@ -41,6 +42,7 @@ from ..exceptions import (
 from ..rpc import RPCMethod
 from ..types import (
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
     ArtifactListing,
     ArtifactType,
@@ -61,6 +63,7 @@ from .params.artifacts import (
     build_customization_choices_params,
     build_suggest_reports_params,
 )
+from .params.creation import encode_creation
 from .rows import artifacts as _artifact_rows
 from .rows.customization import unwrap_customization_choices
 from .rows.transfers import CopiedArtifactRow, unwrap_mapping_rows
@@ -168,14 +171,14 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
 
     async def _send_create_artifact(
         self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str],
-        **options: Any,
+        request: NormalizedArtifactCreationRequest,
     ) -> GenerationStatus:
-        """Dispatch a validated creation request to the web generation service."""
-        generate = getattr(self._generation, f"generate_{family}")
-        return await generate(notebook_id, source_ids=source_ids, **options)
+        params, label = encode_creation(request)
+        return await self._generation._call_generate(
+            request.notebook_id,
+            params,
+            null_result_artifact_type=label,
+        )
 
     # =========================================================================
     # List/Get Operations
@@ -954,3 +957,23 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
             return _artifact_rows.ArtifactRow(art).is_media_ready(artifact_type)
         except (IndexError, TypeError):
             return artifact_type not in _artifact_rows.ArtifactRow._MEDIA_ARTIFACT_TYPES
+
+    @property
+    def creation_capabilities(self) -> tuple[ArtifactCreationCapability, ...]:
+        capabilities = tuple(
+            ArtifactCreationCapability(
+                cap.family,
+                cap.supported_options,
+                ("concept_explanation report format is not supported by Web",),
+            )
+            if cap.family == "report"
+            else cap
+            for cap in super().creation_capabilities
+        )
+        return capabilities + (
+            ArtifactCreationCapability(
+                "interactive_mind_map",
+                ("instructions",),
+                ("language is not encoded by the Web interactive mind-map protocol",),
+            ),
+        )

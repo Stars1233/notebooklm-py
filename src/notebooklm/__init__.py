@@ -126,6 +126,7 @@ from .exceptions import (
 from .types import (
     AccountLimits,
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
     ArtifactInfographic,
     ArtifactListing,
@@ -240,6 +241,7 @@ from .utils import resolve_chat_reference_passage
 
 __all__ = [
     "SourceDeleteOutcome",
+    "ArtifactCreationCapability",
     "__version__",
     # Client (main entry point)
     "NotebookLMClient",

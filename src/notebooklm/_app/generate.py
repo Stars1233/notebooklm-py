@@ -218,6 +218,7 @@ async def execute_generation(
                     return await client.mind_maps.generate(
                         nb_id_resolved,
                         kind=MindMapKind.INTERACTIVE,
+                        failure_policy="raise",
                         **call_kwargs,
                     )
             else:

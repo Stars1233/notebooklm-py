@@ -58,6 +58,7 @@ import inspect
 import re
 import typing
 from collections.abc import Iterable, Mapping
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, cast
 
@@ -434,6 +435,9 @@ class _StubMindMapsAPI:
 
 
 class _StubClient:
+    def operation(self, **_kwargs: Any):
+        return nullcontext()
+
     def __init__(self) -> None:
         self.artifacts = _StubArtifactsAPI()
         self.mind_maps = _StubMindMapsAPI()

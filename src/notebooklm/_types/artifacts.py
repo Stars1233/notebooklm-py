@@ -839,3 +839,17 @@ class ArtifactCustomizationChoices:
     video: tuple[CustomizationChoice, ...] = ()
     slide_deck: tuple[CustomizationChoice, ...] = ()
     reports: tuple[ReportPreset, ...] = ()
+
+
+@dataclass(frozen=True)
+class ArtifactCreationCapability:
+    """Read-only implementation support for one artifact creation family.
+
+    This describes client/backend encoding support, never account entitlement or
+    an upstream availability guarantee. ``limitations`` records intentional
+    backend differences without pretending that unsupported options are sent.
+    """
+
+    family: str
+    supported_options: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()

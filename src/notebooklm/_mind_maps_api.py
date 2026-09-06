@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import builtins
 import contextlib
+import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+from ._deprecation import warn_registered_deprecation
 from ._lookup import unwrap_or_raise
 from ._runtime.call_supervisor import OperationLease
 from ._types.mind_maps import MindMap, MindMapKind
 from .exceptions import ArtifactNotReadyError, MindMapNotFoundError
 from .types import Artifact
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from ._artifacts import ArtifactsAPI
@@ -137,6 +141,7 @@ class MindMapsAPI(ABC):
         language: str | None = "en",
         instructions: str | None = None,
         wait: bool = True,
+        failure_policy: Literal["legacy", "raise"] = "legacy",
     ) -> MindMap:
         """Generate a mind map of the requested ``kind``.
 
@@ -147,7 +152,9 @@ class MindMapsAPI(ABC):
         a uniform surface). With ``wait=False`` it returns a pending
         :class:`MindMap` whose ``tree`` is ``None`` until completed.
 
-        The historical terminal-failure behavior remains backend-specific:
+        ``failure_policy="raise"`` makes a waited interactive terminal failure
+        raise :class:`ArtifactNotReadyError` before hydration. The default keeps
+        the established backend-specific behavior:
         Android raises :class:`ArtifactNotReadyError` when a waited interactive
         task finishes failed or removed, while web continues hydration after
         its completion wait without adding that extra rejection.
@@ -195,14 +202,12 @@ class MindMapsAPI(ABC):
             )
             if wait:
                 terminal = await self._artifacts.wait_for_completion(notebook_id, new_id)
-                if self._reject_unsuccessful_interactive_wait and (
-                    terminal.is_failed or terminal.is_removed
-                ):
-                    raise ArtifactNotReadyError(
-                        "mind_map",
-                        artifact_id=new_id,
-                        status=str(terminal.status),
-                    )
+                if terminal.is_failed or terminal.is_removed:
+                    if failure_policy == "raise" or self._reject_unsuccessful_interactive_wait:
+                        raise ArtifactNotReadyError(
+                            "mind_map", artifact_id=new_id, status=str(terminal.status)
+                        )
+                    warn_registered_deprecation("mind_map_legacy_terminal_hydration")
             artifact = await self._find_interactive(
                 notebook_id,
                 new_id,

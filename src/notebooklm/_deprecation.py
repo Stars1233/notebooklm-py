@@ -59,6 +59,21 @@ class DeprecationSpec:
 
 DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
     {
+        "mind_map_legacy_terminal_hydration": DeprecationSpec(
+            key="mind_map_legacy_terminal_hydration",
+            message=(
+                "Continuing Web interactive mind-map hydration after failed/removed completion "
+                "is deprecated; pass failure_policy='raise' to reject before hydration. "
+                "The legacy default will change only after this warning's own stable release "
+                "and migration interval. The earliest target is v1.0, conditional on that "
+                "interval having elapsed; v1.0 alone does not authorize the change."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.mind_maps",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
         "auth_tokens_from_storage": DeprecationSpec(
             key="auth_tokens_from_storage",
             message=(

@@ -3,7 +3,7 @@
     "PRIVATE_SYMBOL_ALLOWANCES": 53
   },
   "tests/_guardrails/_public_import_manifest.py": {
-    "_DOCUMENTED_PUBLIC_IMPORTS": 104
+    "_DOCUMENTED_PUBLIC_IMPORTS": 106
   },
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,
@@ -74,9 +74,9 @@
     "_NON_AUTHTOKENS_CANDIDATES": 30
   },
   "tests/_guardrails/test_backend_abstract_contracts.py": {
-    "BASE_ABSTRACT_CONTRACTS": 174,
+    "BASE_ABSTRACT_CONTRACTS": 168,
     "_ANDROID_IMPLEMENTATIONS": 33,
-    "_ANDROID_INHERITED_WORKFLOWS": 103
+    "_ANDROID_INHERITED_WORKFLOWS": 112
   },
   "tests/_guardrails/test_backend_boundaries.py": {
     "LAZY_WEB_IMPORT_ALLOWLIST": 34
@@ -100,11 +100,11 @@
     "GUARDRAIL_DISPOSITIONS": 114,
     "PRIVATE_DEPENDENCY_DISPOSITIONS": 33,
     "PUBLIC_OPTION_DISPOSITIONS": 66,
-    "REQUIRED_WORKFLOW_ENTRYPOINT_INVENTORY": 161,
+    "REQUIRED_WORKFLOW_ENTRYPOINT_INVENTORY": 162,
     "RETRY_CALL_INVENTORY": 24,
     "RETRY_INVENTORY": 36,
     "WORKFLOW_INVENTORY": 132,
-    "WORKFLOW_SCOPE_CALL_INVENTORY": 225
+    "WORKFLOW_SCOPE_CALL_INVENTORY": 243
   },
   "tests/_guardrails/test_error_contract_catch_ordering.py": {
     "EXCLUDED_FROM_REQUIRED": 28

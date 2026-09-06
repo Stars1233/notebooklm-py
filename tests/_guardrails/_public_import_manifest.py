@@ -17,6 +17,7 @@ from __future__ import annotations
 
 _DOCUMENTED_PUBLIC_IMPORTS = {
     "notebooklm": [
+        "ArtifactCreationCapability",
         "ArtifactListing",
         "ArtifactListingComponent",
         "ArtifactListingFailure",
@@ -105,6 +106,7 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
         "RPCMethod",
     ],
     "notebooklm.types": [
+        "ArtifactCreationCapability",
         "ArtifactDownloadListing",
         "ArtifactDownloadRequest",
         "ArtifactDownloadSelection",

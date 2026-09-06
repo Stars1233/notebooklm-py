@@ -856,7 +856,7 @@ WORKFLOW_SCOPE_CALL_INVENTORY = (
         (
             (
                 "src/notebooklm/_android/artifacts.py",
-                "AndroidArtifactsAPI._generate_supported_family",
+                "AndroidArtifactsAPI._generate_interactive_mind_map",
                 1,
             ),
             ("src/notebooklm/_android/chat.py", "AndroidChatAPI.get_history", 1),

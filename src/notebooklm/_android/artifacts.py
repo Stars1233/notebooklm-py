@@ -13,6 +13,9 @@ from typing import Any, cast
 
 import httpx
 
+from .._artifact.creation import InteractiveMindMapCreationRequest
+from .._artifact.creation_normalized import NormalizedArtifactCreationRequest, NormalizedAudio
+from .._artifact.creation_policy import ANDROID_CREATION_POLICY
 from .._artifact.download_selection import PreparedDownloadCache
 from .._artifacts import ArtifactsAPI, _incomplete_lookup_error
 from .._idempotency import (
@@ -29,12 +32,10 @@ from .._types.artifact_download import (
     ArtifactDownloadRequest,
     ArtifactDownloadSelection,
 )
-from .._types.artifacts import _status_from_code
+from .._types.artifacts import ArtifactCreationCapability, _status_from_code
 from .._types.enums import (
     ArtifactStatus,
     ArtifactTypeCode,
-    AudioFormat,
-    AudioLength,
     ExportType,
 )
 from .._types.research import MindMapResult
@@ -63,9 +64,8 @@ from ..types import (
 from .artifact_collaborators import NoteBackedMindMapLister
 from .artifact_creation import (
     CREATE_ARTIFACT_METHOD,
-    build_create_artifact_plan,
+    build_normalized_create_artifact_plan,
     create_artifact_once,
-    normalize_creation_options,
 )
 from .artifact_mutations import (
     DELETE_ARTIFACT_METHOD,
@@ -131,22 +131,6 @@ _SERVICE = "google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestra
 DERIVE_ARTIFACT_METHOD = f"/{_SERVICE}/DeriveArtifact"
 UPDATE_ARTIFACT_METHOD = f"/{_SERVICE}/UpdateArtifact"
 GENERATE_REPORT_SUGGESTIONS_METHOD = f"/{_SERVICE}/GenerateReportSuggestions"
-
-
-def _audio_format_code(value: Any) -> int:
-    if value is None:
-        return AudioFormat.DEEP_DIVE.value
-    if not isinstance(value, AudioFormat):
-        raise ValidationError("audio_format must be an AudioFormat value")
-    return int(value.value)
-
-
-def _audio_length_code(value: Any) -> int:
-    if value is None:
-        return AudioLength.DEFAULT.value
-    if not isinstance(value, AudioLength):
-        raise ValidationError("audio_length must be an AudioLength value")
-    return int(value.value)
 
 
 class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin, ArtifactsAPI):
@@ -371,34 +355,31 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             raise ArtifactNotFoundError(artifact_id, method_id=LIST_ARTIFACTS_METHOD)
         return artifact.generation_prompt
 
+    _creation_policy = ANDROID_CREATION_POLICY
+
+    @property
+    def creation_capabilities(self) -> tuple[ArtifactCreationCapability, ...]:
+        return super().creation_capabilities + (
+            ArtifactCreationCapability("interactive_mind_map", ("language", "instructions")),
+        )
+
     async def _send_create_artifact(
         self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str],
-        **options: Any,
+        creation: NormalizedArtifactCreationRequest,
     ) -> GenerationStatus:
-        if family == "audio" and not source_ids:
-            label = family.replace("_", " ").title()
-            raise ValidationError(f"{label} generation requires at least one source id")
-        if family == "audio":
-            language_code = _validate_audio_language(options.get("language"))
-            instructions = options.get("instructions")
-            if instructions is not None and not isinstance(instructions, str):
-                raise ValidationError("instructions must be a string or None")
-            format_code = _audio_format_code(options.get("audio_format"))
-            episode_length = _audio_length_code(options.get("audio_length"))
-
+        notebook_id = creation.notebook_id
+        source_ids = list(creation.source_ids)
+        if isinstance(creation, NormalizedAudio):
             # evidence: docs/android/proto-evidence-ledger.md#artifact-audio-overview-request
             generation_options = _PROTO.AudioOverviewGenerationOptions(
-                episode_focus=instructions or "",
-                episode_length=episode_length,
+                episode_focus=creation.instructions or "",
+                episode_length=creation.length_code,
                 source_ids=[_READ_PROTO.SourceId(id=source_id) for source_id in source_ids],
-                language_code=language_code,
+                language_code=creation.language,
             )
             generation_options.MergeFromString(
                 _WIRE_PROTO.WireAudioOverviewGenerationOptionsProjection(
-                    format=format_code
+                    format=creation.format_code
                 ).SerializeToString()
             )
             request = _PROTO.CreateArtifactRequest(
@@ -417,29 +398,12 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             expected_type = ArtifactTypeCode.AUDIO.value
             expected_variant = None
             family_label = "audio"
-        elif family in {
-            "video",
-            "cinematic_video",
-            "report",
-            "quiz",
-            "flashcards",
-            "interactive_mind_map",
-            "infographic",
-            "slide_deck",
-            "data_table",
-        }:
-            plan = build_create_artifact_plan(
-                notebook_id,
-                family,
-                source_ids,
-                **options,
-            )
+        else:
+            plan = build_normalized_create_artifact_plan(creation)
             request = plan.request
             expected_type = plan.expected_type
             expected_variant = plan.expected_variant
             family_label = plan.family_label
-        else:
-            raise AssertionError(f"unreachable artifact family: {family}")
 
         fingerprint = hashlib.sha256(
             b"\0".join(
@@ -478,25 +442,6 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             status=_status_from_code(artifact.status),
             url=artifact.url,
         )
-
-    async def _generate_supported_family(
-        self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str] | None,
-        **options: Any,
-    ) -> GenerationStatus:
-        if source_ids == []:
-            label = family.replace("_", " ").title()
-            raise ValidationError(f"{label} generation requires at least one source id")
-        async with self._operation_scope(f"artifacts.generate_{family}"):
-            resolved_source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                family,
-                resolved_source_ids,
-                **options,
-            )
 
     async def revise_slide(
         self,
@@ -603,19 +548,16 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         language: str | None,
         instructions: str | None,
     ) -> GenerationStatus:
-        language_code = _validate_audio_language(self._resolve_language(language))
-        normalize_creation_options(
-            "interactive_mind_map",
-            language=language_code,
-            instructions=instructions,
-        )
-        return await self._generate_supported_family(
-            notebook_id,
-            "interactive_mind_map",
-            source_ids,
-            language=language_code,
-            instructions=instructions,
-        )
+        async with self._operation_scope("artifacts.generate_interactive_mind_map"):
+            selected = await self._resolve_source_ids(notebook_id, source_ids)
+            return await self._create_artifact(
+                InteractiveMindMapCreationRequest(
+                    notebook_id,
+                    tuple(selected),
+                    self._resolve_language(language),
+                    instructions,
+                )
+            )
 
     async def _get_interactive_mind_map_tree(
         self,
