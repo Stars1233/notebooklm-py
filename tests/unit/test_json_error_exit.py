@@ -34,6 +34,7 @@ from notebooklm.types import (
     ResearchTask,
     Source,
 )
+from tests._helpers.downloads import configure_complete_artifact_listing
 
 # ---------------------------------------------------------------------------
 # Fixtures + helpers
@@ -113,6 +114,7 @@ def _make_client(extra_setup=None) -> MagicMock:
     # Default label list: resolve_label_id walks this; tests customize per-case.
     client.labels.list = AsyncMock(return_value=[])
     client.artifacts.list = AsyncMock(return_value=[])
+    configure_complete_artifact_listing(client)
     client.research.poll = AsyncMock(return_value={"status": "no_research"})
     if extra_setup is not None:
         extra_setup(client)

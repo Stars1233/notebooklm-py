@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import os
 import re
 import sys
@@ -14,6 +13,7 @@ import click
 from rich.console import Console
 
 from .. import paths as paths_module
+from .._app.artifacts import require_complete_artifact_listing
 from ..paths import get_context_path
 from . import context as context_helpers
 from . import rendering as rendering_helpers
@@ -454,12 +454,17 @@ async def resolve_artifact_id(
 ) -> str:
     """Resolve partial artifact ID to full ID.
 
+    Fuzzy prefix matching requires a complete aggregate inventory
+    (``list_with_status().is_complete``). An incomplete Studio-only snapshot
+    must not be treated as a unique prefix hit or as absence. A canonical UUID
+    still fast-paths without listing.
+
     When ``json_output`` is true, the successful "Matched..." diagnostic routes
     to stderr so stdout stays parseable JSON.
     """
     return await _resolve_partial_id(
         partial_id,
-        list_fn=lambda: client.artifacts.list(notebook_id),
+        list_fn=lambda: require_complete_artifact_listing(client, notebook_id),
         entity_name="artifact",
         list_command="artifact list",
         json_output=json_output,
@@ -499,6 +504,7 @@ async def resolve_source_ids(
     source_ids: tuple[str, ...],
     *,
     json_output: bool = False,
+    require_existing: bool = False,
     stdout_console: Console | None = None,
     stderr_output_console: Console | None = None,
 ) -> list[str] | None:
@@ -508,6 +514,7 @@ async def resolve_source_ids(
         client: NotebookLM client.
         notebook_id: Resolved notebook ID.
         source_ids: Tuple of partial source IDs from CLI.
+        require_existing: Verify even full UUIDs against the notebook inventory.
         json_output: When true, "Matched..." diagnostics for partial matches
             route to stderr so stdout stays parseable JSON.
         stdout_console: Console for human-mode diagnostics.
@@ -520,28 +527,26 @@ async def resolve_source_ids(
         return None
 
     validated_source_ids = tuple(validate_id(source_id, "source") for source_id in source_ids)
-    if all(_is_full_id_candidate(source_id) for source_id in validated_source_ids):
+    if not require_existing and all(
+        _is_full_id_candidate(source_id) for source_id in validated_source_ids
+    ):
         return list(validated_source_ids)
 
     sources = await client.sources.list(notebook_id)
 
-    async def list_sources():
-        return sources
-
     unique_source_ids = tuple(dict.fromkeys(validated_source_ids))
-    resolved_unique = await asyncio.gather(
-        *(
-            _resolve_partial_id(
-                source_id,
-                list_fn=list_sources,
-                entity_name="source",
-                list_command="source list",
-                json_output=json_output,
-                stdout_console=stdout_console,
-                stderr_output_console=stderr_output_console,
-            )
-            for source_id in unique_source_ids
+    resolved_unique = [
+        resolve_partial_id_in_items(
+            source_id,
+            sources,
+            entity_name="source",
+            list_command="source list",
+            json_output=json_output,
+            stdout_console=stdout_console,
+            stderr_output_console=stderr_output_console,
+            allow_full_id_passthrough=not require_existing,
         )
-    )
+        for source_id in unique_source_ids
+    ]
     resolved_by_input = dict(zip(unique_source_ids, resolved_unique, strict=True))
     return [resolved_by_input[source_id] for source_id in validated_source_ids]

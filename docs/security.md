@@ -121,3 +121,13 @@ is pinned in [development.md](development.md); those values are evidence and not
 7. MCP stdio host-path file-add is off unless `NOTEBOOKLM_MCP_ALLOWED_ROOTS` is set to an
    explicit upload directory — not `$HOME` and not `~/.notebooklm`. Remote HTTP never opens a
    server-host `path`.
+
+## Hosted adapters (MCP / REST)
+
+`storage_state.json` and `master_token.json` remain account-equivalent when an
+experimental MCP or REST process opens them. The operator-facing threat model —
+MCP OAuth refresh tokens, signed `/files/dl` and `/files/ul` HMAC URLs, stdio
+`source_add(path=...)` server-host reads, loopback vs token, and `GET /healthz`
+liveness — lives in [SECURITY.md](../SECURITY.md). See also
+[mcp-guide.md](mcp-guide.md) and
+[ADR-0024](adr/0024-mcp-remote-file-transfer.md).

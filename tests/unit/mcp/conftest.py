@@ -20,7 +20,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from tests._helpers.downloads import configure_prepared_artifact_downloads
+from tests._helpers.downloads import (
+    configure_complete_artifact_listing,
+    configure_prepared_artifact_downloads,
+)
 
 
 # The canonical contributor install (`uv sync --frozen --extra browser --extra dev
@@ -104,6 +107,7 @@ def mock_client() -> MagicMock:
     client.sources.add_urls_batch = AsyncMock(side_effect=_batch_add)
     client.sources._add_urls_batch = client.sources.add_urls_batch
     configure_prepared_artifact_downloads(client)
+    configure_complete_artifact_listing(client)
     # Identity accessors used by ``server_info(include_account=True)`` — both are
     # top-level client methods (not namespace attrs), so pin them explicitly:
     # ``get_account_email`` is awaited, ``get_account_authuser`` is sync.

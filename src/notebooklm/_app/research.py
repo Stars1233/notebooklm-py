@@ -9,7 +9,9 @@ This is the Click-free core of the ``research`` command group's ``status`` and
   fields + the canonical ``--json`` public dict);
 * :class:`ResearchWaitPlan` / :class:`ResearchWaitResult` /
   :func:`execute_research_wait` — the ``research wait`` orchestration (resolve →
-  wait-for-completion → optional import), discriminated by ``outcome``; and
+  wait-for-completion → optional import), discriminated by ``outcome``;
+* :func:`execute_research_import` — poll → optional cited/max filter → import
+  under one ``client.operation`` (REST oneshot and MCP verified paths); and
 * :func:`validate_research_wait_flags` — the ``--cited-only`` requires
   ``--import-all`` check, raising the public
   :class:`~notebooklm.exceptions.ValidationError`.
@@ -42,6 +44,7 @@ from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
 
 from ..exceptions import ValidationError
 from ..options import USE_DEFAULT, UseDefault
+from ..research import select_cited_sources
 from ..types import CitedSourceSelection, ResearchSourceInput, ResearchTask, discovery_mode_to_str
 
 logger = logging.getLogger(__name__)
@@ -87,6 +90,13 @@ class _ResearchNamespace(Protocol):
         timeout: float = 1800,
         initial_interval: float = 2.0,
     ) -> ResearchTask: ...
+
+    async def import_sources(
+        self,
+        notebook_id: str,
+        task_id: str,
+        sources: Sequence[ResearchSourceInput],
+    ) -> list[dict[str, str]]: ...
 
     async def import_sources_with_verification(
         self,
@@ -457,6 +467,67 @@ async def import_research_sources(
     )
 
 
+@dataclass(frozen=True)
+class ResearchImportExecution:
+    """Poll + optional cited/max filter + import under one operation."""
+
+    notebook_id: str
+    run_id: str
+    sources_found: list[dict[str, Any]]
+    sources_selected: list[Any]
+    cited_fallback: bool
+    imported: Any
+
+
+async def execute_research_import(
+    client: ResearchClient,
+    notebook_id: str,
+    run_id: str,
+    *,
+    cited_only: bool = False,
+    max_sources: int | None = None,
+    allow_duplicate: bool = False,
+    oneshot: bool = False,
+) -> ResearchImportExecution:
+    """Poll a completed run, optionally filter, and import under one operation.
+
+    REST passes ``oneshot=True`` so the mutation stays on
+    ``client.research.import_sources``. MCP (and the default) uses the
+    timeout-tolerant :func:`import_research_sources` wrapper. Inner namespace
+    scopes nest and inherit this aggregate budget; they must not restart it.
+    """
+    async with client.operation(timeout=USE_DEFAULT):
+        sources, report = await poll_importable_research(client, notebook_id, run_id)
+        sources_to_import: list[Any] = list(sources)
+        cited_fallback = False
+        if cited_only:
+            selection = select_cited_sources(sources_to_import, report)
+            sources_to_import = list(selection.sources)
+            cited_fallback = selection.used_fallback
+        if max_sources is not None:
+            sources_to_import = sources_to_import[:max_sources]
+        if oneshot:
+            imported: Any = await client.research.import_sources(
+                notebook_id, run_id, sources_to_import
+            )
+        else:
+            imported = await import_research_sources(
+                client,
+                notebook_id,
+                run_id,
+                sources_to_import,
+                allow_duplicate=allow_duplicate,
+            )
+        return ResearchImportExecution(
+            notebook_id=notebook_id,
+            run_id=run_id,
+            sources_found=list(sources),
+            sources_selected=sources_to_import,
+            cited_fallback=cited_fallback,
+            imported=imported,
+        )
+
+
 # ===========================================================================
 # research cancel
 # ===========================================================================
@@ -707,6 +778,7 @@ async def execute_research_wait(
 
 
 __all__ = [
+    "ResearchImportExecution",
     "ResearchImportLike",
     "ResearchImportOutcome",
     "ResearchClient",
@@ -719,6 +791,7 @@ __all__ = [
     "ResearchWaitResult",
     "cancel_research",
     "classify_importable_research",
+    "execute_research_import",
     "execute_research_wait",
     "import_research_sources",
     "poll_and_classify",

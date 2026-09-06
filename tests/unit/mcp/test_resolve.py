@@ -24,6 +24,7 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
     ArtifactNotFoundError,
     NotebookNotFoundError,
     NoteNotFoundError,
+    RPCError,
     SourceNotFoundError,
     ValidationError,
 )
@@ -34,6 +35,11 @@ from notebooklm.mcp._resolve import (  # noqa: E402 - after importorskip guard
     resolve_notebook,
     resolve_source,
     resolve_sources,
+)
+from notebooklm.types import (  # noqa: E402 - after importorskip guard
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
 )
 
 FULL_A = "abc12345-6789-4abc-def0-1234567890ab"
@@ -64,16 +70,35 @@ class _Note:
     title: str | None
 
 
+def _notes_listing_failure() -> ArtifactListingFailure:
+    return ArtifactListingFailure(
+        ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+        "RPCError",
+        "The note-backed mind-map listing is unavailable.",
+    )
+
+
 def _client(
     notebooks: list[_NB] | None = None,
     sources: list[_Src] | None = None,
     artifacts: list[_Art] | None = None,
     notes: list[_Note] | None = None,
+    *,
+    artifact_listing_complete: bool = True,
+    artifact_listing_failures: tuple[ArtifactListingFailure, ...] = (),
 ) -> AsyncMock:
     client = AsyncMock()
+    arts = artifacts or []
     client.notebooks.list = AsyncMock(return_value=notebooks or [])
     client.sources.list = AsyncMock(return_value=sources or [])
-    client.artifacts.list = AsyncMock(return_value=artifacts or [])
+    client.artifacts.list = AsyncMock(return_value=arts)
+    client.artifacts.list_with_status = AsyncMock(
+        return_value=ArtifactListing(
+            items=tuple(arts),
+            is_complete=artifact_listing_complete,
+            failures=artifact_listing_failures,
+        )
+    )
     client.notes.list = AsyncMock(return_value=notes or [])
     return client
 
@@ -418,12 +443,14 @@ async def test_artifact_full_uuid_skips_list() -> None:
     client = _client(artifacts=[_Art(FULL_A, "Podcast")])
     assert await resolve_artifact(client, "nb-1", FULL_A) == FULL_A
     client.artifacts.list.assert_not_called()
+    client.artifacts.list_with_status.assert_not_called()
 
 
 async def test_artifact_prefix_match_lists_within_notebook() -> None:
     client = _client(artifacts=[_Art("ab0001cdef", "Podcast"), _Art("cd0002abef", "Quiz")])
     assert await resolve_artifact(client, "nb-1", "ab0001") == "ab0001cdef"
-    client.artifacts.list.assert_awaited_once_with("nb-1")
+    client.artifacts.list_with_status.assert_awaited_once_with("nb-1")
+    client.artifacts.list.assert_not_called()
 
 
 async def test_artifact_title_match() -> None:
@@ -472,6 +499,85 @@ async def test_artifact_whitespace_ref_raises_validation_before_listing() -> Non
     with pytest.raises(ValidationError):
         await resolve_artifact(client, "nb-1", "   ")
     client.artifacts.list.assert_not_called()
+    client.artifacts.list_with_status.assert_not_called()
+
+
+# --------------------------------------------------------------------------- #
+# resolve_artifact — refuse incomplete aggregate listings (#2380)
+# --------------------------------------------------------------------------- #
+_STUDIO_Q1 = _Art("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Q1 Report")
+_NOTE_Q1 = _Art("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Q1 Mind Map")
+
+
+async def test_artifact_incomplete_listing_does_not_treat_remaining_title_prefix_as_unique() -> (
+    None
+):
+    """A notes outage must not turn an ambiguous title prefix into a unique hit.
+
+    Studio-only inventory leaves one "Q1 …" title; the missing note-backed mind
+    map shares that prefix. Fuzzy resolution must refuse rather than return the
+    remaining id.
+    """
+    client = _client(
+        artifacts=[_STUDIO_Q1],
+        artifact_listing_complete=False,
+        artifact_listing_failures=(_notes_listing_failure(),),
+    )
+    with pytest.raises(RPCError, match="incomplete") as caught:
+        await resolve_artifact(client, "nb-1", "Q1")
+    assert caught.value.method_id == "artifacts.lookup"
+    assert "note_backed_mind_maps" in str(caught.value)
+    client.artifacts.list_with_status.assert_awaited_once_with("nb-1")
+
+
+async def test_artifact_incomplete_listing_zero_hits_is_not_not_found() -> None:
+    """Absence cannot be proven from a partial inventory."""
+    client = _client(
+        artifacts=[_STUDIO_Q1],
+        artifact_listing_complete=False,
+        artifact_listing_failures=(_notes_listing_failure(),),
+    )
+    with pytest.raises(RPCError, match="incomplete") as caught:
+        await resolve_artifact(client, "nb-1", "Missing Title")
+    assert not isinstance(caught.value, ArtifactNotFoundError)
+    assert caught.value.method_id == "artifacts.lookup"
+
+
+async def test_artifact_incomplete_listing_does_not_treat_remaining_id_prefix_as_unique() -> None:
+    """Same completeness gate on the hex id-prefix path."""
+    studio = _Art("abc11111-aaaa-4abc-8def-000000000001", "Studio Report")
+    client = _client(
+        artifacts=[studio],
+        artifact_listing_complete=False,
+        artifact_listing_failures=(_notes_listing_failure(),),
+    )
+    with pytest.raises(RPCError, match="incomplete"):
+        await resolve_artifact(client, "nb-1", "abc")
+
+
+async def test_artifact_complete_listing_still_reports_ambiguous_title_prefix() -> None:
+    client = _client(artifacts=[_STUDIO_Q1, _NOTE_Q1])
+    with pytest.raises(AmbiguousIdError) as caught:
+        await resolve_artifact(client, "nb-1", "Q1")
+    assert set(caught.value.candidate_ids) == {_STUDIO_Q1.id, _NOTE_Q1.id}
+
+
+async def test_artifact_complete_listing_still_reports_not_found() -> None:
+    client = _client(artifacts=[_STUDIO_Q1, _NOTE_Q1])
+    with pytest.raises(ArtifactNotFoundError):
+        await resolve_artifact(client, "nb-1", "Missing Title")
+
+
+async def test_artifact_full_uuid_skips_incomplete_listing() -> None:
+    """The UUID fast-path must not require a complete aggregate read."""
+    client = _client(
+        artifacts=[_STUDIO_Q1],
+        artifact_listing_complete=False,
+        artifact_listing_failures=(_notes_listing_failure(),),
+    )
+    assert await resolve_artifact(client, "nb-1", FULL_A) == FULL_A
+    client.artifacts.list.assert_not_called()
+    client.artifacts.list_with_status.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #

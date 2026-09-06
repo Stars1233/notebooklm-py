@@ -16,6 +16,7 @@ behaves identically to `notebooklm <command>`.
 See the [MCP subsystem diagram](https://teng-lin.github.io/notebooklm-py/diagrams/17-mcp-subsystem.html) for process and
 application boundaries. Remote file movement is expanded in the
 [transfer-security data flow](https://teng-lin.github.io/notebooklm-py/diagrams/30-transfer-security-boundaries.dataflow.html).
+The operator-facing hosting threat model is [SECURITY.md](../SECURITY.md).
 
 ## Install
 
@@ -121,9 +122,13 @@ There is no `--token` flag — the HTTP bearer token is **env-only**
 `stdio` is right for Claude Desktop/Code, Cursor, and Windsurf (they launch the server as a
 subprocess). Use `http` for a local web client or to share one running server across clients on
 the same machine. The HTTP transport is loopback-only by default; binding to a non-loopback
-address requires **both** the explicit `NOTEBOOKLM_MCP_ALLOW_EXTERNAL_BIND=1` override **and** a
-`NOTEBOOKLM_MCP_TOKEN` — the server fails closed (refuses to start) on a network bind without a
-token, since it fronts a full Google account.
+address requires **both** the explicit `NOTEBOOKLM_MCP_ALLOW_EXTERNAL_BIND=1` override **and**
+auth (`NOTEBOOKLM_MCP_TOKEN` and/or OAuth) — the server fails closed (refuses to start) on a
+network bind without auth, since it fronts a full Google account.
+
+**Loopback HTTP may be tokenless.** A default `127.0.0.1` bind does not require
+`NOTEBOOKLM_MCP_TOKEN`. The Host-header DNS-rebinding guard still rejects requests whose
+`Host` is not a loopback literal. See [SECURITY.md](../SECURITY.md).
 
 ## Remote deployment (Docker + a tunnel)
 
@@ -149,6 +154,11 @@ before you start: the auth model and remote file transfer.
 
 Use a **dedicated/throwaway Google account** — the mounted `master_token.json` is a durable
 full-account credential. Multi-tenant hosting is out of scope for this single-tenant setup.
+
+**OAuth tokens outlive the password.** Refresh tokens are long-lived and written `0600` to
+the OAuth state file. Rotating `NOTEBOOKLM_MCP_OAUTH_PASSWORD` does not revoke them; real
+revocation is delete that file and restart. Open DCR (registering a client) does **not**
+bypass the login password — phishing still requires the owner to authenticate.
 
 **Where OAuth state lives.** The registered clients + issued tokens persist to a
 deployment-scoped file keyed on `NOTEBOOKLM_MCP_OAUTH_BASE_URL` (the OAuth issuer), **not**
@@ -216,14 +226,19 @@ bearer-only deploy → the two file tools return a clear "not configured" error
   `PUT`ing to the upload URL may also append `?sha256=<hex>`: the route verifies the received
   stream against it and rejects a corrupted transfer with a clean 400 (retryable) *before*
   adding the source.
-- Links are HMAC-signed and short-lived (upload 15 min, download 30 min) and expire on
-  a server restart. Google Drive (`source_add` with a Drive id) remains a no-browser
-  alternative for adding files. stdio host-path `source_add(source_type="file", path=...)`
-  is **off unless** `NOTEBOOKLM_MCP_ALLOWED_ROOTS` is set to one or more upload
-  directories (not `$HOME` and not `~/.notebooklm`). Credential filenames
-  (`storage_state.json`, `master_token.json`) and Playwright profile dirs are
-  refused even inside an allowed root. `bytes_base64` and remote signed-URL
-  transfer are unchanged and never open a server-host `path`.
+- Links use HMAC-URL authentication (not bearer/OAuth) and expire on server restart.
+  Ordinary upload links last 15 minutes, widget upload pools last 60 minutes, and
+  download links last 30 minutes. A leaked link is a timed capability; see
+  [ADR-0024](adr/0024-mcp-remote-file-transfer.md) and [SECURITY.md](../SECURITY.md).
+  Google Drive (`source_add` with a Drive id) is another option for adding files.
+- Stdio `source_add(source_type="file", path=...)` reads a **server-host** path and
+  is **off unless** `NOTEBOOKLM_MCP_ALLOWED_ROOTS` names one or more upload directories.
+  For example, set `NOTEBOOKLM_MCP_ALLOWED_ROOTS=/srv/notebooklm-uploads` in the MCP
+  server's environment. Separate multiple roots with `:` on POSIX or `;` on Windows.
+  The user's home, NotebookLM home, and filesystem root are rejected as roots.
+  Credential filenames (`storage_state.json`, `master_token.json`) and Playwright
+  profile directories are refused even inside an allowed root. `bytes_base64` and
+  remote signed-URL transfer never open a caller-selected server-host `path`.
 
 ## Core concepts
 

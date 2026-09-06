@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -347,6 +349,107 @@ def test_status_reports_run_metadata(authed_client: TestClient, fake_client: Fak
     assert body["updated_at"] == "2026-08-13T11:13:05+00:00"
     assert body["duration_seconds"] == 7.0
     assert body["sources"][0]["hint"] == "why this one"
+
+
+def test_import_uses_one_client_operation(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    resp = authed_client.post("/v1/notebooks/nb-1/research", json={"query": "topic"})
+    poll_id = resp.json()["poll_id"]
+    fake_client.set_research_completed(
+        "nb-1", poll_id, sources=[{"url": "https://a.example", "title": "A"}]
+    )
+    fake_client.operation_enters = 0
+    resp = authed_client.post(f"/v1/notebooks/nb-1/research/{poll_id}/import")
+    assert resp.status_code == 201
+    assert fake_client.operation_enters == 1
+
+
+@pytest.mark.asyncio
+async def test_import_route_does_not_dispatch_import_after_poll_exhausts_budget() -> None:
+    from notebooklm import NotebookLMClient, OperationTimeoutError
+    from notebooklm._client_metrics import ClientMetrics
+    from notebooklm._runtime.call_supervisor import CallSupervisor
+    from notebooklm.server._pending import PendingRegistry
+    from notebooklm.server.routes.research import import_research
+
+    supervisor = CallSupervisor(
+        metrics=ClientMetrics(), max_concurrent_rpcs=1, operation_timeout=0.06
+    )
+    supervisor.prepare_generation(1)
+    supervisor.start_accepting(1)
+    client = object.__new__(NotebookLMClient)
+    client._collaborators = SimpleNamespace(call_supervisor=supervisor)
+    calls: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            calls.append("poll")
+            await asyncio.sleep(0.05)
+            return ResearchTask(
+                task_id=task_id or "run-1",
+                status=ResearchStatus.COMPLETED,
+                query="q",
+                sources=(ResearchSource(url="https://a.example", title="A"),),
+            )
+
+    async def import_sources(notebook_id, task_id, sources):
+        async with supervisor.operation_scope("research.import_sources"):
+            await asyncio.sleep(0.05)
+            async with supervisor.call_scope("import.dispatch", None, None):
+                calls.append("import")
+            return [{"id": "src-1", "title": "A"}]
+
+    client.research = SimpleNamespace(poll=poll, import_sources=import_sources)
+    with pytest.raises(OperationTimeoutError):
+        await import_research("nb-1", "run-1", client, PendingRegistry())
+    assert calls == ["poll"]
+
+
+@pytest.mark.asyncio
+async def test_import_route_drain_rejects_new_work_between_poll_and_import() -> None:
+    from notebooklm import NotebookLMClient
+    from notebooklm._client_metrics import ClientMetrics
+    from notebooklm._runtime.call_supervisor import CallSupervisor
+    from notebooklm.server._pending import PendingRegistry
+    from notebooklm.server.routes.research import import_research
+
+    supervisor = CallSupervisor(metrics=ClientMetrics(), max_concurrent_rpcs=1)
+    supervisor.prepare_generation(1)
+    supervisor.start_accepting(1)
+    client = object.__new__(NotebookLMClient)
+    client._collaborators = SimpleNamespace(call_supervisor=supervisor)
+    poll_started = asyncio.Event()
+    resume_poll = asyncio.Event()
+    imported: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            poll_started.set()
+            await resume_poll.wait()
+            return ResearchTask(
+                task_id=task_id or "run-1",
+                status=ResearchStatus.COMPLETED,
+                query="q",
+                sources=(ResearchSource(url="https://a.example", title="A"),),
+            )
+
+    async def import_sources(notebook_id, task_id, sources):
+        async with supervisor.operation_scope("research.import_sources"):
+            imported.append(task_id)
+            return [{"id": "src-1", "title": "A"}]
+
+    client.research = SimpleNamespace(poll=poll, import_sources=import_sources)
+    pending = PendingRegistry()
+    action = asyncio.create_task(import_research("nb-1", "run-1", client, pending))
+    await poll_started.wait()
+    await supervisor.stop_accepting(1)
+    with pytest.raises(RuntimeError, match="not accepting new operations"):
+        await import_research("nb-1", "run-2", client, pending)
+    resume_poll.set()
+    result = await action
+    assert result["status"] == "imported"
+    assert imported == ["run-1"]
 
 
 def test_status_run_metadata_is_null_when_absent(
