@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **CLI `ask --save-as-note --json` keeps save-failure commit evidence.** Optional
+  note-save remains non-fatal, but JSON now projects `SaveNoteOutcome.failure`
+  through the same commit-state / recovery-action / known-id fields as other CLI
+  errors instead of dropping them on a redacted `note_save_error` string (#2383).
 - **Retry-unsafe writes no longer replay after transmission.** Notebook and
   source creates, file registration, research imports, collection creates, and
   chat POSTs now require explicit commit evidence before any outer replay.

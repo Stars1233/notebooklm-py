@@ -32,7 +32,7 @@ from .._app.views import ask_result_view
 from ..exceptions import ValidationError
 from .auth_runtime import resolve_client_factory, with_client
 from .context import get_current_conversation, get_current_notebook, set_current_conversation
-from .error_handler import _output_error, exit_with_code
+from .error_handler import _output_error, exception_json_fields, exit_with_code
 from .input import resolve_prompt
 from .options import _complete_sources, json_option, notebook_option, prompt_file_option
 from .rendering import (
@@ -426,6 +426,7 @@ def register_chat_commands(cli):
 
                 note_save_result: dict[str, str] | None = None
                 note_save_error: str | None = None
+                note_save_failure: Exception | None = None
 
                 if save_as_note:
                     # The save-as-note workflow (citation-rich vs plain-text
@@ -433,7 +434,8 @@ def register_chat_commands(cli):
                     # ``_app.chat.save_answer_as_note``. Its Rich-markup status
                     # lines route through ``_EmitStatusSink`` (stderr under
                     # ``--json``, honoring root ``--quiet``); the outcome's note
-                    # / error are merged into the JSON envelope below.
+                    # / error / failure evidence are merged into the JSON
+                    # envelope below.
                     outcome = await save_answer_as_note(
                         client,
                         nb_id_resolved,
@@ -444,6 +446,7 @@ def register_chat_commands(cli):
                     )
                     note_save_result = outcome.note
                     note_save_error = outcome.error
+                    note_save_failure = outcome.failure
 
                 if json_output:
                     # Go through the shared projection rather than a local
@@ -455,11 +458,19 @@ def register_chat_commands(cli):
                     if save_as_note:
                         # Merge note-save outcome into the envelope so the
                         # caller can observe success/failure from stdout
-                        # alone without parsing stderr text.
+                        # alone without parsing stderr text. Keep save-as-note
+                        # non-fatal: the ask answer stays even when the
+                        # secondary write folded. Project ``failure`` through
+                        # the same JSON extra fields other CLI errors use
+                        # (commit state, recovery action, known ids) instead
+                        # of dropping ``operation_metadata`` on the redacted
+                        # ``note_save_error`` string.
                         if note_save_result is not None:
                             data["note"] = note_save_result
                         if note_save_error is not None:
                             data["note_save_error"] = note_save_error
+                        if note_save_failure is not None:
+                            data.update(exception_json_fields(note_save_failure))
                     json_output_response(data)
 
         return _run()

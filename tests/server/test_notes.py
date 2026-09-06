@@ -54,6 +54,38 @@ def test_create_defaults(authed_client: TestClient) -> None:
     assert resp.json()["title"] == "New Note"
 
 
+def test_create_unconfirmed_preserves_operation_metadata(
+    authed_client: TestClient, fake_client: FakeClient
+) -> None:
+    """REST note create raises, so the error envelope keeps commit evidence."""
+    from notebooklm._idempotency import attach_operation_metadata
+    from notebooklm.exceptions import NetworkError
+    from notebooklm.outcomes import CommitState, OperationMetadata, RecoveryAction
+
+    failure = NetworkError("lost after dispatch")
+    attach_operation_metadata(
+        failure,
+        OperationMetadata(
+            commit_state=CommitState.UNKNOWN,
+            known_resource_ids=("note-accepted",),
+            recovery_action=RecoveryAction.INSPECT_AND_RECONCILE,
+            operation="notes.create",
+        ),
+    )
+
+    async def _raise(*_args: object, **_kwargs: object) -> None:
+        raise failure
+
+    fake_client.notes.create = _raise  # type: ignore[method-assign]
+    resp = authed_client.post("/v1/notebooks/nb-1/notes", json={"title": "T", "content": "C"})
+    assert resp.status_code == 502
+    body = resp.json()["error"]
+    assert body["commit_state"] == "unknown"
+    assert body["recovery_action"] == "inspect_and_reconcile"
+    assert body["known_resource_ids"] == ["note-accepted"]
+    assert body["unconfirmed"] is True
+
+
 def test_get_existing_note(authed_client: TestClient, fake_client: FakeClient) -> None:
     _seed(fake_client, Note(id="n-9", notebook_id="nb-1", title="Nine", content="x"))
     resp = authed_client.get("/v1/notebooks/nb-1/notes/n-9")
