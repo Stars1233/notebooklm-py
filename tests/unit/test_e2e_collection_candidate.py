@@ -181,3 +181,42 @@ async def test_persistent_delete_failure_reports_exact_leak() -> None:
 
     assert set(collections.items) == {"created-id"}
     assert collections.delete_attempts == ["created-id"] * 4
+
+
+async def test_body_error_remains_primary_when_cleanup_also_fails() -> None:
+    collections = _Collections(delete_failures=99)
+    primary = RuntimeError("body failed")
+
+    with pytest.raises(RuntimeError) as raised:
+        async with _context(_Client(collections)):
+            raise primary
+
+    assert raised.value is primary
+    assert isinstance(raised.value.__cause__, AssertionError)
+    assert "collection cleanup left exact intended rows" in str(raised.value.__cause__)
+
+
+async def test_create_error_remains_primary_when_cleanup_also_fails() -> None:
+    primary = RuntimeError("post-commit write failure")
+    collections = _Collections(create_exception=primary, delete_failures=99)
+
+    with pytest.raises(RuntimeError) as raised:
+        async with _context(_Client(collections)):
+            raise AssertionError("unreachable")
+
+    assert raised.value is primary
+    assert isinstance(raised.value.__cause__, AssertionError)
+    assert "collection cleanup left exact intended rows" in str(raised.value.__cause__)
+
+
+async def test_cancellation_remains_primary_when_cleanup_also_fails() -> None:
+    primary = asyncio.CancelledError()
+    collections = _Collections(create_exception=primary, delete_failures=99)
+
+    with pytest.raises(asyncio.CancelledError) as raised:
+        async with _context(_Client(collections)):
+            raise AssertionError("unreachable")
+
+    assert raised.value is primary
+    assert isinstance(raised.value.__cause__, AssertionError)
+    assert "collection cleanup left exact intended rows" in str(raised.value.__cause__)

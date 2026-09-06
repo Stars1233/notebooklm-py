@@ -166,46 +166,70 @@ async def created_collection_candidate(
     baseline_ids = frozenset(row.id for row in await client.collections.list())
     candidate_ids: set[str] = set()
     verified_ids: set[str] = set()
+    primary_error: BaseException | None = None
+    primary_traceback = None
     try:
         try:
-            returned = await client.collections.create(name)
+            try:
+                returned = await client.collections.create(name)
+            except BaseException as error:
+                candidate_ids.update(_reconciliation_candidate_ids(error))
+                if not isinstance(error, CollectionError):
+                    raise
+                create_error = error
+            else:
+                if isinstance(returned, Collection):
+                    candidate_ids.add(returned.id)
+                raise AssertionError("collection create unexpectedly returned a resource")
+
+            metadata = create_error.operation_metadata
+            assert metadata is not None
+            assert metadata.commit_state is CommitState.CONFIRMED
+            assert metadata.recovery_action is RecoveryAction.INSPECT_AND_RECONCILE
+            assert metadata.known_resource_ids == ()
+            assert metadata.reconciliation is not None
+
+            collection = await _discover_candidate(
+                client,
+                name=name,
+                baseline_ids=baseline_ids,
+                candidate_ids=candidate_ids,
+                attempts=discovery_attempts,
+                retry_delay=retry_delay,
+            )
+            verified_ids.add(collection.id)
+            yield collection
         except BaseException as error:
-            candidate_ids.update(_reconciliation_candidate_ids(error))
-            if not isinstance(error, CollectionError):
+            primary_error = error
+            primary_traceback = error.__traceback__
+
+        try:
+            await _cleanup_created_collection(
+                client,
+                name=name,
+                baseline_ids=baseline_ids,
+                candidate_ids=candidate_ids,
+                verified_ids=verified_ids,
+                attempts=cleanup_attempts,
+                retry_delay=retry_delay,
+            )
+        except BaseException as cleanup_error:
+            if primary_error is None:
                 raise
-            create_error = error
-        else:
-            if isinstance(returned, Collection):
-                candidate_ids.add(returned.id)
-            raise AssertionError("collection create unexpectedly returned a resource")
-
-        metadata = create_error.operation_metadata
-        assert metadata is not None
-        assert metadata.commit_state is CommitState.CONFIRMED
-        assert metadata.recovery_action is RecoveryAction.INSPECT_AND_RECONCILE
-        assert metadata.known_resource_ids == ()
-        assert metadata.reconciliation is not None
-
-        collection = await _discover_candidate(
-            client,
-            name=name,
-            baseline_ids=baseline_ids,
-            candidate_ids=candidate_ids,
-            attempts=discovery_attempts,
-            retry_delay=retry_delay,
-        )
-        verified_ids.add(collection.id)
-        yield collection
+            add_note = getattr(primary_error, "add_note", None)
+            if add_note is not None:
+                add_note(
+                    "Secondary collection cleanup failure: "
+                    f"{type(cleanup_error).__name__}: {cleanup_error}"
+                )
+            raise primary_error.with_traceback(primary_traceback) from cleanup_error
+        if primary_error is not None:
+            raise primary_error.with_traceback(primary_traceback)
     finally:
-        await _cleanup_created_collection(
-            client,
-            name=name,
-            baseline_ids=baseline_ids,
-            candidate_ids=candidate_ids,
-            verified_ids=verified_ids,
-            attempts=cleanup_attempts,
-            retry_delay=retry_delay,
-        )
+        # Break traceback/exception reference cycles retained across the
+        # asynchronous cleanup awaits above.
+        primary_error = None
+        primary_traceback = None
 
 
 __all__ = ["created_collection_candidate"]
