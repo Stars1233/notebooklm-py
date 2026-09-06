@@ -780,6 +780,7 @@ class FakeClient:
         self.next_research = 1
         self.uploaded_paths: list[str] = []
         self.last_ask: dict[str, Any] | None = None
+        self.operation_enters = 0
 
         self.notebooks = FakeNotebooks(self)
         self.sources = FakeSources(self)
@@ -796,6 +797,7 @@ class FakeClient:
         self, timeout: float | None | UseDefault = None
     ) -> AsyncIterator[FakeClient]:
         """Mirror an admitted client operation without adding fake timing policy."""
+        self.operation_enters += 1
         yield self
 
     async def get_account_email(self, *, live_fallback: bool = True) -> str | None:

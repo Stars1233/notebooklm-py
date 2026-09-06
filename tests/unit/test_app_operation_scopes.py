@@ -9,11 +9,23 @@ import pytest
 
 from notebooklm import NotebookLMClient, OperationTimeoutError
 from notebooklm._app.chat import execute_configure, fetch_history
+from notebooklm._app.research import (
+    ResearchWaitPlan,
+    execute_research_import,
+    execute_research_wait,
+)
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._runtime.call_supervisor import CallSupervisor
 from notebooklm._runtime.operation_context import current_operation_context
 from notebooklm.options import USE_DEFAULT
-from notebooklm.types import ChatGoal, ChatResponseLength, ChatSettings
+from notebooklm.types import (
+    ChatGoal,
+    ChatResponseLength,
+    ChatSettings,
+    ResearchSource,
+    ResearchStatus,
+    ResearchTask,
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -250,3 +262,97 @@ async def test_saved_note_external_cancellation_propagates():
     with pytest.raises(asyncio.CancelledError):
         await action
     await supervisor.wait_for_idle(1, 0)
+
+
+def _completed_research_task(task_id: str = "run-1") -> ResearchTask:
+    return ResearchTask(
+        task_id=task_id,
+        status=ResearchStatus.COMPLETED,
+        query="q",
+        sources=(ResearchSource(url="https://a.example", title="A"),),
+        report="report",
+    )
+
+
+async def test_research_import_steps_share_one_budget_and_expire_before_import() -> None:
+    client, supervisor = _client(0.06)
+    calls: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            calls.append("poll")
+            await asyncio.sleep(0.05)
+            return _completed_research_task(task_id or "run-1")
+
+    async def import_sources(notebook_id, task_id, sources):
+        async with supervisor.operation_scope("research.import_sources"):
+            await asyncio.sleep(0.05)
+            async with supervisor.call_scope("import.dispatch", None, None):
+                calls.append("import")
+            return [{"id": "src-1", "title": "A"}]
+
+    client.research = SimpleNamespace(poll=poll, import_sources=import_sources)
+    with pytest.raises(OperationTimeoutError):
+        await execute_research_import(client, "nb", "run-1", oneshot=True)
+    assert calls == ["poll"]
+
+
+async def test_research_import_drain_between_poll_and_import_rejects_new_work() -> None:
+    client, supervisor = _client()
+    poll_started = asyncio.Event()
+    resume_poll = asyncio.Event()
+    imported: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            poll_started.set()
+            await resume_poll.wait()
+            return _completed_research_task(task_id or "run-1")
+
+    async def import_sources(notebook_id, task_id, sources):
+        async with supervisor.operation_scope("research.import_sources"):
+            imported.append("import")
+            return [{"id": "src-1", "title": "A"}]
+
+    client.research = SimpleNamespace(poll=poll, import_sources=import_sources)
+    action = asyncio.create_task(execute_research_import(client, "nb", "run-1", oneshot=True))
+    await poll_started.wait()
+    await supervisor.stop_accepting(1)
+    draining = asyncio.create_task(supervisor.wait_for_idle(1, timeout=None))
+    await asyncio.sleep(0)
+    with pytest.raises(RuntimeError, match="not accepting new operations"):
+        await execute_research_import(client, "nb", "run-2", oneshot=True)
+    assert not draining.done()
+    resume_poll.set()
+    await action
+    await draining
+    assert imported == ["import"]
+
+
+async def test_research_wait_import_steps_share_one_budget() -> None:
+    client, supervisor = _client(0.06)
+    calls: list[str] = []
+
+    async def wait_for_completion(notebook_id, task_id=None, **kwargs):
+        async with supervisor.operation_scope("research.wait_for_completion"):
+            calls.append("wait")
+            await asyncio.sleep(0.05)
+            return _completed_research_task(task_id or "run-1")
+
+    async def import_sources(client, notebook_id, task_id, sources, **kwargs):
+        async with supervisor.operation_scope("research.import_sources"):
+            await asyncio.sleep(0.05)
+            async with supervisor.call_scope("import.dispatch", None, None):
+                calls.append("import")
+            return SimpleNamespace(imported=[], sources=list(sources), cited_selection=None)
+
+    async def resolve_id(client, notebook_id, **kwargs):
+        return notebook_id
+
+    client.research = SimpleNamespace(wait_for_completion=wait_for_completion)
+    plan = ResearchWaitPlan(notebook_id="nb", timeout=1, interval=1, import_all=True)
+    with pytest.raises(OperationTimeoutError):
+        await execute_research_wait(
+            plan, client=client, resolve_id=resolve_id, import_sources=import_sources
+        )
+    assert calls == ["wait"]

@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **REST/MCP research import shares one operation budget.** Poll, optional
+  cited/max filtering, and import now run under one `client.operation` so a
+  configured aggregate deadline cannot restart between the read and the
+  mutation (`Fixes #2382`).
 - **CLI `ask --save-as-note --json` keeps save-failure commit evidence.** Optional
   note-save remains non-fatal, but JSON now projects `SaveNoteOutcome.failure`
   through the same commit-state / recovery-action / known-id fields as other CLI
