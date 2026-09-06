@@ -35,14 +35,14 @@ from __future__ import annotations
 
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Literal, NoReturn, Protocol
+from typing import Any, Literal, NoReturn, Protocol, runtime_checkable
 
 from ..exceptions import ValidationError
-from ..options import USE_DEFAULT
-from ..types import discovery_mode_to_str
+from ..options import USE_DEFAULT, UseDefault
+from ..types import CitedSourceSelection, ResearchSourceInput, ResearchTask, discovery_mode_to_str
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,55 @@ class ResearchValidationError(ValidationError):
     def __init__(self, reason: ResearchValidationReason) -> None:
         self.reason = reason
         super().__init__(reason.replace("_", " "))
+
+
+@runtime_checkable
+class _ResearchImportReceipt(Protocol):
+    """Verified-import result consumed by the neutral adapter seam."""
+
+    already_present: Sequence[dict[str, str]]
+
+    def __iter__(self) -> Iterator[dict[str, str]]: ...
+
+
+class _ResearchNamespace(Protocol):
+    async def poll(self, notebook_id: str, task_id: str | None = None) -> ResearchTask: ...
+
+    async def discover(
+        self, notebook_id: str, query: str, *, mode: str = "default"
+    ) -> ResearchTask: ...
+
+    async def wait_for_completion(
+        self,
+        notebook_id: str,
+        task_id: str | None = None,
+        *,
+        timeout: float = 1800,
+        initial_interval: float = 2.0,
+    ) -> ResearchTask: ...
+
+    async def import_sources_with_verification(
+        self,
+        notebook_id: str,
+        task_id: str,
+        sources: Sequence[ResearchSourceInput],
+        *,
+        max_elapsed: float = 1800,
+        allow_duplicate: bool = False,
+    ) -> list[dict[str, str]]: ...
+
+    async def cancel(self, notebook_id: str, task_id: str) -> None: ...
+
+
+class ResearchClient(Protocol):
+    """Public client capabilities consumed by research application workflows."""
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> contextlib.AbstractAsyncContextManager[object]: ...
+
+    @property
+    def research(self) -> _ResearchNamespace: ...
 
 
 @dataclass(frozen=True)
@@ -158,7 +207,7 @@ def _classify_status_kind(status_val: str) -> ResearchStatusKind:
 
 
 async def poll_and_classify(
-    client: Any, notebook_id: str, task_id: str | None = None
+    client: ResearchClient, notebook_id: str, task_id: str | None = None
 ) -> ResearchStatusResult:
     """Poll research status once and classify it for the command layer.
 
@@ -181,7 +230,7 @@ async def poll_and_classify(
 
 
 async def discover_and_classify(
-    client: Any, notebook_id: str, query: str, mode: str = "default"
+    client: ResearchClient, notebook_id: str, query: str, mode: str = "default"
 ) -> ResearchStatusResult:
     """Run one synchronous ``research.discover`` and classify it like a poll.
 
@@ -193,7 +242,7 @@ async def discover_and_classify(
     return classify_research_task(task)
 
 
-def classify_research_task(status: Any) -> ResearchStatusResult:
+def classify_research_task(status: ResearchTask) -> ResearchStatusResult:
     """Project one typed ``ResearchTask`` into the command-layer result."""
     # ``ResearchStatus`` is a ``str`` enum; ``.value`` yields the canonical
     # lowercase code the CLI render branches + the original status command keyed
@@ -224,7 +273,7 @@ def classify_research_task(status: Any) -> ResearchStatusResult:
 
 
 async def poll_importable_research(
-    client: Any, notebook_id: str, run_id: str
+    client: ResearchClient, notebook_id: str, run_id: str
 ) -> tuple[list[dict[str, Any]], str]:
     """Poll a research run and return its ``(importable sources, report)``, or raise.
 
@@ -323,7 +372,7 @@ def classify_importable_research(
 
 
 async def poll_sources_for_import(
-    client: Any, notebook_id: str, run_id: str
+    client: ResearchClient, notebook_id: str, run_id: str
 ) -> list[dict[str, Any]]:
     """Poll a research run and return its importable sources, or raise.
 
@@ -365,10 +414,10 @@ class ResearchImportOutcome:
 
 
 async def import_research_sources(
-    client: Any,
+    client: ResearchClient,
     notebook_id: str,
     task_id: str,
-    sources: Sequence[Any],
+    sources: Sequence[ResearchSourceInput],
     *,
     allow_duplicate: bool = False,
     max_elapsed: float | None = None,
@@ -400,11 +449,10 @@ async def import_research_sources(
         allow_duplicate=allow_duplicate,
         **bound,
     )
-    already_present = list(getattr(imported, "already_present", []) or [])
-    return ResearchImportOutcome(
-        newly_imported=list(imported),
-        already_present=already_present,
-    )
+    already_present: Sequence[dict[str, str]] = []
+    if isinstance(imported, _ResearchImportReceipt):
+        already_present = imported.already_present
+    return ResearchImportOutcome(newly_imported=list(imported), already_present=list(already_present))
 
 
 # ===========================================================================
@@ -412,7 +460,7 @@ async def import_research_sources(
 # ===========================================================================
 
 
-async def cancel_research(client: Any, notebook_id: str, run_id: str) -> None:
+async def cancel_research(client: ResearchClient, notebook_id: str, run_id: str) -> None:
     """Cancel an in-flight research run via ``client.research.cancel``.
 
     Transport-neutral thin wrapper mirroring :func:`poll_and_classify`: the CLI
@@ -450,7 +498,7 @@ class ResearchImportLike(Protocol):
     @property
     def sources(self) -> list[dict[str, Any]]: ...
     @property
-    def cited_selection(self) -> Any: ...
+    def cited_selection(self) -> CitedSourceSelection | None: ...
 
 
 @dataclass(frozen=True)
@@ -540,7 +588,7 @@ def validate_research_wait_flags(*, import_all: bool, cited_only: bool) -> None:
 async def execute_research_wait(
     plan: ResearchWaitPlan,
     *,
-    client: Any,
+    client: ResearchClient,
     resolve_id: ResolveNotebookIdFn,
     wait_context: WaitContextFactory = _null_wait_context,
     import_sources: ImportResearchSourcesFn = _missing_importer,
@@ -659,6 +707,7 @@ async def execute_research_wait(
 __all__ = [
     "ResearchImportLike",
     "ResearchImportOutcome",
+    "ResearchClient",
     "ResearchStatusKind",
     "ResearchStatusResult",
     "ResearchValidationError",
