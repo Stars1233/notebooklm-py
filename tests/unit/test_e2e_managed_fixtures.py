@@ -13,7 +13,11 @@ from tests.e2e._artifact_helpers import (
     completed_interactive_mind_maps,
     studio_item_may_have_download_payload,
 )
-from tests.e2e._mcp_live_helpers import pick_downloadable_artifact
+from tests.e2e._mcp_live_helpers import (
+    is_android_inventory_only_slide_failure,
+    pick_downloadable_artifact,
+    structured_failure_detail,
+)
 
 MANAGED = {
     "NOTEBOOKLM_E2E_MANAGED_COPIES": "1",
@@ -179,6 +183,103 @@ def test_android_mcp_selector_prefers_confirmed_payload_before_slide_hydration()
 
     assert pick_downloadable_artifact([fallback, confirmed], backend="android") is confirmed
     assert pick_downloadable_artifact([fallback], backend="android") is fallback
+
+
+def test_android_inventory_only_slide_recognizes_typed_mcp_failure() -> None:
+    result = {
+        "outcome": "error",
+        "failure": {
+            "reason": "download_failed",
+            "detail": "Failed to download slide_deck: PDF URL not available in artifact data",
+        },
+        "error": "obsolete flat field must not be consulted",
+    }
+
+    assert structured_failure_detail(result) == result["failure"]["detail"]
+    assert is_android_inventory_only_slide_failure(
+        result,
+        backend="android",
+        artifact_type="slide-deck",
+    )
+
+
+@pytest.mark.parametrize(
+    ("result", "backend", "artifact_type"),
+    [
+        (
+            {
+                "outcome": "error",
+                "failure": {"detail": "PDF URL not available in artifact data"},
+            },
+            "web",
+            "slide-deck",
+        ),
+        (
+            {
+                "outcome": "error",
+                "failure": {"detail": "PDF URL not available in artifact data"},
+            },
+            "android",
+            "audio",
+        ),
+        (
+            {
+                "outcome": "success",
+                "failure": {"detail": "PDF URL not available in artifact data"},
+            },
+            "android",
+            "slide-deck",
+        ),
+        (
+            {"outcome": "error", "error": "PDF URL not available in artifact data"},
+            "android",
+            "slide-deck",
+        ),
+        (
+            {"outcome": "error", "failure": {"detail": "some other failure"}},
+            "android",
+            "slide-deck",
+        ),
+        (
+            {
+                "outcome": "error",
+                "failure": {"detail": "PDF URL not available in artifact data"},
+            },
+            "android",
+            "slide-deck",
+        ),
+        (
+            {
+                "outcome": "error",
+                "failure": {
+                    "reason": "authentication",
+                    "detail": "PDF URL not available in artifact data",
+                },
+            },
+            "android",
+            "slide-deck",
+        ),
+    ],
+    ids=(
+        "web-backend",
+        "non-slide-artifact",
+        "success-outcome",
+        "legacy-flat-error",
+        "different-detail",
+        "missing-failure-reason",
+        "wrong-failure-reason",
+    ),
+)
+def test_android_inventory_only_slide_preserves_nonmatching_failures(
+    result: dict[str, object],
+    backend: str,
+    artifact_type: str,
+) -> None:
+    assert not is_android_inventory_only_slide_failure(
+        result,
+        backend=backend,
+        artifact_type=artifact_type,
+    )
 
 
 def test_unmanaged_configuration_preserves_legacy_path(monkeypatch) -> None:

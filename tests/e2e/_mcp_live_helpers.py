@@ -13,7 +13,7 @@ so the ``fastmcp`` import here is safe (it never loads on a no-``mcp`` install).
 from __future__ import annotations
 
 import contextlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 import pytest
@@ -40,6 +40,42 @@ DOWNLOADABLE_ARTIFACT_TYPES = {
     "quiz",
     "flashcards",
 }
+
+_ANDROID_INVENTORY_ONLY_SLIDE_DETAIL = "PDF URL not available in artifact data"
+
+
+def structured_failure_detail(result: object) -> str | None:
+    """Return the typed MCP failure detail without accepting legacy flat errors."""
+
+    if not isinstance(result, Mapping):
+        return None
+    failure = result.get("failure")
+    if not isinstance(failure, Mapping):
+        return None
+    detail = failure.get("detail")
+    return detail if isinstance(detail, str) else None
+
+
+def is_android_inventory_only_slide_failure(
+    result: object,
+    *,
+    backend: str,
+    artifact_type: str,
+) -> bool:
+    """Recognize only the typed failure for an Android slide without a PDF URL."""
+
+    detail = structured_failure_detail(result)
+    failure = result.get("failure") if isinstance(result, Mapping) else None
+    return (
+        isinstance(result, Mapping)
+        and isinstance(failure, Mapping)
+        and backend == "android"
+        and artifact_type == "slide-deck"
+        and result.get("outcome") == "error"
+        and failure.get("reason") == "download_failed"
+        and detail is not None
+        and _ANDROID_INVENTORY_ONLY_SLIDE_DETAIL in detail
+    )
 
 
 def _only_typed_rate_limit_skip(error: BaseException) -> BaseException | None:
