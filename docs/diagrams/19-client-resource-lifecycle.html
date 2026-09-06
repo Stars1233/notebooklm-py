@@ -5375,11 +5375,11 @@
       <div class="card">
         <div class="card-header">
           <div class="card-dot cyan"></div>
-          <h3>Root ownership</h3>
+          <h3>Scope boundary</h3>
         </div>
         <ul>
-          <li>&bull; Sole construction: src/notebooklm/_client_assembly.py:76-80; state and participants: src/notebooklm/_runtime/lifecycle.py:140-165</li>
-          <li>&bull; Graceful shutdown stops admission, awaits idle, then tears down the frozen generation</li>
+          <li>&bull; Diagram 35 hands off a complete graph in CLOSED; ClientLifecycle does not construct or install services</li>
+          <li>&bull; This diagram owns resource epochs, admission, rollback, drain, and teardown order</li>
         </ul>
       </div>
 

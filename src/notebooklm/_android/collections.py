@@ -125,6 +125,7 @@ class AndroidCollectionsAPI(CollectionsAPI):
                 attach_journal_entry(error, entry)
                 raise error from None
             entry.record(CommitState.CONFIRMED, "decoded collection-set response")
+            entry.recovery_action = RecoveryAction.INSPECT_AND_RECONCILE
             candidates = [collection for collection in created if collection.id not in existing_ids]
             matching = [
                 collection
