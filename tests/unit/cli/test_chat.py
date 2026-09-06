@@ -662,6 +662,38 @@ class TestAskServerResumed:
         assert "Resumed" not in result.output
 
 
+def _track_ask_new_client(
+    *,
+    conversation: dict[str, str | None],
+    calls: list[str],
+    ask_result: AskResult | None = None,
+) -> MagicMock:
+    """Mock client that records source resolution vs ``--new`` delete order."""
+    mock_client = create_mock_client()
+    underlying_list = mock_client.sources.list
+
+    async def tracked_list(*args, **kwargs):
+        calls.append("sources.list")
+        return await underlying_list(*args, **kwargs)
+
+    async def delete_conversation(_notebook_id, _conversation_id):
+        calls.append("delete_conversation")
+        conversation["id"] = None
+        return True
+
+    async def ask(*_args, **_kwargs):
+        calls.append("ask")
+        if ask_result is None:
+            raise AssertionError("chat.ask should not run when --source preflight fails")
+        return ask_result
+
+    mock_client.sources.list = AsyncMock(side_effect=tracked_list)
+    mock_client.chat.get_conversation_id = AsyncMock(return_value=conversation["id"])
+    mock_client.chat.delete_conversation = AsyncMock(side_effect=delete_conversation)
+    mock_client.chat.ask = AsyncMock(side_effect=ask)
+    return mock_client
+
+
 class TestAskNewFlag:
     """Tests for `ask --new` flag.
 
@@ -858,6 +890,189 @@ class TestAskNewFlag:
         mock_client.chat.delete_conversation.assert_not_awaited()
         call = mock_client.chat.ask.call_args
         assert call.kwargs.get("conversation_id") is None
+
+    @pytest.mark.parametrize(
+        "source_id", ["not-a-real-source", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+    )
+    def test_ask_new_invalid_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path, source_id
+    ):
+        """``--new --source`` that does not resolve must not delete the conversation.
+
+        Source resolution is a real ``resolve_source_ids`` call (via
+        ``sources.list``), not a mocked resolver, and it must run before
+        ``delete_conversation``.
+        """
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "-n",
+                    "nb_123",
+                    "--new",
+                    "--source",
+                    source_id,
+                    "question",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "No source found" in result.output
+        assert "permanently delete conversation" not in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_ambiguous_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path
+    ):
+        """An ambiguous ``--source`` prefix must abort before deleting history."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ask", "-n", "nb_123", "--new", "-y", "--source", "src_", "question"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "Ambiguous" in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_with_valid_source_deletes_once_then_asks(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path
+    ):
+        """``--new`` with a resolvable ``--source`` still deletes once, then asks."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        fresh_result = AskResult(
+            answer="Fresh answer.",
+            conversation_id="conv-fresh-xyz",
+            turn_number=1,
+            is_follow_up=False,
+            references=[],
+            raw_response="",
+        )
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(
+            conversation=conversation, calls=calls, ask_result=fresh_result
+        )
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ask", "-n", "nb_123", "--new", "-y", "--source", "src_001", "question"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert calls.index("sources.list") < calls.index("delete_conversation")
+        assert calls.index("delete_conversation") < calls.index("ask")
+        assert calls.count("delete_conversation") == 1
+        mock_client.chat.delete_conversation.assert_awaited_once_with("nb_123", "conv-server-abc")
+        mock_client.chat.ask.assert_awaited_once()
+        ask_call = mock_client.chat.ask.call_args
+        assert ask_call.kwargs.get("conversation_id") is None
+        assert ask_call.kwargs.get("source_ids") == ["src_001"]
+        assert "New conversation: conv-fresh-xyz" in result.output
+
+    @pytest.mark.parametrize(
+        "source_id", ["not-a-real-source", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+    )
+    def test_ask_new_json_yes_invalid_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path, source_id
+    ):
+        """``--json --yes --new`` with a bad source must not prompt or delete."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "-n",
+                    "nb_123",
+                    "--json",
+                    "--yes",
+                    "--new",
+                    "--source",
+                    source_id,
+                    "question",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "permanently delete conversation" not in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_existing_uuid_is_verified_before_deletion(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        source_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[MagicMock(id=source_id, title="Selected source")]
+        )
+        mock_client.chat.get_conversation_id = AsyncMock(return_value="conv-old")
+        mock_client.chat.delete_conversation = AsyncMock(return_value=True)
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        result = runner.invoke(
+            cli,
+            ["ask", "question", "-n", "nb_123", "--new", "--yes", "--source", source_id],
+            obj=inject_client(mock_client),
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.sources.list.assert_awaited_once_with("nb_123")
+        mock_client.chat.delete_conversation.assert_awaited_once_with("nb_123", "conv-old")
+        assert mock_client.chat.ask.await_args.kwargs["source_ids"] == [source_id]
+        calls = [call[0] for call in mock_client.mock_calls]
+        assert calls.index("sources.list") < calls.index("chat.delete_conversation")
+        assert calls.index("chat.delete_conversation") < calls.index("chat.ask")
 
 
 # =============================================================================
