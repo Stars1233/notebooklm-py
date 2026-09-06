@@ -1,5 +1,6 @@
 """Tests for chat CLI commands (save-as-note, enhanced history)."""
 
+import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,8 +9,11 @@ from click.testing import CliRunner
 
 import notebooklm.auth as auth_module
 import notebooklm.cli.context as context_module
+from notebooklm._idempotency import attach_operation_metadata
 from notebooklm.cli import helpers as helpers_module
+from notebooklm.exceptions import NetworkError
 from notebooklm.notebooklm_cli import cli
+from notebooklm.outcomes import CommitState, OperationMetadata, RecoveryAction
 from notebooklm.types import (
     AskResult,
     ChatGoal,
@@ -21,6 +25,28 @@ from notebooklm.types import (
 )
 
 from .conftest import create_mock_client, inject_client
+
+_LEAKY_SAVE_DETAIL = "lost after dispatch at /home/alice/private.log?access_token=top-secret"
+_KNOWN_NOTE_ID = "note-accepted"
+
+
+def _unconfirmed_note_save_error(
+    *,
+    message: str = _LEAKY_SAVE_DETAIL,
+    note_id: str = _KNOWN_NOTE_ID,
+) -> NetworkError:
+    """Build a folded save failure that still carries commit evidence."""
+    failure = NetworkError(message)
+    attach_operation_metadata(
+        failure,
+        OperationMetadata(
+            commit_state=CommitState.UNKNOWN,
+            known_resource_ids=(note_id,),
+            recovery_action=RecoveryAction.INSPECT_AND_RECONCILE,
+            operation="notes.create",
+        ),
+    )
+    return failure
 
 
 def make_note(id="note_abc", title="Chat Note", content="The answer") -> Note:
@@ -207,6 +233,32 @@ class TestAskSaveAsNote:
         assert "No citations in answer" in result.output
         mock_client.notes.create.assert_awaited_once()
         mock_client.chat.save_answer_as_note.assert_not_awaited()
+
+    def test_ask_save_as_note_text_failure_redacts_secrets(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Text mode keeps the redacted warning and does not dump secrets."""
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+        mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
+
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0, result.output
+        combined = result.output + result.stdout + result.stderr
+        assert "The answer is 42." in result.output
+        assert "Failed to save note" in combined
+        assert "top-secret" not in combined
+        assert "/home/alice" not in combined
+        # Structured commit evidence stays on the JSON path; text keeps the
+        # historical redacted warning and does not dump operation metadata.
+        assert "Operation metadata" not in combined
+        assert '"commit_state"' not in combined
 
 
 class TestHistoryCommand:
@@ -1354,6 +1406,41 @@ class TestChatJsonStdoutContract:
         data = json.loads(result.stdout)
         assert data["answer"] == "The answer is 42."
         assert "boom" in data["note_save_error"]
+        assert "Warning" not in result.stdout
+
+    def test_ask_json_save_as_note_unconfirmed_failure_projects_commit_evidence(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """A folded unconfirmed save keeps the ask answer and commit evidence.
+
+        ``SaveNoteOutcome`` retains the original exception after operation
+        settlement. JSON callers must see ``note_save_error`` plus the same
+        commit/unknown/known-id fields other CLI JSON errors project, without
+        turning the chat payload into a fatal error envelope.
+        """
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+        mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
+
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0, result.stderr or result.output
+        data = json.loads(result.stdout)
+        assert data["answer"] == "The answer is 42."
+        assert "note" not in data
+        assert "note_save_error" in data
+        assert data["commit_state"] == CommitState.UNKNOWN.value
+        assert data["recovery_action"] == RecoveryAction.INSPECT_AND_RECONCILE.value
+        assert data["known_resource_ids"] == [_KNOWN_NOTE_ID]
+        assert data["unconfirmed"] is True
+        serialized = json.dumps(data)
+        assert "top-secret" not in serialized
+        assert "/home/alice" not in serialized
         assert "Warning" not in result.stdout
 
     def test_history_json_clear_emits_pure_json(self, runner, mock_auth):
