@@ -96,11 +96,12 @@ async def _cleanup_created_collection(
     safe_ids = {
         collection_id for collection_id in verified_ids if collection_id not in baseline_ids
     }
+    last_observation_clean = False
     for attempt in range(attempts):
         try:
             rows = await client.collections.list()
         except Exception:
-            pass
+            last_observation_clean = False
         else:
             exact_name_ids = {
                 row.id for row in rows if row.id not in baseline_ids and row.name == name
@@ -115,8 +116,7 @@ async def _cleanup_created_collection(
                 for row in rows
                 if row.id not in baseline_ids and (row.id in safe_ids or row.name == name)
             }
-            if not remaining_ids:
-                return
+            last_observation_clean = not remaining_ids
             for collection_id in sorted(remaining_ids):
                 try:
                     await client.collections.delete(collection_id)
@@ -126,6 +126,14 @@ async def _cleanup_created_collection(
                     pass
         if attempt + 1 < attempts:
             await asyncio.sleep(retry_delay)
+
+    # An early empty list is not conclusive after a create: the committed row
+    # may become visible later. Consume the complete observation window above,
+    # returning only when its final sample is clean. If the final sample failed
+    # or still contained a row we attempted to delete, take one last list as
+    # the bounded verification step used by the existing cleanup-error contract.
+    if last_observation_clean:
+        return
 
     try:
         rows = await client.collections.list()
