@@ -71,19 +71,28 @@ async def test_default_selector_preserves_parent_context_and_shorter_deadline() 
         assert current_operation_context(supervisor) is parent
 
 
-async def test_history_steps_share_one_budget_and_expire_before_second_dispatch() -> None:
+async def test_history_steps_share_one_budget_and_expire_before_second_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Advance the loop clock at each fake read instead of racing Windows' timer
+    # resolution or a busy CI worker before the first operation is admitted.
+    loop = asyncio.get_running_loop()
+    now = loop.time()
+    monkeypatch.setattr(loop, "time", lambda: now)
     client, supervisor = _client(0.015)
     calls = []
 
     async def conversation_id(notebook_id):
+        nonlocal now
         async with supervisor.operation_scope("chat.id"):
             calls.append("id")
-            await asyncio.sleep(0.01)
+            now += 0.01
             return "conversation"
 
     async def history(notebook_id, **kwargs):
+        nonlocal now
         async with supervisor.operation_scope("chat.history"):
-            await asyncio.sleep(0.01)
+            now += 0.01
             async with supervisor.call_scope("history.dispatch", None, None):
                 calls.append("history")
             return []

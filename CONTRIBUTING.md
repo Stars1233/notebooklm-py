@@ -263,6 +263,7 @@ docs/
 ├── installation.md        # Canonical install guide (personas, extras, platform notes)
 ├── mcp-guide.md           # MCP server setup, tools, and troubleshooting
 ├── python-api.md          # Python API reference
+├── web-android-public-behavior.md  # Classified remaining public Web vs Android splits
 ├── refactor-history.md    # Historical record of the Tier 12/13 refactor + downstream migration tables
 ├── releasing.md           # Release checklist
 ├── rpc-development.md     # RPC capture and debugging

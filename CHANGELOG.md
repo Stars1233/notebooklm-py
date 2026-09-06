@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Web vs Android public-behavior inventory.**
+  [`docs/web-android-public-behavior.md`](docs/web-android-public-behavior.md)
+  classifies remaining public backend splits (notes tombstone projection, raw
+  escape-hatch types, deliberate research-import policy, tracked default flips
+  gated by C3-02/C5A-01, and the [#2384](https://github.com/teng-lin/notebooklm-py/issues/2384)
+  `get_history` contract fix) so callers
+  do not treat every difference as a defect.
 - **Owner-grouped client configuration.** `notebooklm.options` adds frozen
   `ClientConfig` groups for runtime capacity, retries, selected backend,
   transfer phases, feature read windows, and Web session hooks. Both direct
