@@ -45,6 +45,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fuzzy artifact resolution refuses incomplete listings.** CLI
+  `resolve_artifact_id` and MCP `resolve_artifact` now require
+  `list_with_status().is_complete` before title/prefix matching. A notes
+  outage (or other secondary backing failure) no longer turns an ambiguous
+  title/prefix into a unique hit or a partial miss into not-found; both
+  surfaces raise the existing `artifacts.lookup` incomplete-read `RPCError`.
+  Canonical UUID refs still fast-path without listing ([#2380]).
 - **Retry-unsafe writes no longer replay after transmission.** Notebook and
   source creates, file registration, research imports, collection creates, and
   chat POSTs now require explicit commit evidence before any outer replay.

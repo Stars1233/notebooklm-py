@@ -6,8 +6,20 @@ from unittest.mock import AsyncMock, MagicMock
 import click
 import pytest
 
-from notebooklm.cli.resolve import resolve_notebook_id, resolve_source_id, resolve_source_ids
-from notebooklm.types import Notebook, Source
+from notebooklm.cli.resolve import (
+    resolve_artifact_id,
+    resolve_notebook_id,
+    resolve_source_id,
+    resolve_source_ids,
+)
+from notebooklm.exceptions import ArtifactNotFoundError, RPCError
+from notebooklm.types import (
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    Notebook,
+    Source,
+)
 
 
 @pytest.fixture
@@ -685,6 +697,123 @@ class TestResolveSourceIds:
 
         assert "cannot be empty" in str(exc_info.value)
         mock_client_with_sources.sources.list.assert_not_called()
+
+
+# =============================================================================
+# Tests for resolve_artifact_id — refuse incomplete aggregate listings (#2380)
+# =============================================================================
+
+
+class _Art:
+    def __init__(self, id: str, title: str):
+        self.id = id
+        self.title = title
+
+
+_CLI_STUDIO_Q1 = _Art("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Q1 Report")
+_CLI_NOTE_Q1 = _Art("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Q1 Mind Map")
+_CLI_STUDIO_PREFIX = _Art("abc11111-aaaa-4abc-8def-000000000001", "Studio Report")
+_CLI_NOTE_PREFIX = _Art("abc22222-aaaa-4abc-8def-000000000002", "Note Mind Map")
+_CLI_FULL_UUID = "abc12345-6789-4abc-def0-1234567890ab"
+
+
+def _cli_notes_failure() -> ArtifactListingFailure:
+    return ArtifactListingFailure(
+        ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+        "RPCError",
+        "The note-backed mind-map listing is unavailable.",
+    )
+
+
+def _artifact_client(
+    items: list[_Art],
+    *,
+    complete: bool = True,
+    failures: tuple[ArtifactListingFailure, ...] = (),
+) -> MagicMock:
+    client = MagicMock()
+    client.artifacts.list = AsyncMock(return_value=items)
+    client.artifacts.list_with_status = AsyncMock(
+        return_value=ArtifactListing(
+            items=tuple(items),
+            is_complete=complete,
+            failures=failures,
+        )
+    )
+    return client
+
+
+class TestResolveArtifactIdIncompleteListing:
+    """Fuzzy artifact resolution must not pretend a partial inventory is unique."""
+
+    @pytest.mark.asyncio
+    async def test_incomplete_listing_does_not_treat_remaining_title_prefix_as_unique(self):
+        """Studio-only list would leave one 'Q1 …' title; notes backing failed."""
+        client = _artifact_client(
+            [_CLI_STUDIO_Q1],
+            complete=False,
+            failures=(_cli_notes_failure(),),
+        )
+        with pytest.raises(RPCError, match="incomplete") as caught:
+            await resolve_artifact_id(client, "nb_123", "Q1")
+        assert caught.value.method_id == "artifacts.lookup"
+        assert "note_backed_mind_maps" in str(caught.value)
+        client.artifacts.list_with_status.assert_awaited_once_with("nb_123")
+
+    @pytest.mark.asyncio
+    async def test_incomplete_listing_does_not_treat_remaining_id_prefix_as_unique(self):
+        client = _artifact_client(
+            [_CLI_STUDIO_PREFIX],
+            complete=False,
+            failures=(_cli_notes_failure(),),
+        )
+        with pytest.raises(RPCError, match="incomplete") as caught:
+            await resolve_artifact_id(client, "nb_123", "abc")
+        assert caught.value.method_id == "artifacts.lookup"
+
+    @pytest.mark.asyncio
+    async def test_incomplete_listing_zero_hits_is_not_not_found(self):
+        client = _artifact_client(
+            [_CLI_STUDIO_Q1],
+            complete=False,
+            failures=(_cli_notes_failure(),),
+        )
+        with pytest.raises(RPCError, match="incomplete") as caught:
+            await resolve_artifact_id(client, "nb_123", "zzz")
+        assert not isinstance(caught.value, ArtifactNotFoundError)
+        assert "No artifact found" not in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_complete_listing_unique_prefix_still_resolves(self):
+        client = _artifact_client([_CLI_STUDIO_PREFIX, _CLI_NOTE_Q1])
+        mock_console = MagicMock()
+        result = await resolve_artifact_id(client, "nb_123", "abc", stdout_console=mock_console)
+        assert result == _CLI_STUDIO_PREFIX.id
+
+    @pytest.mark.asyncio
+    async def test_complete_listing_still_reports_ambiguous_id_prefix(self):
+        client = _artifact_client([_CLI_STUDIO_PREFIX, _CLI_NOTE_PREFIX])
+        with pytest.raises(click.ClickException) as caught:
+            await resolve_artifact_id(client, "nb_123", "abc")
+        assert "Ambiguous" in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_complete_listing_still_reports_not_found(self):
+        client = _artifact_client([_CLI_STUDIO_Q1, _CLI_NOTE_Q1])
+        with pytest.raises(click.ClickException) as caught:
+            await resolve_artifact_id(client, "nb_123", "zzz")
+        assert "No artifact found" in str(caught.value)
+
+    @pytest.mark.asyncio
+    async def test_full_uuid_skips_incomplete_listing(self):
+        client = _artifact_client(
+            [_CLI_STUDIO_Q1],
+            complete=False,
+            failures=(_cli_notes_failure(),),
+        )
+        assert await resolve_artifact_id(client, "nb_123", _CLI_FULL_UUID) == _CLI_FULL_UUID
+        client.artifacts.list.assert_not_called()
+        client.artifacts.list_with_status.assert_not_called()
 
 
 # ----------------------------------------------------------------------------

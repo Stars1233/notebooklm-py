@@ -63,6 +63,7 @@ from notebooklm.types import (
     UsageWindow,
     UsageWindowKind,
 )
+from tests._helpers.downloads import configure_complete_artifact_listing
 
 
 def _research_task(spec: dict) -> ResearchTask:
@@ -233,6 +234,7 @@ def _make_client(extra_setup=None) -> MagicMock:
     )
     client.sources.list = AsyncMock(return_value=_stub_sources())
     client.artifacts.list = AsyncMock(return_value=_stub_artifacts())
+    configure_complete_artifact_listing(client)
     client.artifacts.suggest_reports = AsyncMock(return_value=[])
     client.notes.list = AsyncMock(return_value=_stub_notes())
     client.research.poll = AsyncMock(return_value=_research_task({"status": "no_research"}))

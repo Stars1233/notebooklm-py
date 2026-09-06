@@ -8,7 +8,23 @@ from notebooklm.types import (
     ArtifactDownloadListing,
     ArtifactDownloadRequest,
     ArtifactDownloadSelection,
+    ArtifactListing,
 )
+
+
+def configure_complete_artifact_listing(mock_client: MagicMock) -> None:
+    """Project ``artifacts.list`` as a complete ``list_with_status`` inventory.
+
+    Fuzzy resolvers require completeness evidence. Tests that override ``list``
+    keep working because this wrapper reads the current list mock at call time.
+    """
+
+    async def list_with_status(notebook_id, artifact_type=None):
+        del artifact_type
+        items = await mock_client.artifacts.list(notebook_id)
+        return ArtifactListing(items=tuple(items), is_complete=True)
+
+    mock_client.artifacts.list_with_status = AsyncMock(side_effect=list_with_status)
 
 
 def configure_prepared_artifact_downloads(mock_client: MagicMock) -> None:
