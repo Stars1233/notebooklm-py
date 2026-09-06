@@ -190,8 +190,15 @@ def test_real_client_satisfies_detached_adapter_typing_and_rejects_untyped_clien
         text=True,
         timeout=120,
     )
-    errors = [line for line in result.stdout.splitlines() if ": error:" in line]
+    errors = [
+        line.replace("\\", "/").rsplit("/", 1)[-1]
+        for line in result.stdout.splitlines()
+        if ": error:" in line
+    ]
     assert result.returncode == 1, result.stdout + result.stderr
-    assert len(errors) == 1, result.stdout + result.stderr
-    assert "invalid_client.py:" in errors[0]
-    assert "AdapterRuntimeClient" in errors[0]
+    assert not any(line.startswith(f"{positive.name}:") for line in errors), (
+        result.stdout + result.stderr
+    )
+    assert any(
+        line.startswith(f"{negative.name}:") and "AdapterRuntimeClient" in line for line in errors
+    ), result.stdout + result.stderr

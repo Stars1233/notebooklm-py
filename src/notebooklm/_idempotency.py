@@ -566,7 +566,11 @@ def attach_operation_journal(
             source_id=metadata.source_id or existing.source_id,
             stage=metadata.stage or existing.stage,
             reconciliation=metadata.reconciliation or existing.reconciliation,
-            batch_outcome=existing.batch_outcome or metadata.batch_outcome,
+            batch_outcome=(
+                existing.batch_outcome
+                if existing.source_delete_outcomes
+                else existing.batch_outcome or metadata.batch_outcome
+            ),
             source_delete_outcomes=(
                 existing.source_delete_outcomes or metadata.source_delete_outcomes
             ),

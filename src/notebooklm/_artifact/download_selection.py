@@ -39,6 +39,13 @@ class PreparedDownloadCache(Generic[_Snapshot]):
             self._entries.clear()
             self._epoch = epoch
 
+    @staticmethod
+    def validate_request(request: ArtifactDownloadRequest) -> None:
+        """Reject invalid inputs before fetching even an empty candidate list."""
+        if not request.notebook_id or not request.notebook_id.strip():
+            raise ValidationError("Notebook ID cannot be empty")
+        resolve_download_format(request.kind, request.output_format)
+
     def prepare(
         self,
         request: ArtifactDownloadRequest,

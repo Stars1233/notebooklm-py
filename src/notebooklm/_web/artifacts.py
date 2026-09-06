@@ -31,7 +31,6 @@ from .._types.enums import (
     ExportType,
 )
 from .._types.research import MindMapResult
-from ..downloads import resolve_download_format
 from ..exceptions import (
     ArtifactNotFoundError,
     NetworkError,
@@ -321,7 +320,7 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
         """
         # Validate before reading either aggregate backing, including the empty
         # listing case where ``PreparedDownloadCache.prepare`` would not run.
-        resolve_download_format(request.kind, request.output_format)
+        self._prepared_downloads.validate_request(request)
         async with self._operation_scope("artifacts.prepare_downloads") as lease:
             (
                 listing,

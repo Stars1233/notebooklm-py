@@ -713,7 +713,7 @@ Cleanup accepts arbitrary candidate counts, with at most ten children and a
 half-second pause between groups. Cancellation settles the child tasks and
 retains every occurrence in `operation_metadata.source_delete_outcomes`;
 positively unattempted members remain `NOT_SENT`. The canonical `batch_outcome`
-receipt stays capped at 20 items. For larger cleanups, its adapter projection
+receipt is absent above its 20-item cap. For larger cleanups, the adapter projection
 includes `total_items` and `omitted_items`; the complete in-memory carrier remains
 available, and overall commit/recovery guidance considers all members, including
 those beyond the displayed prefix. Use this method when later cleanup decisions need per-source commit

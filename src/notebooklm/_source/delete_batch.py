@@ -44,7 +44,7 @@ def _attach_settlement(error: BaseException, results: list[SourceDeleteOutcome])
         error,
         replace(
             previous,
-            batch_outcome=BatchOutcome(items[:_MAX_BATCH_OUTCOME_ITEMS]),
+            batch_outcome=(BatchOutcome(items) if len(items) <= _MAX_BATCH_OUTCOME_ITEMS else None),
             source_delete_outcomes=items,
             commit_state=state,
             recovery_action=(

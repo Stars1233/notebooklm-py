@@ -62,6 +62,27 @@ def _web_api(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["web", "android"])
+@pytest.mark.parametrize("notebook_id", ["", " \t\n"])
+async def test_preparation_rejects_blank_notebook_before_listing(backend, notebook_id) -> None:
+    if backend == "web":
+        api = _web_api([], note_result=[])
+        read = AsyncMock(side_effect=AssertionError("must validate before listing"))
+        api._listing.list_artifacts_with_status_and_raw = read
+    else:
+        session, _, _, _, api = _graph()
+        read = AsyncMock(side_effect=AssertionError("must validate before listing"))
+        api._list_with_status_and_note_state = read
+
+    with pytest.raises(ValidationError, match="Notebook ID cannot be empty"):
+        await api.prepare_downloads(ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO))
+
+    read.assert_not_awaited()
+    if backend == "android":
+        assert session.calls == []
+
+
+@pytest.mark.asyncio
 async def test_web_prepared_interactive_mind_map_survives_notes_outage_without_retry() -> None:
     """A positive Studio hit remains executable despite a secondary outage."""
     api = _web_api([_INTERACTIVE_MIND_MAP_ROW], note_result=RPCError("temporary"))

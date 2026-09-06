@@ -39,7 +39,6 @@ from .._types.enums import (
     ExportType,
 )
 from .._types.research import MindMapResult
-from ..downloads import resolve_download_format
 from ..exceptions import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
@@ -609,7 +608,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         """
         # Do this before either aggregate read.  The cache also resolves the
         # format, but an empty list must still reject unsupported formats.
-        resolve_download_format(request.kind, request.output_format)
+        self._prepared_downloads.validate_request(request)
         async with self._operation_scope("artifacts.prepare_downloads") as lease:
             listing, note_state = await self._list_with_status_and_note_state(
                 request.notebook_id,

@@ -1345,9 +1345,11 @@ print(url)
 `source_id`, a canonical `BatchItemOutcome`, and an optional original error.
 Cleanup accepts more than 20 sources. On cancellation or deadline expiry,
 `OperationMetadata.source_delete_outcomes` retains the complete ordered receipt;
-the diagnostic `batch_outcome` projects at most 20 items and reports `total_items`
-and `omitted_items` when truncated. Retry guidance considers every member, including
-the omitted tail. See [supervised source cleanup](architecture.md#supervised-source-cleanup).
+the canonical `batch_outcome` is absent above its 20-item cap. The adapter diagnostic
+projects at most 20 items and reports `total_items` and `omitted_items` when truncated.
+Commit/recovery guidance considers every member, including the omitted tail; the
+diagnostic prefix never authorizes a whole-request retry.
+See [supervised source cleanup](architecture.md#supervised-source-cleanup).
 
 **Example:**
 ```python

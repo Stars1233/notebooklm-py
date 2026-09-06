@@ -249,12 +249,16 @@ class ArtifactsAPI(ABC):
         )
 
     async def get(self, notebook_id: str, artifact_id: str) -> Artifact:
-        """Get a specific artifact by ID.
+        """Get a specific artifact using the legacy absence projection.
+
+        Positive hits and complete misses emit no deprecation warning. An
+        incomplete no-hit preserves the legacy exception and emits the registered
+        ``artifact_ambiguous_absence`` warning. Use :meth:`lookup` to distinguish
+        authoritative absence from an unavailable backing.
 
         Raises:
-            ArtifactNotFoundError: If no artifact with ``artifact_id`` exists
-                (matches ``notebooks.get``; issue #1247). Use :meth:`get_or_none`
-                for the sanctioned ``None``-on-miss lookup.
+            ArtifactNotFoundError: On a complete miss or the legacy incomplete
+                no-hit projection. :meth:`get_or_none` returns ``None`` instead.
         """
         result = await self.lookup(notebook_id, artifact_id)
         if result.is_found:
@@ -269,15 +273,11 @@ class ArtifactsAPI(ABC):
     async def get_or_none(self, notebook_id: str, artifact_id: str) -> Artifact | None:
         """Get an artifact by ID, returning ``None`` when it does not exist.
 
-        The sanctioned ``None``-on-miss lookup (ADR-0019): unlike :meth:`get`
-        — which raises ``ArtifactNotFoundError`` on a miss (#1247) — this
-        returns ``None`` for a genuine absence with no deprecation warning. It
-        lists once and id-matches, inheriting :meth:`list`'s behavior. (Per
-        ADR-0019 Rule 3, ``list`` keeps its deliberate *partial-availability*
-        policy: a mind-map sub-fetch transport failure logs a warning and
-        yields the studio artifacts that loaded, so a note-backed mind-map id
-        can read absent while that sub-fetch is down.) Faults from the primary
-        studio-artifact listing propagate unchanged.
+        Positive hits and complete misses are warning-free (ADR-0019). An
+        incomplete no-hit preserves ``None`` during the 0.x compatibility period
+        and emits the registered ``artifact_ambiguous_absence`` warning. Use
+        :meth:`lookup` or :meth:`list_with_status` when completeness matters.
+        Primary listing failures and decoding faults propagate unchanged.
         """
         logger.debug("Getting artifact %s from notebook %s", artifact_id, notebook_id)
         result = await self.lookup(notebook_id, artifact_id)

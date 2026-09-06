@@ -10,7 +10,11 @@ import pytest
 from notebooklm import NotebookLMClient, OperationTimeoutError, RPCError
 from notebooklm._app.source_clean import SourceCleanPreview, execute_source_clean
 from notebooklm._client_metrics import ClientMetrics
-from notebooklm._idempotency import attach_operation_metadata
+from notebooklm._idempotency import (
+    OperationJournal,
+    attach_operation_journal,
+    attach_operation_metadata,
+)
 from notebooklm._runtime.call_supervisor import CallSupervisor
 from notebooklm._runtime.operation_context import adopt_operation_journal_entry
 from notebooklm._source.delete_batch import _attach_settlement
@@ -171,15 +175,22 @@ async def test_full_settlement_accounts_for_failure_after_projection_prefix(last
             ),
         )
     )
+    journal = OperationJournal("cleanup")
+    entry = journal.new_entry(method="DeleteSources")
+    entry.batch_outcome = BatchOutcome((items[0].outcome,))
     error = RPCError("cleanup interrupted")
+    attach_operation_metadata(error, journal.snapshot(primary=entry))
     _attach_settlement(error, items)
+    attach_operation_journal(error, journal)
     assert error.operation_metadata.commit_state is last_state
     assert error.operation_metadata.source_delete_outcomes[-1].commit_state is last_state
-    assert len(error.operation_metadata.batch_outcome.items) == 20
+    assert error.operation_metadata.batch_outcome is None
     payload = operation_metadata_payload(error)
-    assert payload["batch_outcome"]["whole_request_retriable"] is (
-        last_state is CommitState.REJECTED
-    )
+    assert len(payload["batch_outcome"]["items"]) == 20
+    assert payload["batch_outcome"]["total_items"] == 21
+    assert payload["batch_outcome"]["omitted_items"] == 1
+    # An absence of confirmed/unknown members is not an owner replay grant.
+    assert payload["batch_outcome"]["whole_request_retriable"] is False
 
 
 async def test_confirmed_cleanup_cannot_erase_earlier_unknown_evidence():
@@ -204,11 +215,15 @@ async def test_large_cleanup_does_not_widen_canonical_batch_outcome():
 
 async def test_large_cleanup_deadline_preserves_complete_journal_bearing_settlement(monkeypatch):
     original_sleep = asyncio.sleep
+    loop = asyncio.get_running_loop()
+    now = loop.time()
+    monkeypatch.setattr(loop, "time", lambda: now)
 
     async def sleep(delay):
         await original_sleep(0)
 
     async def delete(notebook_id, source_id):
+        nonlocal now
         entry = adopt_operation_journal_entry(
             supervisor, method="DeleteSources", operation="sources.delete"
         )
@@ -217,10 +232,13 @@ async def test_large_cleanup_deadline_preserves_complete_journal_bearing_settlem
         if int(source_id) < 20:
             entry.record(CommitState.CONFIRMED, "server accepted deletion")
             return
+        # Expire the real operation timer only after evidence reaches beyond
+        # the diagnostic prefix, independent of worker scheduling latency.
+        now += 2
         await asyncio.Event().wait()
 
     monkeypatch.setattr(asyncio, "sleep", sleep)
-    client, supervisor, preview = _cleanup(delete, 45, timeout=0.05)
+    client, supervisor, preview = _cleanup(delete, 45, timeout=1)
     with pytest.raises(OperationTimeoutError) as caught:
         await execute_source_clean(preview, client=client)
     metadata = caught.value.operation_metadata

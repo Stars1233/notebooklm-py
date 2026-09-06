@@ -664,6 +664,9 @@ class TestAuthCheckCommand:
         payload = json.loads(result.output)
         assert "master_token.json is present" in payload["details"]["error"]
         assert "App-Bound Encryption" not in payload["details"]["error"]
+        assert "notebooklm auth check --test" in payload["guidance"][0]
+        assert "notebooklm login --master-token" in payload["guidance"][0]
+        assert "aas_et/secret" not in result.output
 
     def test_auth_check_storage_not_found(self, runner, mock_storage_path):
         """Test auth check when storage file doesn't exist."""

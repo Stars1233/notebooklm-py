@@ -299,6 +299,8 @@ def _render_auth_check_result(result: AuthCheckResult, *, json_output: bool) -> 
         }
         if plan.test_fetch:
             payload["notebook_count"] = details.get("notebook_count")
+        if result.guidance:
+            payload["guidance"] = [render_guidance(code) for code in result.guidance]
         json_output_response(payload)
         if not all_passed:
             exit_with_code(1)
