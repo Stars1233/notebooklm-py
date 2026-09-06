@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **REST/MCP research import shares one operation budget.** Poll, optional
+  cited/max filtering, and import now run under one `client.operation` so a
+  configured aggregate deadline cannot restart between the read and the
+  mutation (`Fixes #2382`).
 - **Retry-unsafe writes no longer replay after transmission.** Notebook and
   source creates, file registration, research imports, collection creates, and
   chat POSTs now require explicit commit evidence before any outer replay.
