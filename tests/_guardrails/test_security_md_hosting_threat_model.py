@@ -116,15 +116,14 @@ def hosting_threat_model_gaps(security_md: str) -> list[str]:
     if "rebinding" not in compact.lower():
         gaps.append("DNS-rebinding guard")
     if not (
-        "NOTEBOOKLM_SERVER_TOKEN" in compact
+        "NOTEBOOKLM_SERVER_TOKEN_FILE" in compact
         and re.search(
-            r"(REST|notebooklm-server).{0,160}NOTEBOOKLM_SERVER_TOKEN"
-            r"|NOTEBOOKLM_SERVER_TOKEN.{0,160}(required|always|refuses)",
+            r"REST.{0,80}always requires a bearer token",
             compact,
             re.IGNORECASE,
         )
     ):
-        gaps.append("REST always requires NOTEBOOKLM_SERVER_TOKEN")
+        gaps.append("REST always requires a bearer token, with token-file support")
 
     if not (
         "/healthz" in compact

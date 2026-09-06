@@ -62,6 +62,7 @@ By default, files are stored per-profile under `~/.notebooklm/profiles/<profile>
 
 4. **If credentials are compromised**
    - Immediately revoke access at [Google Security Settings](https://myaccount.google.com/permissions)
+   - For a leaked master token, remove its associated device/session in [Google Account security](https://myaccount.google.com/device-activity). A password change or deleting local files alone does not revoke an attacker's copy; see [master-token troubleshooting](docs/troubleshooting.md#authentication-errors)
    - Delete the `~/.notebooklm/` directory **and** any MCP OAuth state file (`<home>/oauth/*.json` or `NOTEBOOKLM_MCP_OAUTH_STATE_PATH`)
    - Restart any `notebooklm-mcp` / `notebooklm-server` process that had the files open
    - Re-authenticate with `notebooklm login`
@@ -135,8 +136,9 @@ is not implemented here.
 MCP `/files/dl` and `/files/ul` are HMAC-URL auth only (not bearer/OAuth). A
 browser opening a signed link cannot carry the MCP credential, and FastMCP does
 not wrap these custom routes with the MCP bearer/OAuth gate. A leaked URL is a
-timed capability (upload TTL 15 min, download TTL 30 min; tokens die on process
-restart because the signing key is ephemeral). See
+timed capability: ordinary upload links last 15 minutes, widget upload pools
+last 60 minutes, and download links last 30 minutes. Upload links can be consumed
+earlier; all tokens die on process restart because the signing key is ephemeral. See
 [ADR-0024](docs/adr/0024-mcp-remote-file-transfer.md).
 
 ### Loopback vs token
@@ -146,16 +148,22 @@ restart because the signing key is ephemeral). See
   server can run without a bearer. The Host-header DNS-rebinding guard remains
   (requests whose `Host` is not a loopback literal are rejected). The
   `NOTEBOOKLM_MCP_ALLOW_EXTERNAL_BIND=1` flag alone does not drop that guard.
-- **REST always requires `NOTEBOOKLM_SERVER_TOKEN`.** `notebooklm-server` refuses
-  to start without it. Every `/v1` route also requires a loopback `Host` (and
-  loopback peer unless `NOTEBOOKLM_SERVER_ALLOW_EXTERNAL_BIND=1`).
+- **REST always requires a bearer token.** Configure it with `--token-file` /
+  `NOTEBOOKLM_SERVER_TOKEN_FILE` (preferred), or `NOTEBOOKLM_SERVER_TOKEN`.
+  `notebooklm-server` refuses to start without a token. By default every `/v1`
+  route requires both a loopback peer and a loopback `Host`.
+  `NOTEBOOKLM_SERVER_ALLOW_EXTERNAL_BIND=1` disables both loopback checks,
+  including the Host-header rebinding guard; bearer authentication stays required.
 
 ### `GET /healthz` is liveness, not readiness
 
 REST `GET /healthz` is a public, token-less **liveness** probe. It returns
-`{"ok": true}` even when the NotebookLM client failed to open (stale auth,
-missing profile). It does not report version, account, or whether `/v1` can
-serve. Readiness would be a separate contract and is not implemented.
+`{"ok": true}` when startup catches an authentication failure (for example,
+stale credentials or a missing profile) and keeps the app running without an
+open NotebookLM client. Other startup failures, including network errors,
+abort startup and leave the endpoint unavailable. It does not report version,
+account, or whether `/v1` can serve. Readiness would be a separate contract and
+is not implemented.
 
 ## Dependency Security
 
