@@ -91,6 +91,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`chat.get_history` raises on turn-fetch failures.** Web previously logged
+  `ChatError`/`NetworkError` from the conversation-turns RPC and returned `[]`,
+  so a failed fetch looked like an empty conversation. Android already raised.
+  Both backends now raise; for a positive `limit`, `[]` means no conversation
+  or no turns. Android also returns `[]` for non-positive limits
+  ([#2384](https://github.com/teng-lin/notebooklm-py/issues/2384)).
 - **Legacy client tuning has a v1 runway.** A construction using non-default
   flat tuning keywords now emits one caller-attributed `DeprecationWarning`
   naming all arguments to migrate to `config=ClientConfig(...)`. Explicit old

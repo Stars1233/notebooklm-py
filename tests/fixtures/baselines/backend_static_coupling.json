@@ -3515,7 +3515,7 @@
     },
     {
       "kind": "from",
-      "lineno": 894,
+      "lineno": 897,
       "scope": "__getattr__",
       "scope_kind": "function",
       "source": "notebooklm._chat",
@@ -11256,7 +11256,7 @@
   ],
   "subsystems": {
     "android": {
-      "lines": 16384,
+      "lines": 16387,
       "modules": 53
     },
     "app": {
@@ -11276,7 +11276,7 @@
       "modules": 38
     },
     "root": {
-      "lines": 26987,
+      "lines": 26990,
       "modules": 89
     },
     "rpc": {
@@ -11296,12 +11296,12 @@
       "modules": 18
     },
     "web": {
-      "lines": 33460,
+      "lines": 33456,
       "modules": 97
     }
   },
   "summary": {
-    "authored_lines": 150037,
+    "authored_lines": 150039,
     "authored_modules": 476,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1239,

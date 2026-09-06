@@ -32,7 +32,7 @@ from .._runtime.config import (
 )
 from .._runtime.contracts import LoopGuard
 from .._types.enums import ChatGoal, ChatResponseLength
-from ..exceptions import ChatError, NetworkError, NotebookLMError, UnknownRPCMethodError
+from ..exceptions import ChatError, NotebookLMError, UnknownRPCMethodError
 from ..outcomes import CommitState
 from ..rpc import RPCMethod, safe_index
 from ..types import ChatReference, ChatSessionStatus, ConversationTurn, Note
@@ -442,7 +442,7 @@ class WebChatAPI(RequestPolicyOwner, ChatAPI):
 
         Returns:
             List of (question, answer) pairs, oldest-first.
-            Returns an empty list if no conversations exist.
+            For positive limits, empty means no conversation or no turns; fetch failures raise.
         """
         async with self._operation_scope("chat.get_history"):
             logger.debug(
@@ -451,11 +451,7 @@ class WebChatAPI(RequestPolicyOwner, ChatAPI):
             conv_id = conversation_id or await self.get_conversation_id(notebook_id)
             if not conv_id:
                 return []
-            try:
-                turns_data = await self.get_conversation_turns(notebook_id, conv_id, limit=limit)
-            except (ChatError, NetworkError) as exc:
-                logger.warning("Failed to fetch conversation turns for %s: %s", notebook_id, exc)
-                return []
+            turns_data = await self.get_conversation_turns(notebook_id, conv_id, limit=limit)
             turns = unwrap_conversation_turns(turns_data, source="_chat.get_history")
             if turns:
                 turns_data = [list(reversed(turns))]
