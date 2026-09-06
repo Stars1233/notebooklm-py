@@ -133,6 +133,7 @@ from ._types.research import (
     SourceGuide,
 )
 from ._types.sharing import SharedUser, ShareStatus
+from ._types.source_delete import SourceDeleteOutcome
 from ._types.sources import (
     CopiedSource,
     ExpertIntelligenceSourceMetadata,
@@ -219,6 +220,7 @@ _CITED_SOURCE_SELECTION_TYPE_HINT_GLOBALS = (ResearchSourceInput,)
 
 
 __all__ = [
+    "SourceDeleteOutcome",
     # Dataclasses
     "AccountLimits",
     "UserSettings",

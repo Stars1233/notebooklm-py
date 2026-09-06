@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from ..exceptions import ValidationError
+from ..options import USE_DEFAULT
 from ..types import Label
 from .resolve import near_miss_candidates, validate_id
 
@@ -175,7 +176,8 @@ async def execute_label_sources(
     label_id: str,
 ):
     """Expand a label to its source objects (the ``label sources`` body)."""
-    return await client.labels.sources(notebook_id, label_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        return await client.labels.sources(notebook_id, label_id)
 
 
 # ---------------------------------------------------------------------------
@@ -205,10 +207,11 @@ async def execute_label_generate(
     ``str`` here (the adapter's lowercased Click ``Choice`` value) cast to the
     ``generate`` Literal — the Click ``Choice`` constrains it to a valid value.
     """
-    labels = await client.labels.generate(
-        notebook_id, scope=cast("Literal['all', 'unlabeled']", scope)
-    )
-    return LabelGenerateResult(notebook_id=notebook_id, scope=scope, labels=labels)
+    async with client.operation(timeout=USE_DEFAULT):
+        labels = await client.labels.generate(
+            notebook_id, scope=cast("Literal['all', 'unlabeled']", scope)
+        )
+        return LabelGenerateResult(notebook_id=notebook_id, scope=scope, labels=labels)
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +226,8 @@ async def execute_label_create(
     emoji: str,
 ) -> Label:
     """Create an empty, manually-named label."""
-    return await client.labels.create(notebook_id, name, emoji)
+    async with client.operation(timeout=USE_DEFAULT):
+        return await client.labels.create(notebook_id, name, emoji)
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +246,8 @@ async def execute_label_rename(
     ``return_object`` defaults to True, so the mutation returns a ``Label`` (or
     raises ``LabelNotFoundError``) — never ``None`` here.
     """
-    return cast(Label, await client.labels.rename(notebook_id, label_id, new_name))
+    async with client.operation(timeout=USE_DEFAULT):
+        return cast(Label, await client.labels.rename(notebook_id, label_id, new_name))
 
 
 async def execute_label_set_emoji(
@@ -252,7 +257,8 @@ async def execute_label_set_emoji(
     emoji_value: str,
 ) -> Label:
     """Set a label's emoji."""
-    return cast(Label, await client.labels.set_emoji(notebook_id, label_id, emoji_value))
+    async with client.operation(timeout=USE_DEFAULT):
+        return cast(Label, await client.labels.set_emoji(notebook_id, label_id, emoji_value))
 
 
 # ---------------------------------------------------------------------------
@@ -275,9 +281,10 @@ async def execute_label_add_sources(
     source_ids: Sequence[str],
 ) -> LabelMembershipResult:
     """Add source(s) to a label (append; existing members preserved)."""
-    ids = list(source_ids)
-    label = cast(Label, await client.labels.add_sources(notebook_id, label_id, ids))
-    return LabelMembershipResult(label=label, source_ids=ids)
+    async with client.operation(timeout=USE_DEFAULT):
+        ids = list(source_ids)
+        label = cast(Label, await client.labels.add_sources(notebook_id, label_id, ids))
+        return LabelMembershipResult(label=label, source_ids=ids)
 
 
 async def execute_label_remove_sources(
@@ -287,9 +294,10 @@ async def execute_label_remove_sources(
     source_ids: Sequence[str],
 ) -> LabelMembershipResult:
     """Un-assign source(s) from a label (the inverse of ``add``)."""
-    ids = list(source_ids)
-    label = cast(Label, await client.labels.remove_sources(notebook_id, label_id, ids))
-    return LabelMembershipResult(label=label, source_ids=ids)
+    async with client.operation(timeout=USE_DEFAULT):
+        ids = list(source_ids)
+        label = cast(Label, await client.labels.remove_sources(notebook_id, label_id, ids))
+        return LabelMembershipResult(label=label, source_ids=ids)
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +311,8 @@ async def execute_label_delete(
     label_ids: Sequence[str],
 ) -> None:
     """Delete one or more labels (the label only, not its sources)."""
-    await client.labels.delete(notebook_id, list(label_ids))
+    async with client.operation(timeout=USE_DEFAULT):
+        await client.labels.delete(notebook_id, list(label_ids))
 
 
 __all__ = [

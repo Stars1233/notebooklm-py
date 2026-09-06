@@ -519,7 +519,7 @@ def attach_operation_journal(
 ) -> _E:
     """Attach an immutable workflow-wide aggregate while preserving every send."""
 
-    existing = getattr(exc, "operation_metadata", None)
+    existing = getattr(exc, "operation_metadata", None) or getattr(exc, "_operation_metadata", None)
     exact_primary_metadata: OperationMetadata | None = None
     if existing is not None and existing.invocation_id is not None:
         escaping_leaf = next(

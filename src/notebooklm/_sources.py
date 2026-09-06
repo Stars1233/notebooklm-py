@@ -32,6 +32,7 @@ from .types import (
     PlayBook,
     RelevantChunk,
     Source,
+    SourceDeleteOutcome,
     SourceFulltext,
     SourceStatus,
     SourceType,
@@ -641,6 +642,23 @@ class SourcesAPI(ABC):
         ids = list(dict.fromkeys(source_ids))
         for sid in ids:
             await self.delete(notebook_id, sid)
+
+    async def delete_many_with_outcomes(
+        self, notebook_id: str, source_ids: Sequence[str]
+    ) -> builtins.list[SourceDeleteOutcome]:
+        """Delete each input occurrence with ordered evidence and settled children.
+
+        Unlike ``delete_many``, this uses one per-source delete operation, preserves
+        duplicates, and limits cleanup to ten children with a half-second pause
+        between groups. Cancellation settles children and retains batch evidence
+        on the escaping exception, including positively unattempted members.
+        """
+        from ._source.delete_batch import delete_sources_with_outcomes
+
+        async with self._operation_scope("sources.delete_many_with_outcomes"):
+            return await delete_sources_with_outcomes(
+                notebook_id, tuple(source_ids), delete=self.delete, spawn_child=self._spawn_child
+            )
 
     @abstractmethod
     async def rename(

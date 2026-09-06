@@ -320,6 +320,16 @@ def create_mock_client():
     # the same object) and reminds developers to use the correct namespace
     mock_client.notebooks = MagicMock()
     mock_client.sources = MagicMock()
+
+    # Keep the command's terminal-delete stubs while exercising real supervised batching.
+    async def delete_many_with_outcomes(notebook_id, source_ids):
+        from tests._helpers.source_delete import delete_with_outcomes
+
+        return await delete_with_outcomes(
+            notebook_id, source_ids, delete=mock_client.sources.delete
+        )
+
+    mock_client.sources.delete_many_with_outcomes = AsyncMock(side_effect=delete_many_with_outcomes)
     mock_client.artifacts = MagicMock()
     mock_client.chat = MagicMock()
     mock_client.research = MagicMock()

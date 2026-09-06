@@ -203,6 +203,7 @@ from .types import (
     SlideDeckFormat,
     SlideDeckLength,
     Source,
+    SourceDeleteOutcome,
     SourceFulltext,
     SourceGuide,
     SourceStatus,
@@ -233,6 +234,7 @@ from .types import (
 from .utils import resolve_chat_reference_passage
 
 __all__ = [
+    "SourceDeleteOutcome",
     "__version__",
     # Client (main entry point)
     "NotebookLMClient",

@@ -46,6 +46,18 @@ ReadWindow: TypeAlias = float | None | AutoReadWindow
 RpcEventCallback: TypeAlias = Callable[[RpcTelemetryEvent], object]
 
 
+class UseDefault(Enum):
+    """Request the enclosing operation's budget or the client's configured default."""
+
+    USE_DEFAULT = "use_default"
+
+    def __repr__(self) -> str:
+        return "USE_DEFAULT"
+
+
+USE_DEFAULT = UseDefault.USE_DEFAULT
+
+
 @dataclass(frozen=True)
 class RuntimeOptions:
     """Shared runtime capacity and optional whole-operation budget."""
@@ -245,6 +257,8 @@ __all__ = [
     "RuntimeOptions",
     "TimeoutOptions",
     "TransferOptions",
+    "USE_DEFAULT",
+    "UseDefault",
     "WebBackendConfig",
     "WebSessionHooks",
     "WebSessionOptions",

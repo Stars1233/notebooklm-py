@@ -1,5 +1,6 @@
 {
   "notebooklm": [
+    "SourceDeleteOutcome",
     "__version__",
     "NotebookLMClient",
     "AuthTokens",
@@ -275,6 +276,8 @@
     "RuntimeOptions",
     "TimeoutOptions",
     "TransferOptions",
+    "USE_DEFAULT",
+    "UseDefault",
     "WebBackendConfig",
     "WebSessionHooks",
     "WebSessionOptions",

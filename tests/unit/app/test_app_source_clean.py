@@ -21,7 +21,7 @@ in ``tests/unit/cli/test_source.py::TestSourceCleanCommand``.
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,6 +34,17 @@ from notebooklm._app.source_clean import (
     skip_source_clean,
 )
 from notebooklm.types import Source, SourceStatus
+from tests._helpers.source_delete import delete_with_outcomes
+
+
+def _cleanup_client(delete):
+    client = MagicMock()
+
+    async def bulk(notebook_id, source_ids):
+        return await delete_with_outcomes(notebook_id, source_ids, delete=delete)
+
+    client.sources.delete_many_with_outcomes = AsyncMock(side_effect=bulk)
+    return client
 
 
 def _src(
@@ -302,7 +313,7 @@ async def test_execute_clean_deletes_exact_prepared_candidates() -> None:
         dry_run=False,
         list_sources=list_sources,
     )
-    result = await execute_source_clean(preview, delete_source=delete_source)
+    result = await execute_source_clean(preview, client=_cleanup_client(delete_source))
     assert result.status == "completed"
     assert result.deleted_count == 2
     assert result.failure_count == 0
@@ -323,7 +334,7 @@ async def test_execute_clean_captures_partial_failures() -> None:
         dry_run=False,
         list_sources=list_sources,
     )
-    result = await execute_source_clean(preview, delete_source=delete_source)
+    result = await execute_source_clean(preview, client=_cleanup_client(delete_source))
     assert result.status == "completed"
     assert result.deleted_count == 1
     assert result.failure_count == 1
@@ -346,11 +357,8 @@ async def test_execute_clean_batches_with_sleep_between_chunks() -> None:
         dry_run=False,
         list_sources=list_sources,
     )
-    result = await execute_source_clean(
-        preview,
-        delete_source=delete_source,
-        sleep=sleep,
-    )
+    with patch("notebooklm._source.delete_batch.asyncio.sleep", sleep):
+        result = await execute_source_clean(preview, client=_cleanup_client(delete_source))
     # Oldest of the 12 is kept; the other 11 are duplicates deleted.
     assert result.status == "completed"
     assert result.deleted_count == 11

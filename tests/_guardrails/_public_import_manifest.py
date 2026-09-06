@@ -82,6 +82,8 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
         "RuntimeOptions",
         "TimeoutOptions",
         "TransferOptions",
+        "USE_DEFAULT",
+        "UseDefault",
         "WebBackendConfig",
         "WebSessionHooks",
         "WebSessionOptions",
@@ -98,6 +100,7 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
     ],
     "notebooklm.types": [
         "ConnectionLimits",
+        "SourceDeleteOutcome",
     ],
     "notebooklm.urls": [
         "is_google_auth_redirect",

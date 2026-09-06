@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from ..exceptions import NotebookLMError, ValidationError
+from ..options import USE_DEFAULT
 from ..types import DriveMimeType, Source, SourceType
 from .resolve import FULL_ID_PATTERN
 from .resolve import validate_id as _neutral_validate_id
@@ -295,14 +296,15 @@ async def execute_source_delete(
     plan: SourceDeletePlan,
 ) -> SourceDeleteResult:
     """Delete the exact immutable target an adapter already authorized."""
-    await client.sources.delete(plan.notebook_id, plan.target.source_id)
-    return SourceDeleteResult(
-        source_id=plan.target.source_id,
-        notebook_id=plan.notebook_id,
-        success=True,
-        status="completed",
-        matched_title=plan.target.matched_title,
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        await client.sources.delete(plan.notebook_id, plan.target.source_id)
+        return SourceDeleteResult(
+            source_id=plan.target.source_id,
+            notebook_id=plan.notebook_id,
+            success=True,
+            status="completed",
+            matched_title=plan.target.matched_title,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -324,14 +326,15 @@ async def execute_source_delete_by_title(
     plan: SourceDeleteByTitlePlan,
 ) -> SourceDeleteByTitleResult:
     """Delete the exact title-resolved target an adapter already authorized."""
-    await client.sources.delete(plan.notebook_id, plan.source_id)
-    return SourceDeleteByTitleResult(
-        source_id=plan.source_id,
-        title=plan.title,
-        notebook_id=plan.notebook_id,
-        success=True,
-        status="completed",
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        await client.sources.delete(plan.notebook_id, plan.source_id)
+        return SourceDeleteByTitleResult(
+            source_id=plan.source_id,
+            title=plan.title,
+            notebook_id=plan.notebook_id,
+            success=True,
+            status="completed",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -360,16 +363,17 @@ async def execute_source_rename(
     ``cli.resolve.resolve_source_id``) so this core stays free of the
     ``rich``-coupled resolver and the CLI's monkeypatch seam keeps landing.
     """
-    resolved_id = await resolve_source_id(client, plan.notebook_id, plan.source_id)
-    # return_object defaults to True, so rename returns a Source (or raises
-    # SourceNotFoundError on a missing target) — never None on this path. Use
-    # cast (not assert, which -O strips) to narrow Source | None for the
-    # rename-result dataclass.
-    src = cast(
-        Source,
-        await client.sources.rename(plan.notebook_id, resolved_id, plan.new_title),
-    )
-    return SourceRenameResult(source=src, notebook_id=plan.notebook_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_source_id(client, plan.notebook_id, plan.source_id)
+        # return_object defaults to True, so rename returns a Source (or raises
+        # SourceNotFoundError on a missing target) — never None on this path. Use
+        # cast (not assert, which -O strips) to narrow Source | None for the
+        # rename-result dataclass.
+        src = cast(
+            Source,
+            await client.sources.rename(plan.notebook_id, resolved_id, plan.new_title),
+        )
+        return SourceRenameResult(source=src, notebook_id=plan.notebook_id)
 
 
 # ---------------------------------------------------------------------------
@@ -395,12 +399,13 @@ async def execute_source_refresh(
 
     ``resolve_source_id`` is injected (see :func:`execute_source_rename`).
     """
-    resolved_id = await resolve_source_id(client, plan.notebook_id, plan.source_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_source_id(client, plan.notebook_id, plan.source_id)
 
-    # ``sources.refresh`` returns ``None`` on success (#1290); any failure
-    # raises before reaching here.
-    await client.sources.refresh(plan.notebook_id, resolved_id)
-    return SourceRefreshResult(source_id=resolved_id, notebook_id=plan.notebook_id, result=None)
+        # ``sources.refresh`` returns ``None`` on success (#1290); any failure
+        # raises before reaching here.
+        await client.sources.refresh(plan.notebook_id, resolved_id)
+        return SourceRefreshResult(source_id=resolved_id, notebook_id=plan.notebook_id, result=None)
 
 
 # ---------------------------------------------------------------------------
@@ -472,29 +477,30 @@ async def execute_source_add_drive(
             (MCP/HTTP) gets a clean ``VALIDATION`` rather than a leaked
             ``KeyError`` (ADR-0021).
     """
-    if plan.mime_type not in _DRIVE_MIME_MAP:
-        raise ValidationError(
-            f"Invalid mime_type {plan.mime_type!r}; expected one of {sorted(_DRIVE_MIME_MAP)}. "
-            "NotebookLM's Drive import only ingests Google-native Docs/Slides/Sheets + PDF; "
-            "an upload-only Drive file (e.g. epub/docx/txt/md/rtf/odt/csv) must be "
-            "downloaded and added as a `file` source instead."
-        )
-    mime = _DRIVE_MIME_MAP[plan.mime_type]
+    async with client.operation(timeout=USE_DEFAULT):
+        if plan.mime_type not in _DRIVE_MIME_MAP:
+            raise ValidationError(
+                f"Invalid mime_type {plan.mime_type!r}; expected one of {sorted(_DRIVE_MIME_MAP)}. "
+                "NotebookLM's Drive import only ingests Google-native Docs/Slides/Sheets + PDF; "
+                "an upload-only Drive file (e.g. epub/docx/txt/md/rtf/odt/csv) must be "
+                "downloaded and added as a `file` source instead."
+            )
+        mime = _DRIVE_MIME_MAP[plan.mime_type]
 
-    src = await client.sources.add_drive(plan.notebook_id, plan.file_id, plan.title, mime)
-    # Stamp the declared type onto the returned source. The backend returns an
-    # ambiguous type code for Drive imports (a Drive-hosted PDF comes back as
-    # ``14`` → GOOGLE_SPREADSHEET), so the caller's declared ``mime_type`` — not the
-    # raw backend code — is authoritative for how the source is labeled (#1828). The
-    # freshly returned ``Source`` is ours to finalize; ``kind`` derives from
-    # ``_type_code``, so overwriting it is the whole fix.
-    src._type_code = drive_mime_type_code(plan.mime_type)
-    return SourceAddDriveResult(
-        source=src,
-        notebook_id=plan.notebook_id,
-        file_id=plan.file_id,
-        mime_type=plan.mime_type,
-    )
+        src = await client.sources.add_drive(plan.notebook_id, plan.file_id, plan.title, mime)
+        # Stamp the declared type onto the returned source. The backend returns an
+        # ambiguous type code for Drive imports (a Drive-hosted PDF comes back as
+        # ``14`` → GOOGLE_SPREADSHEET), so the caller's declared ``mime_type`` — not the
+        # raw backend code — is authoritative for how the source is labeled (#1828). The
+        # freshly returned ``Source`` is ours to finalize; ``kind`` derives from
+        # ``_type_code``, so overwriting it is the whole fix.
+        src._type_code = drive_mime_type_code(plan.mime_type)
+        return SourceAddDriveResult(
+            source=src,
+            notebook_id=plan.notebook_id,
+            file_id=plan.file_id,
+            mime_type=plan.mime_type,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -539,18 +545,19 @@ async def execute_source_add_drive_file(
     type, or expired Drive auth surface as :class:`ValidationError` from the
     client, which the surface adapters render.
     """
-    src = await client.sources.add_drive_file(
-        plan.notebook_id,
-        plan.document_id,
-        title=plan.title,
-        wait=plan.wait,
-        wait_timeout=plan.wait_timeout,
-    )
-    return SourceAddDriveFileResult(
-        source=src,
-        notebook_id=plan.notebook_id,
-        document_id=plan.document_id,
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        src = await client.sources.add_drive_file(
+            plan.notebook_id,
+            plan.document_id,
+            title=plan.title,
+            wait=plan.wait,
+            wait_timeout=plan.wait_timeout,
+        )
+        return SourceAddDriveFileResult(
+            source=src,
+            notebook_id=plan.notebook_id,
+            document_id=plan.document_id,
+        )
 
 
 __all__ = [

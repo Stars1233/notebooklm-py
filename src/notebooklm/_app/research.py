@@ -41,6 +41,7 @@ from datetime import datetime
 from typing import Any, Literal, NoReturn, Protocol
 
 from ..exceptions import ValidationError
+from ..options import USE_DEFAULT
 from ..types import discovery_mode_to_str
 
 logger = logging.getLogger(__name__)
@@ -493,6 +494,7 @@ class ResearchWaitResult:
     # poll carried no termination reason.
     reason_message: str | None = None
     hint: str | None = None
+    failure: TimeoutError | None = field(default=None, repr=False, compare=False)
 
     @property
     def sources_count(self) -> int:
@@ -572,84 +574,86 @@ async def execute_research_wait(
           third guard is required because without a task_id the importer has
           nothing to verify against.)
     """
-    nb_id_resolved = await resolve_id(client, plan.notebook_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_id(client, plan.notebook_id)
 
-    async with wait_context():
-        try:
-            wait_args = (
-                (nb_id_resolved,) if plan.task_id is None else (nb_id_resolved, plan.task_id)
-            )
-            status = await client.research.wait_for_completion(
-                *wait_args,
-                timeout=float(plan.timeout),
-                initial_interval=float(plan.interval),
-            )
-        except TimeoutError:
+        async with wait_context():
+            try:
+                wait_args = (
+                    (nb_id_resolved,) if plan.task_id is None else (nb_id_resolved, plan.task_id)
+                )
+                status = await client.research.wait_for_completion(
+                    *wait_args,
+                    timeout=float(plan.timeout),
+                    initial_interval=float(plan.interval),
+                )
+            except TimeoutError as error:
+                return ResearchWaitResult(
+                    outcome="timeout",
+                    notebook_id=nb_id_resolved,
+                    timeout=plan.timeout,
+                    failure=error,
+                )
+
+        task_id = status.task_id or None
+
+        def _terminal(outcome: ResearchWaitOutcome, **extra: Any) -> ResearchWaitResult:
             return ResearchWaitResult(
-                outcome="timeout",
+                outcome=outcome,
                 notebook_id=nb_id_resolved,
                 timeout=plan.timeout,
+                task_id=task_id,
+                **extra,
             )
 
-    task_id = status.task_id or None
+        status_val = status.status.value
+        query = status.query
+        # ``ResearchWaitResult`` / the importer consume the legacy ``list[dict]``
+        # source shape, so serialize the typed sources here.
+        sources = [src.to_public_dict() for src in status.sources]
+        report = status.report
 
-    def _terminal(outcome: ResearchWaitOutcome, **extra: Any) -> ResearchWaitResult:
-        return ResearchWaitResult(
-            outcome=outcome,
-            notebook_id=nb_id_resolved,
-            timeout=plan.timeout,
-            task_id=task_id,
-            **extra,
-        )
-
-    status_val = status.status.value
-    query = status.query
-    # ``ResearchWaitResult`` / the importer consume the legacy ``list[dict]``
-    # source shape, so serialize the typed sources here.
-    sources = [src.to_public_dict() for src in status.sources]
-    report = status.report
-
-    if status_val == "no_research":
-        return _terminal("no_research")
-    # Both non-success exits carry the differentiated reason (#1964) so the
-    # renderer never has to show a bare "Research failed".
-    failure_detail: dict[str, Any] = {
-        "query": query,
-        "sources": sources,
-        "report": report,
-        "reason_message": status.reason_message,
-        "hint": status.hint,
-    }
-    if status_val == "failed":
-        return _terminal("failed", **failure_detail)
-
-    # wait_for_completion only returns completed/no_research/failed; keep a
-    # narrow fallback so future terminal statuses cannot be rendered as success.
-    if status_val != "completed":
-        return _terminal("failed", **failure_detail)
-
-    import_result: ResearchImportLike | None = None
-    if plan.import_all and sources and task_id:
-        import_kwargs: dict[str, Any] = {
+        if status_val == "no_research":
+            return _terminal("no_research")
+        # Both non-success exits carry the differentiated reason (#1964) so the
+        # renderer never has to show a bare "Research failed".
+        failure_detail: dict[str, Any] = {
+            "query": query,
+            "sources": sources,
             "report": report,
-            "cited_only": plan.cited_only,
-            "max_elapsed": plan.timeout,
+            "reason_message": status.reason_message,
+            "hint": status.hint,
         }
-        import_result = await import_sources(
-            client,
-            nb_id_resolved,
-            task_id,
-            sources,
-            **import_kwargs,
-        )
+        if status_val == "failed":
+            return _terminal("failed", **failure_detail)
 
-    return _terminal(
-        "completed",
-        query=query,
-        sources=sources,
-        report=report,
-        import_result=import_result,
-    )
+        # wait_for_completion only returns completed/no_research/failed; keep a
+        # narrow fallback so future terminal statuses cannot be rendered as success.
+        if status_val != "completed":
+            return _terminal("failed", **failure_detail)
+
+        import_result: ResearchImportLike | None = None
+        if plan.import_all and sources and task_id:
+            import_kwargs: dict[str, Any] = {
+                "report": report,
+                "cited_only": plan.cited_only,
+                "max_elapsed": plan.timeout,
+            }
+            import_result = await import_sources(
+                client,
+                nb_id_resolved,
+                task_id,
+                sources,
+                **import_kwargs,
+            )
+
+        return _terminal(
+            "completed",
+            query=query,
+            sources=sources,
+            report=report,
+            import_result=import_result,
+        )
 
 
 __all__ = [

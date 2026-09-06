@@ -13,14 +13,32 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 
 from __future__ import annotations
 
-import asyncio
 import re
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Protocol
 from urllib.parse import urlparse, urlunparse
 
-from ..types import Source, source_status_to_str
+from ..options import USE_DEFAULT, UseDefault
+from ..outcomes import CommitState, redact_operation_text
+from ..types import Source, SourceDeleteOutcome, source_status_to_str
+
+
+class _CleanupSources(Protocol):
+    async def delete_many_with_outcomes(
+        self, notebook_id: str, source_ids: Sequence[str]
+    ) -> list[SourceDeleteOutcome]: ...
+
+
+class _CleanupClient(Protocol):
+    @property
+    def sources(self) -> _CleanupSources: ...
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
+
 
 CleanCandidate = tuple[str, str, str, str]
 CleanFailure = tuple[str, str]
@@ -36,6 +54,7 @@ class SourceCleanResult:
     candidates: tuple[CleanCandidate, ...]
     deleted_count: int = 0
     failures: tuple[CleanFailure, ...] = ()
+    outcomes: tuple[SourceDeleteOutcome, ...] = ()
 
     @property
     def failure_count(self) -> int:
@@ -160,42 +179,35 @@ def skip_source_clean(preview: SourceCleanPreview, *, cancelled: bool = False) -
 async def execute_source_clean(
     preview: SourceCleanPreview,
     *,
-    delete_source: Callable[[str, str], Awaitable[object]],
-    sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    client: _CleanupClient,
 ) -> SourceCleanResult:
     """Delete the exact immutable target set an adapter already authorized."""
     if preview.dry_run or not preview.candidates:
         return skip_source_clean(preview)
 
-    delete_list = [candidate[0] for candidate in preview.candidates]
-    chunk_size = 10
-    deleted = 0
-    failures: list[CleanFailure] = []
-    for i in range(0, len(delete_list), chunk_size):
-        chunk = delete_list[i : i + chunk_size]
-        delete_tasks = [delete_source(preview.notebook_id, sid) for sid in chunk]
-        results = await asyncio.gather(*delete_tasks, return_exceptions=True)
-        for sid, result in zip(chunk, results, strict=True):
-            # ``return_exceptions=True`` also captures non-``Exception``
-            # ``BaseException``s (``CancelledError`` / ``KeyboardInterrupt`` /
-            # ``SystemExit``). Never count those as a successful delete — re-raise
-            # so cancellation/interrupts propagate instead of being swallowed.
-            if isinstance(result, BaseException) and not isinstance(result, Exception):
-                raise result
-            if isinstance(result, Exception):
-                failures.append((sid, str(result)))
-            else:
-                deleted += 1
-        if i + chunk_size < len(delete_list):
-            await sleep(0.5)
-
-    return SourceCleanResult(
-        notebook_id=preview.notebook_id,
-        status="completed",
-        candidates=preview.candidates,
-        deleted_count=deleted,
-        failures=tuple(failures),
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        outcomes = await client.sources.delete_many_with_outcomes(
+            preview.notebook_id, tuple(candidate[0] for candidate in preview.candidates)
+        )
+        return SourceCleanResult(
+            notebook_id=preview.notebook_id,
+            status="completed",
+            candidates=preview.candidates,
+            deleted_count=sum(
+                item.outcome.commit_state is CommitState.CONFIRMED for item in outcomes
+            ),
+            failures=tuple(
+                (
+                    item.source_id,
+                    redact_operation_text(item.error)
+                    if item.error
+                    else "deletion was not confirmed",
+                )
+                for item in outcomes
+                if item.error is not None or item.outcome.commit_state is not CommitState.CONFIRMED
+            ),
+            outcomes=tuple(outcomes),
+        )
 
 
 __all__ = [

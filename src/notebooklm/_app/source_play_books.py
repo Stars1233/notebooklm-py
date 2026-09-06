@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from ..options import USE_DEFAULT
 from ..types import PlayBook, Source
 
 if TYPE_CHECKING:
@@ -60,17 +61,18 @@ async def execute_source_add_play_book(
     (:class:`~notebooklm.exceptions.PlayBookNotExportableError`), spec build and
     ingest all live in ``SourcesAPI.add_play_book`` on both supported backends.
     """
-    src = await client.sources.add_play_book(
-        plan.notebook_id,
-        plan.content_id,
-        wait=plan.wait,
-        wait_timeout=plan.wait_timeout,
-    )
-    return SourceAddPlayBookResult(
-        source=src,
-        notebook_id=plan.notebook_id,
-        content_id=plan.content_id,
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        src = await client.sources.add_play_book(
+            plan.notebook_id,
+            plan.content_id,
+            wait=plan.wait,
+            wait_timeout=plan.wait_timeout,
+        )
+        return SourceAddPlayBookResult(
+            source=src,
+            notebook_id=plan.notebook_id,
+            content_id=plan.content_id,
+        )
 
 
 __all__ = [

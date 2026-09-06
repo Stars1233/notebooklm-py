@@ -85,7 +85,7 @@ from ._types.common import CookieRotator, CookieSaver
 from ._url_utils import is_google_auth_redirect as is_google_auth_redirect
 from .auth import AuthTokens
 from .exceptions import AuthExtractionError as AuthExtractionError
-from .options import ClientConfig, ReadWindow, WebBackendConfig
+from .options import USE_DEFAULT, ClientConfig, ReadWindow, UseDefault, WebBackendConfig
 
 __all__ = ["NotebookLMClient"]
 
@@ -539,10 +539,14 @@ class NotebookLMClient:
         await self._lifecycle.drain(timeout=timeout)
 
     @asynccontextmanager
-    async def operation(self, timeout: float | None = None) -> AsyncIterator[NotebookLMClient]:
+    async def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AsyncIterator[NotebookLMClient]:
         """Group namespace calls under one admitted aggregate deadline.
 
-        ``timeout=None`` preserves unbounded explicit-operation behavior. Plain
+        ``timeout=USE_DEFAULT`` inherits the enclosing operation, or the client's
+        configured default when no enclosing operation exists. Omitting the argument or
+        using ``timeout=None`` preserves unbounded explicit-operation behavior. Plain
         top-level namespace calls use any configured default. Nested contexts inherit the
         original absolute deadline and can only shorten it. The deadline stops
         local waiting and new dispatch; it does not cancel an already-accepted
@@ -556,10 +560,13 @@ class NotebookLMClient:
                 await client.sources.add_url(notebook.id, "https://example.com")
         """
 
-        async with self._collaborators.call_supervisor.operation_scope(
-            "client.operation",
-            timeout=timeout,
-        ):
+        supervisor = self._collaborators.call_supervisor
+        scope = (
+            supervisor.operation_scope("client.operation")
+            if timeout is USE_DEFAULT
+            else supervisor.operation_scope("client.operation", timeout=timeout)
+        )
+        async with scope:
             yield self
 
     async def close(

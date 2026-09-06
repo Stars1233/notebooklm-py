@@ -46,9 +46,9 @@
           "module_counts": {
             "android": 49,
             "auth": 32,
-            "root": 61,
+            "root": 62,
             "runtime": 10,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
@@ -104,6 +104,7 @@
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -204,6 +205,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -273,9 +275,9 @@
           "module_counts": {
             "android": 49,
             "auth": 32,
-            "root": 61,
+            "root": 62,
             "runtime": 10,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
@@ -331,6 +333,7 @@
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -431,6 +434,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -516,11 +520,11 @@
           "module_counts": {
             "android": 74,
             "auth": 32,
-            "root": 61,
+            "root": 62,
             "rpc": 3,
             "runtime": 10,
-            "types": 16,
-            "web": 92
+            "types": 17,
+            "web": 93
           },
           "module_delta": [
             "notebooklm",
@@ -601,6 +605,7 @@
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -701,6 +706,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -714,6 +720,7 @@
             "notebooklm._web.artifact.table",
             "notebooklm._web.artifacts",
             "notebooklm._web.assembly",
+            "notebooklm._web.assets",
             "notebooklm._web.chat",
             "notebooklm._web.collections",
             "notebooklm._web.contracts",
@@ -891,15 +898,16 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 59,
+            "root": 60,
             "runtime": 9,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -997,6 +1005,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -1061,9 +1070,9 @@
           "module_counts": {
             "android": 74,
             "auth": 32,
-            "root": 61,
+            "root": 62,
             "runtime": 10,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
@@ -1144,6 +1153,7 @@
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1244,6 +1254,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -1369,9 +1380,9 @@
           "module_counts": {
             "android": 74,
             "auth": 32,
-            "root": 61,
+            "root": 62,
             "runtime": 10,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
@@ -1452,6 +1463,7 @@
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1552,6 +1564,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -1646,6 +1659,7 @@
             "notebooklm._web.artifact.generation.ArtifactGenerationService": 1,
             "notebooklm._web.artifact.listing.ArtifactListingService": 1,
             "notebooklm._web.artifacts.WebArtifactsAPI": 1,
+            "notebooklm._web.assets.WebAssetDownloadService": 1,
             "notebooklm._web.chat.WebChatAPI": 1,
             "notebooklm._web.collections.WebCollectionsAPI": 1,
             "notebooklm._web.labels.WebLabelsAPI": 1,
@@ -1699,22 +1713,24 @@
             ],
             "transports": [
               "notebooklm._web.transport.lifecycle.WebTransportLifecycle:web",
-              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload"
+              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload",
+              "notebooklm._web.assets.WebAssetDownloadService:web-assets"
             ]
           },
           "module_counts": {
             "auth": 32,
-            "root": 60,
+            "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 16,
-            "web": 92
+            "types": 17,
+            "web": 93
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -1814,6 +1830,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -1827,6 +1844,7 @@
             "notebooklm._web.artifact.table",
             "notebooklm._web.artifacts",
             "notebooklm._web.assembly",
+            "notebooklm._web.assets",
             "notebooklm._web.chat",
             "notebooklm._web.collections",
             "notebooklm._web.contracts",
@@ -1944,6 +1962,7 @@
             "notebooklm._web.artifact.generation.ArtifactGenerationService": 1,
             "notebooklm._web.artifact.listing.ArtifactListingService": 1,
             "notebooklm._web.artifacts.WebArtifactsAPI": 1,
+            "notebooklm._web.assets.WebAssetDownloadService": 1,
             "notebooklm._web.chat.WebChatAPI": 1,
             "notebooklm._web.collections.WebCollectionsAPI": 1,
             "notebooklm._web.labels.WebLabelsAPI": 1,
@@ -1995,22 +2014,24 @@
             ],
             "transports": [
               "notebooklm._web.transport.lifecycle.WebTransportLifecycle:web",
-              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload"
+              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload",
+              "notebooklm._web.assets.WebAssetDownloadService:web-assets"
             ]
           },
           "module_counts": {
             "auth": 32,
-            "root": 60,
+            "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 16,
-            "web": 92
+            "types": 17,
+            "web": 93
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2110,6 +2131,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -2123,6 +2145,7 @@
             "notebooklm._web.artifact.table",
             "notebooklm._web.artifacts",
             "notebooklm._web.assembly",
+            "notebooklm._web.assets",
             "notebooklm._web.chat",
             "notebooklm._web.collections",
             "notebooklm._web.contracts",
@@ -2234,15 +2257,16 @@
           },
           "module_counts": {
             "auth": 32,
-            "root": 59,
+            "root": 60,
             "runtime": 9,
-            "types": 16
+            "types": 17
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2340,6 +2364,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -2367,6 +2392,7 @@
             "notebooklm._web.artifact.generation.ArtifactGenerationService": 1,
             "notebooklm._web.artifact.listing.ArtifactListingService": 1,
             "notebooklm._web.artifacts.WebArtifactsAPI": 1,
+            "notebooklm._web.assets.WebAssetDownloadService": 1,
             "notebooklm._web.chat.WebChatAPI": 1,
             "notebooklm._web.collections.WebCollectionsAPI": 1,
             "notebooklm._web.labels.WebLabelsAPI": 1,
@@ -2420,22 +2446,24 @@
             ],
             "transports": [
               "notebooklm._web.transport.lifecycle.WebTransportLifecycle:web",
-              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload"
+              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload",
+              "notebooklm._web.assets.WebAssetDownloadService:web-assets"
             ]
           },
           "module_counts": {
             "auth": 32,
-            "root": 60,
+            "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 16,
-            "web": 92
+            "types": 17,
+            "web": 93
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2535,6 +2563,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -2548,6 +2577,7 @@
             "notebooklm._web.artifact.table",
             "notebooklm._web.artifacts",
             "notebooklm._web.assembly",
+            "notebooklm._web.assets",
             "notebooklm._web.chat",
             "notebooklm._web.collections",
             "notebooklm._web.contracts",
@@ -2665,6 +2695,7 @@
             "notebooklm._web.artifact.generation.ArtifactGenerationService": 1,
             "notebooklm._web.artifact.listing.ArtifactListingService": 1,
             "notebooklm._web.artifacts.WebArtifactsAPI": 1,
+            "notebooklm._web.assets.WebAssetDownloadService": 1,
             "notebooklm._web.chat.WebChatAPI": 1,
             "notebooklm._web.collections.WebCollectionsAPI": 1,
             "notebooklm._web.labels.WebLabelsAPI": 1,
@@ -2718,22 +2749,24 @@
             ],
             "transports": [
               "notebooklm._web.transport.lifecycle.WebTransportLifecycle:web",
-              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload"
+              "notebooklm._web.sources.upload.SourceUploadPipeline:web-upload",
+              "notebooklm._web.assets.WebAssetDownloadService:web-assets"
             ]
           },
           "module_counts": {
             "auth": 32,
-            "root": 60,
+            "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 16,
-            "web": 92
+            "types": 17,
+            "web": 93
           },
           "module_delta": [
             "notebooklm",
             "notebooklm._artifact",
             "notebooklm._artifact._download_client",
             "notebooklm._artifact._guarded_transfer",
+            "notebooklm._artifact._publication",
             "notebooklm._artifact._redirect_guard",
             "notebooklm._artifact.downloads",
             "notebooklm._artifact.formatters",
@@ -2833,6 +2866,7 @@
             "notebooklm._types.notes",
             "notebooklm._types.research",
             "notebooklm._types.sharing",
+            "notebooklm._types.source_delete",
             "notebooklm._types.sources",
             "notebooklm._types.usage",
             "notebooklm._url_utils",
@@ -2846,6 +2880,7 @@
             "notebooklm._web.artifact.table",
             "notebooklm._web.artifacts",
             "notebooklm._web.assembly",
+            "notebooklm._web.assets",
             "notebooklm._web.chat",
             "notebooklm._web.collections",
             "notebooklm._web.contracts",
@@ -2966,9 +3001,9 @@
       "module_counts": {
         "android": 4,
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "runtime": 9,
-        "types": 16
+        "types": 17
       },
       "module_delta": [
         "notebooklm",
@@ -2979,6 +3014,7 @@
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3076,6 +3112,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",
@@ -3097,15 +3134,16 @@
     "client_reexport": {
       "module_counts": {
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "runtime": 9,
-        "types": 16
+        "types": 17
       },
       "module_delta": [
         "notebooklm",
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3203,6 +3241,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",
@@ -3224,9 +3263,9 @@
     "legacy_client_attribute": {
       "module_counts": {
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "runtime": 9,
-        "types": 16,
+        "types": 17,
         "web": 3
       },
       "module_delta": [
@@ -3234,6 +3273,7 @@
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3331,6 +3371,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",
@@ -3355,15 +3396,16 @@
     "package": {
       "module_counts": {
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "runtime": 9,
-        "types": 16
+        "types": 17
       },
       "module_delta": [
         "notebooklm",
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3461,6 +3503,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",
@@ -3482,15 +3525,16 @@
     "raw_module": {
       "module_counts": {
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "runtime": 9,
-        "types": 16
+        "types": 17
       },
       "module_delta": [
         "notebooklm",
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3588,6 +3632,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",
@@ -3609,10 +3654,10 @@
     "web_raw_api": {
       "module_counts": {
         "auth": 32,
-        "root": 59,
+        "root": 60,
         "rpc": 3,
         "runtime": 9,
-        "types": 16,
+        "types": 17,
         "web": 2
       },
       "module_delta": [
@@ -3620,6 +3665,7 @@
         "notebooklm._artifact",
         "notebooklm._artifact._download_client",
         "notebooklm._artifact._guarded_transfer",
+        "notebooklm._artifact._publication",
         "notebooklm._artifact._redirect_guard",
         "notebooklm._artifact.downloads",
         "notebooklm._artifact.formatters",
@@ -3717,6 +3763,7 @@
         "notebooklm._types.notes",
         "notebooklm._types.research",
         "notebooklm._types.sharing",
+        "notebooklm._types.source_delete",
         "notebooklm._types.sources",
         "notebooklm._types.usage",
         "notebooklm._url_utils",

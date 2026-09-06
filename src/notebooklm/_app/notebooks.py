@@ -31,6 +31,8 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
 
+from ..options import USE_DEFAULT
+
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
     from ..types import Notebook, NotebookDescription, NotebookMetadata
@@ -103,9 +105,10 @@ async def execute_notebook_create(
     and the MCP ``notebook_create`` tool — surfaces populated timestamps on
     creation rather than ``null`` (#1705, lifting the MCP-only fix from #1699).
     """
-    notebook = await client.notebooks.create(title)
-    await _backfill_create_timestamps(client, notebook)
-    return NotebookCreateResult(notebook=notebook)
+    async with client.operation(timeout=USE_DEFAULT):
+        notebook = await client.notebooks.create(title)
+        await _backfill_create_timestamps(client, notebook)
+        return NotebookCreateResult(notebook=notebook)
 
 
 async def _backfill_create_timestamps(
@@ -181,9 +184,10 @@ async def execute_notebook_copy(
     policy lives in the backend implementation; this workflow preserves it by
     issuing exactly one copy call after resolution.
     """
-    resolved_id = await resolve_notebook_id(client, notebook_id)
-    notebook = await client.notebooks.copy(resolved_id, title)
-    return NotebookCopyResult(source_notebook_id=resolved_id, notebook=notebook)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_notebook_id(client, notebook_id)
+        notebook = await client.notebooks.copy(resolved_id, title)
+        return NotebookCopyResult(source_notebook_id=resolved_id, notebook=notebook)
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +232,10 @@ async def execute_notebook_rename(
     ``resolve_notebook_id`` is injected so this core stays free of the
     ``rich``-coupled resolver and the CLI's ``monkeypatch`` seam keeps landing.
     """
-    resolved_id = await resolve_notebook_id(client, notebook_id)
-    await client.notebooks.rename(resolved_id, new_title)
-    return NotebookRenameResult(notebook_id=resolved_id, new_title=new_title)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_notebook_id(client, notebook_id)
+        await client.notebooks.rename(resolved_id, new_title)
+        return NotebookRenameResult(notebook_id=resolved_id, new_title=new_title)
 
 
 # ---------------------------------------------------------------------------
@@ -257,9 +262,10 @@ async def execute_notebook_describe(
     resolve_notebook_id: ResolveNotebookIdFn,
 ) -> NotebookDescribeResult:
     """Resolve + fetch a notebook's AI-generated description."""
-    resolved_id = await resolve_notebook_id(client, notebook_id)
-    description = await client.notebooks.get_description(resolved_id)
-    return NotebookDescribeResult(notebook_id=resolved_id, description=description)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_notebook_id(client, notebook_id)
+        description = await client.notebooks.get_description(resolved_id)
+        return NotebookDescribeResult(notebook_id=resolved_id, description=description)
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +292,10 @@ async def execute_notebook_metadata(
     resolve_notebook_id: ResolveNotebookIdFn,
 ) -> NotebookMetadataResult:
     """Resolve + fetch a notebook's metadata (details + sources list)."""
-    resolved_id = await resolve_notebook_id(client, notebook_id)
-    metadata = await client.notebooks.get_metadata(resolved_id)
-    return NotebookMetadataResult(notebook_id=resolved_id, metadata=metadata)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_notebook_id(client, notebook_id)
+        metadata = await client.notebooks.get_metadata(resolved_id)
+        return NotebookMetadataResult(notebook_id=resolved_id, metadata=metadata)
 
 
 __all__ = [

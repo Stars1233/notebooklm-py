@@ -31,6 +31,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from functools import partial
@@ -38,6 +39,8 @@ from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
 from ..exceptions import AuthError, ValidationError
+from ..options import USE_DEFAULT, UseDefault
+from ..outcomes import redact_operation_text
 from ..types import Artifact, ArtifactType
 from .download_specs import EXTENSION_MIME_TYPES, DownloadTypeSpec
 from .download_specs import FORMAT_EXTENSIONS as FORMAT_EXTENSIONS
@@ -88,6 +91,10 @@ def resolve_extension(spec: DownloadTypeSpec, output_format: str | None = None) 
     return spec.extension
 
 
+class _DownloadArtifacts(Protocol):
+    async def list(self, notebook_id: str) -> list[Artifact]: ...
+
+
 class _DownloadFacade(Protocol):
     """Subset of :class:`~notebooklm.NotebookLMClient` the executor needs.
 
@@ -97,7 +104,11 @@ class _DownloadFacade(Protocol):
     """
 
     @property
-    def artifacts(self) -> Any: ...  # ArtifactsAPI with .list + .download_<x>
+    def artifacts(self) -> _DownloadArtifacts: ...
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
 
 
 # Type alias for the bound download coroutine returned by
@@ -287,6 +298,7 @@ class DownloadResult:
     skipped_count: int = 0
     is_failure: bool = False
     artifacts: tuple[dict[str, Any], ...] = ()
+    failures: tuple[Exception, ...] = field(default=(), repr=False, compare=False)
 
     @property
     def has_error(self) -> bool:
@@ -748,6 +760,7 @@ async def _execute_download_all(
     failed_count = 0
     skipped_count = 0
     first_auth_error: AuthError | None = None
+    failures: list[Exception] = []
 
     for i, (artifact, item_name) in enumerate(
         zip(type_artifacts, planned_filenames, strict=True), 1
@@ -799,6 +812,7 @@ async def _execute_download_all(
             )
             succeeded_count += 1
         except Exception as e:
+            failures.append(e)
             if isinstance(e, AuthError) and first_auth_error is None:
                 first_auth_error = e
             artifacts_results.append(
@@ -807,7 +821,7 @@ async def _execute_download_all(
                     "title": artifact["title"],
                     "filename": item_name,
                     "status": "failed",
-                    "error": str(e),
+                    "error": redact_operation_text(e),
                 }
             )
             failed_count += 1
@@ -823,6 +837,7 @@ async def _execute_download_all(
         failed_count=failed_count,
         skipped_count=skipped_count,
         is_failure=failed_count > 0,
+        failures=tuple(failures),
         failure=(
             DownloadFailure("authentication", detail=str(first_auth_error))
             if first_auth_error is not None
@@ -934,8 +949,9 @@ async def _execute_download_single(
     except Exception as e:
         return DownloadResult(
             outcome=DownloadOutcome.ERROR,
-            failure=DownloadFailure("download_failed", detail=str(e)),
+            failure=DownloadFailure("download_failed", detail=redact_operation_text(e)),
             artifact=dict(selected),
+            failures=(e,),
         )
 
 
@@ -969,35 +985,38 @@ async def execute_download(
         progress: Optional :class:`DownloadEventSink` for the ``--all`` per-artifact
             progress events. ``None`` skips them.
     """
-    nb_id_resolved = await notebook_resolver(plan.notebook_id)
+    async with facade.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await notebook_resolver(plan.notebook_id)
 
-    # List ONCE; thread the raw rows into the bound download method so it does
-    # not re-issue the same list RPC (issue #1488).
-    type_artifacts, prefetch_kwargs = await _fetch_artifacts_once(facade, nb_id_resolved, plan.spec)
-
-    download_fn = _bind_download_fn(plan, facade, prefetch_kwargs)
-
-    if not type_artifacts:
-        return DownloadResult(
-            outcome=DownloadOutcome.NO_ARTIFACTS,
-            failure=DownloadFailure("no_artifacts", artifact_type=plan.spec.name),
+        # List ONCE; thread the raw rows into the bound download method so it does
+        # not re-issue the same list RPC (issue #1488).
+        type_artifacts, prefetch_kwargs = await _fetch_artifacts_once(
+            facade, nb_id_resolved, plan.spec
         )
 
-    if plan.download_all:
-        return await _execute_download_all(
+        download_fn = _bind_download_fn(plan, facade, prefetch_kwargs)
+
+        if not type_artifacts:
+            return DownloadResult(
+                outcome=DownloadOutcome.NO_ARTIFACTS,
+                failure=DownloadFailure("no_artifacts", artifact_type=plan.spec.name),
+            )
+
+        if plan.download_all:
+            return await _execute_download_all(
+                plan,
+                facade,
+                type_artifacts,
+                nb_id_resolved,
+                download_fn,
+                progress=progress,
+            )
+
+        return await _execute_download_single(
             plan,
             facade,
             type_artifacts,
             nb_id_resolved,
             download_fn,
-            progress=progress,
+            artifact_resolver,
         )
-
-    return await _execute_download_single(
-        plan,
-        facade,
-        type_artifacts,
-        nb_id_resolved,
-        download_fn,
-        artifact_resolver,
-    )

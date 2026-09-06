@@ -9,6 +9,9 @@ after a partial or ambiguous result. These contracts are backend-neutral: Web
 and Android keep different wire implementations, but expose the same ownership
 and recovery vocabulary.
 
+See [application action ownership](architecture-application-actions.md) for the executor inventory,
+supervised cleanup API, and regression coverage.
+
 Use the explorable
 [deadline and cancellation sequence](https://teng-lin.github.io/notebooklm-py/diagrams/36-operation-deadline-and-cancellation.html)
 and
