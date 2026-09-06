@@ -8,6 +8,11 @@ This page is the **single source of truth** for currently-deprecated APIs in
 replacement, when the deprecation was introduced, when it is scheduled for
 removal, and any cross-references.
 
+The [release migration ledger](release-migration-ledger.md) separately records
+whether each scheduled transition has actually shipped its notice and reached
+its earliest eligible release. A `Since` value staged on the development branch
+is not release evidence.
+
 `docs/stability.md` links here rather than duplicating the table; if you need
 the broader stability policy (semver promise, supported Python versions, the
 0.x pre-1.0 semantics), start there.

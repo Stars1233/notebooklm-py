@@ -591,6 +591,10 @@ them to normal users. Follow the normal checklist above, with these differences:
 ## Version Numbering
 
 **IMPORTANT:** Read [stability.md](stability.md) before deciding version bump.
+For a release that removes or flips compatibility behavior, also audit every
+row in the [release migration ledger](release-migration-ledger.md) against the
+published stable tags. Source warnings and proposed version strings do not
+satisfy a release gate.
 
 | Change Type | Bump | Example |
 |-------------|------|---------|

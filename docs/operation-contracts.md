@@ -1,7 +1,7 @@
 # Operation Deadlines, Ownership, and Recovery Contracts
 
 **Status:** Active
-**Last Updated:** 2026-09-05
+**Last Updated:** 2026-09-06
 
 This guide explains how `NotebookLMClient` bounds multi-call work, attributes
 cancellation, records mutation evidence, and tells callers what is safe to do
@@ -48,6 +48,14 @@ Nested scopes can only shorten the parent deadline. At the top level,
 `client.operation(timeout=None)` explicitly disables the configured aggregate
 default. Inside an already bounded scope, `timeout=None` still inherits the
 parent absolute deadline; it cannot widen or remove it.
+
+Omitting `timeout` has the same explicit-unbounded meaning as `timeout=None`.
+Pass `notebooklm.options.USE_DEFAULT` when a wrapper should inherit the enclosing
+deadline or, at top level, opt into `RuntimeOptions.operation_timeout`. The
+public `UseDefault` enum exists so structural protocols can type that sentinel.
+First-party application actions use `USE_DEFAULT`, which lets their complete
+multi-step workflow consume the configured client default without changing the
+explicit `client.operation()` compatibility contract.
 
 Expiry stops local waiting and blocks new dispatch. It does not revoke a write,
 artifact generation, or research job that the upstream service already
@@ -111,6 +119,26 @@ deprecation warning. The leader's timeout controls its retry backoff and
 terminal pending/in-progress errors; it is not a separate per-follower phase
 budget.
 
+### Aggregate and inner timeout policies
+
+The configured aggregate deadline already bounds admission to the Web queue even when an internal
+Web call enters its runtime with no explicit per-call operation timeout. `RuntimeOptions.operation_timeout`
+is merged before semaphore acquisition. The default remains `None`, so existing inner policies
+continue to govern unless a caller or client configuration supplies an aggregate budget.
+
+Those inner policies have different meanings and should remain visible:
+
+| Window | Scope |
+|---|---|
+| Aggregate operation deadline | Admission, queueing, locks, credential acquisition, retries, wire calls, reconciliation, polling attachment, transfers, and required readback across the whole workflow |
+| Web HTTP read/inactivity window | Progress between response reads for one HTTP attempt; chat and long-running imports may use feature-specific read windows |
+| Android RPC window | One gRPC operation's aggregate wire call; it is not a byte-inactivity timer |
+| Shared polling producer policy | Leader retry cadence and terminal observation; each waiter's enclosing operation deadline only bounds that waiter's attachment during 0.x |
+
+At every boundary the earlier deadline wins. An inner timeout describes the failed phase; the
+operation deadline describes the caller's total budget. Neither fact proves whether a mutation
+committed.
+
 ## The mutation journal
 
 Each top-level workflow owns one private `OperationJournal`. Nested operation
@@ -170,6 +198,36 @@ values.
 
 `whole_request_retriable=True` is allowed only when no member is `CONFIRMED` or
 `UNKNOWN`. Prefer per-member continuation over whole-batch replay.
+
+`SourcesAPI.delete_many_with_outcomes()` is the supervised cleanup counterpart.
+It returns one frozen `notebooklm.types.SourceDeleteOutcome` per requested input
+occurrence, in order, preserving duplicates. Each result carries `source_id`, a
+canonical `BatchItemOutcome`, and an optional error excluded from repr/equality.
+Cancellation settles the bounded child tasks and attaches the complete batch
+evidence to the escaping exception; positively unattempted members remain
+`NOT_SENT`. Use this method when later cleanup decisions need per-source commit
+evidence. The older `delete_many()` bulk convenience contract remains available.
+
+## Producer and consumer evidence matrix
+
+Failure category, transport status, commit confidence, recovery guidance, and retry permission are
+independent. Producers record the strongest evidence they actually observed; workflow and adapter
+consumers preserve it without upgrading a status code into commit proof.
+
+| Observation at the producer | Commit confidence and consequence | Consumer rule |
+|---|---|---|
+| Verified failure before dispatch | `NOT_SENT`; replay still requires the operation owner's policy grant | Preserve the zero-send evidence; do not turn every local validation/configuration error into an automatic retry |
+| Web decoded, positively evidenced refusal | `REJECTED` for that semantic send | Only the helpers whose owner policy authorizes refusal retry may send again |
+| Known Android tentative-registration auth refusal or decoded registration omission | `REJECTED` for that exact producer and response shape | Do not generalize the evidence to other gRPC methods or statuses |
+| HTTP 429 or gRPC `RESOURCE_EXHAUSTED` observed after dispatch | `UNKNOWN` unless a stronger decoded contract proves rejection | Back off for safe reads; never replay a mutation merely because the error category is rate limit |
+| Empty or failed chat stream after the request was sent | Preserve `UNKNOWN` and any correlated turn evidence | Inspect conversation state; never blindly resend the question |
+| Confirmed mutation followed by failed required readback | Mutation remains `CONFIRMED`; readback failure and known IDs remain attached | Continue or inspect from the confirmed ID instead of recreating the resource |
+| Mixed batch outcomes | Preserve every member and confirmed sibling ID; a later rejection cannot erase an earlier unknown attempt | Retry only individually authorized `NOT_SENT`/`REJECTED` members; never replay confirmed or unknown members |
+
+`ErrorCategory` and HTTP/gRPC status explain the failure family. `CommitState` explains what is
+known about upstream state. `RecoveryAction` is the producer's next-step hint. A replay grant is an
+operation-owner decision. None can be derived mechanically from another, and adapters must carry
+the neutral evidence even when their visible envelope or status code differs.
 
 ## Recovery actions
 

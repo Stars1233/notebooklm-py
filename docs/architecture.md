@@ -956,6 +956,14 @@ cheap reads or `/healthz`.
 The [REST subsystem diagram](https://teng-lin.github.io/notebooklm-py/diagrams/18-rest-server-subsystem.html) shows the
 lifespan-owned client, route guards, application cores, and response projection.
 
+The cross-adapter capability matrix, manifest ceilings, process-lifetime limits, and evidence
+projection rules are maintained in
+[`docs/adapter-contracts.md`](./adapter-contracts.md). Surface parity is not inferred from a shared
+application workflow.
+
+Measured import costs, duplicate-policy dispositions, and the root feature/helper ownership map are
+recorded in [`docs/coupling-audit.md`](./coupling-audit.md).
+
 ## Middleware chain (ADR-0009)
 
 The runtime chain order is pinned by
