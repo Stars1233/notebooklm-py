@@ -273,7 +273,7 @@ cannot upgrade ambiguous evidence into a retryable failure or success.
 ## Evidence and guardrails
 
 The implementation and its most direct tests were re-audited at revision
-`bd1647fbb023bdeea5e8c5fe74a25f9af3478a4a`:
+`bd1647fbbba412600710bedcd8fd707c5b90f588`:
 
 | Contract | Implementation | Tests |
 |---|---|---|

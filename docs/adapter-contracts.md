@@ -2,7 +2,7 @@
 
 **Status:** Active baseline  
 **Last Updated:** 2026-09-06  
-**Source baseline:** `bd1647fbb023bdeea5e8c5fe74a25f9af3478a4a`
+**Source baseline:** `bd1647fbbba412600710bedcd8fd707c5b90f588`
 
 The CLI, MCP server, and REST server are curated adapters over the same public client and neutral
 application workflows. Shared core logic does not imply identical product surfaces. “No” below
