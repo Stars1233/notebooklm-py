@@ -4,18 +4,56 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 
-from .._idempotency import attach_batch_outcome
+from .._idempotency import attach_operation_metadata
 from ..exceptions import ValidationError
 from ..outcomes import (
     _MAX_BATCH_OUTCOME_ITEMS,
     BatchItemOutcome,
     BatchOutcome,
     CommitState,
+    OperationMetadata,
     ReconciliationReport,
+    RecoveryAction,
 )
 from ..types import SourceDeleteOutcome
 from .polling import SpawnSourceChild
+
+
+def _attach_settlement(error: BaseException, results: list[SourceDeleteOutcome]) -> None:
+    """Keep complete local results and an explicitly bounded adapter receipt."""
+    previous = (
+        getattr(error, "operation_metadata", None)
+        or getattr(error, "_operation_metadata", None)
+        or OperationMetadata()
+    )
+    items = tuple(item.outcome for item in results)
+    states = {CommitState.NOT_SENT, previous.commit_state, *(item.commit_state for item in items)}
+    state = next(
+        candidate
+        for candidate in (
+            CommitState.UNKNOWN,
+            CommitState.CONFIRMED,
+            CommitState.REJECTED,
+            CommitState.NOT_SENT,
+        )
+        if candidate in states
+    )
+    attach_operation_metadata(
+        error,
+        replace(
+            previous,
+            batch_outcome=BatchOutcome(items[:_MAX_BATCH_OUTCOME_ITEMS]),
+            source_delete_outcomes=items,
+            commit_state=state,
+            recovery_action=(
+                RecoveryAction.INSPECT_AND_RECONCILE
+                if state is CommitState.UNKNOWN
+                else previous.recovery_action
+            ),
+        ),
+    )
 
 
 def _failed(member: int, source_id: str, error: BaseException) -> SourceDeleteOutcome:
@@ -62,8 +100,6 @@ async def delete_sources_with_outcomes(
     spawn_child: SpawnSourceChild,
 ) -> list[SourceDeleteOutcome]:
     """Keep cleanup's ten-wide, 0.5-second pacing and settle before escape."""
-    if len(source_ids) > _MAX_BATCH_OUTCOME_ITEMS:
-        raise ValidationError(f"source_ids must contain at most {_MAX_BATCH_OUTCOME_ITEMS} entries")
     if any(not isinstance(sid, str) or not sid for sid in source_ids):
         raise ValidationError("source_ids must contain non-empty source IDs")
     results = [
@@ -108,6 +144,6 @@ async def delete_sources_with_outcomes(
                 # Repeated caller cancellation cannot abandon owned writers/children.
                 continue
         settlement.result()
-        attach_batch_outcome(error, BatchOutcome(tuple(item.outcome for item in results)))
+        _attach_settlement(error, results)
         raise
     return results

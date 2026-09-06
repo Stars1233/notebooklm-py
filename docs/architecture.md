@@ -709,9 +709,14 @@ values.
 It returns one frozen `notebooklm.types.SourceDeleteOutcome` per requested input
 occurrence, in order, preserving duplicates. Each result carries `source_id`, a
 canonical `BatchItemOutcome`, and an optional error excluded from repr/equality.
-Cancellation settles the bounded child tasks and attaches the complete batch
-evidence to the escaping exception; positively unattempted members remain
-`NOT_SENT`. Use this method when later cleanup decisions need per-source commit
+Cleanup accepts arbitrary candidate counts, with at most ten children and a
+half-second pause between groups. Cancellation settles the child tasks and
+retains every occurrence in `operation_metadata.source_delete_outcomes`;
+positively unattempted members remain `NOT_SENT`. The canonical `batch_outcome`
+receipt stays capped at 20 items. For larger cleanups, its adapter projection
+includes `total_items` and `omitted_items`; the complete in-memory carrier remains
+available, and overall commit/recovery guidance considers all members, including
+those beyond the displayed prefix. Use this method when later cleanup decisions need per-source commit
 evidence. The older `delete_many()` bulk convenience contract remains available.
 
 #### Producer and consumer evidence matrix

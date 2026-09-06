@@ -268,6 +268,10 @@ class OperationMetadata:
     attempts: tuple[_AttemptMetadata, ...] = ()
     prerequisite_ids: tuple[str, ...] = ()
     entries: tuple[OperationMetadata, ...] = ()
+    # Full in-memory cleanup settlement. ``batch_outcome`` and its adapter
+    # projection remain bounded; large cleanup requests are not rejected or
+    # silently reduced to that prefix.
+    source_delete_outcomes: tuple[BatchItemOutcome, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         for name in ("operation", "invocation_id", "method", "phase", "source_id", "stage"):
@@ -276,6 +280,7 @@ class OperationMetadata:
         object.__setattr__(self, "prerequisite_ids", _safe_tuple(self.prerequisite_ids))
         object.__setattr__(self, "attempts", self.attempts[:_MAX_JOURNAL_RECORDS])
         object.__setattr__(self, "entries", self.entries[:_MAX_JOURNAL_RECORDS])
+        object.__setattr__(self, "source_delete_outcomes", tuple(self.source_delete_outcomes))
 
 
 def _wire_text(value: object) -> str:
@@ -338,12 +343,18 @@ def _wire_metadata(metadata: OperationMetadata) -> dict[str, object]:
     if metadata.reconciliation is not None:
         projected["reconciliation"] = _wire_report(metadata.reconciliation)
     if metadata.batch_outcome is not None:
-        projected["batch_outcome"] = {
+        batch: dict[str, object] = {
             "whole_request_retriable": metadata.batch_outcome.whole_request_retriable,
             "items": [
                 _wire_batch_item(item) for item in metadata.batch_outcome.items[:_MAX_COLLECTION]
             ],
         }
+        if len(metadata.source_delete_outcomes) > _MAX_COLLECTION:
+            batch["total_items"] = len(metadata.source_delete_outcomes)
+            batch["omitted_items"] = len(metadata.source_delete_outcomes) - len(
+                metadata.batch_outcome.items
+            )
+        projected["batch_outcome"] = batch
     return projected
 
 
