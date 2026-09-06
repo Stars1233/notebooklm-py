@@ -876,6 +876,7 @@ WORKFLOW_SCOPE_CALL_INVENTORY = (
             ("src/notebooklm/_web/artifacts.py", "WebArtifactsAPI.download_report", 1),
             ("src/notebooklm/_web/artifacts.py", "WebArtifactsAPI.download_slide_deck", 1),
             ("src/notebooklm/_web/artifacts.py", "WebArtifactsAPI.download_video", 1),
+            ("src/notebooklm/_web/artifacts.py", "WebArtifactsAPI.list_with_status", 1),
             ("src/notebooklm/_web/artifacts.py", "WebArtifactsAPI.rename", 1),
             ("src/notebooklm/_web/chat.py", "WebChatAPI.get_history", 1),
             ("src/notebooklm/_web/collections.py", "WebCollectionsAPI.create", 1),
