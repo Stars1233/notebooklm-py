@@ -13,7 +13,7 @@ from notebooklm._web.artifacts import WebArtifactsAPI
 from notebooklm._web.mind_maps import NoteBackedMindMapService
 from notebooklm._web.notes import NoteService
 from notebooklm.exceptions import RPCError, ValidationError
-from notebooklm.types import ArtifactListingComponent, ArtifactType
+from notebooklm.types import ArtifactListingComponent, ArtifactType, MindMap, MindMapKind
 from tests._fixtures.fake_core import make_fake_core
 from tests.unit.android.test_artifacts import (
     _PROTO,
@@ -112,6 +112,32 @@ async def test_android_prepared_audio_retains_exact_ownership_read_and_format() 
 
 
 @pytest.mark.asyncio
+async def test_android_prepared_note_backed_map_reuses_its_hydrated_tree(tmp_path) -> None:
+    session, _, mind_maps, _, api = _graph()
+    mind_maps.mind_maps = [
+        MindMap(
+            id="note-map",
+            notebook_id="notebook-1",
+            title="Note map",
+            kind=MindMapKind.NOTE_BACKED,
+            tree={"name": "Root", "children": []},
+        )
+    ]
+    output = tmp_path / "note-map.json"
+
+    listing = await api.prepare_downloads(
+        ArtifactDownloadRequest("notebook-1", ArtifactType.MIND_MAP)
+    )
+
+    assert [selection.artifact_id for selection in listing.selections] == ["note-map"]
+    assert mind_maps.calls == ["notebook-1"]
+    assert await api.download(listing.selections[0], str(output)) == str(output)
+    assert '"name": "Root"' in output.read_text()
+    assert mind_maps.calls == ["notebook-1"]
+    assert [call[0] for call in session.calls] == [LIST_ARTIFACTS_METHOD]
+
+
+@pytest.mark.asyncio
 async def test_prepared_selection_rejects_a_second_backend_and_forged_identity() -> None:
     raw = _artifact("audio", type_code=_PROTO.ARTIFACT_TYPE_AUDIO_OVERVIEW)
     raw.audio_overview.media_urls.add(
@@ -194,3 +220,51 @@ async def test_web_legacy_prefetch_dispatch_covers_every_supported_kind(
         == "out"
     )
     assert legacy.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "legacy_name"),
+    [
+        (ArtifactType.SLIDE_DECK, "_download_slide_deck_legacy"),
+        (ArtifactType.QUIZ, "_download_quiz_legacy"),
+        (ArtifactType.FLASHCARDS, "_download_flashcards_legacy"),
+    ],
+)
+async def test_web_legacy_prefetch_keeps_an_explicit_empty_representation(
+    kind: ArtifactType, legacy_name: str
+) -> None:
+    """An explicit empty value reaches the legacy validator unchanged."""
+    api = _web_api([], note_result=[])
+    legacy = AsyncMock(return_value="out")
+    setattr(api, legacy_name, legacy)
+
+    await api._download_with_legacy_prefetch(
+        ArtifactDownloadRequest("nb", kind, ""), "out", "artifact"
+    )
+
+    assert legacy.await_args.args[3] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("kind", "legacy_name"),
+    [
+        (ArtifactType.SLIDE_DECK, "_download_slide_deck_legacy"),
+        (ArtifactType.QUIZ, "_download_quiz_legacy"),
+        (ArtifactType.FLASHCARDS, "_download_flashcards_legacy"),
+    ],
+)
+async def test_android_legacy_prefetch_keeps_an_explicit_empty_representation(
+    kind: ArtifactType, legacy_name: str
+) -> None:
+    """An explicit empty value reaches the native legacy validator unchanged."""
+    _, _, _, _, api = _graph()
+    legacy = AsyncMock(return_value="out")
+    setattr(api, legacy_name, legacy)
+
+    await api._download_with_legacy_prefetch(
+        ArtifactDownloadRequest("notebook-1", kind, ""), "out", "artifact"
+    )
+
+    assert legacy.await_args.args[3] == ""

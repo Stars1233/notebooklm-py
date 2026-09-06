@@ -147,6 +147,24 @@ class FakeMindMaps:
             raise self.error
         return list(self.artifacts)
 
+    async def list_mind_map_artifacts_with_content(
+        self, notebook_id: str
+    ) -> tuple[list[Artifact], list[MindMap]]:
+        self.calls.append(notebook_id)
+        if self.error is not None:
+            raise self.error
+        artifacts = list(self.artifacts) or [
+            Artifact(
+                id=mind_map.id,
+                title=mind_map.title,
+                _artifact_type=ArtifactTypeCode.MIND_MAP.value,
+                status=3,
+                created_at=mind_map.created_at,
+            )
+            for mind_map in self.mind_maps
+        ]
+        return artifacts, list(self.mind_maps)
+
     async def list_note_backed_mind_maps(self, notebook_id: str) -> list[MindMap]:
         self.calls.append(notebook_id)
         if self.error is not None:
@@ -2666,6 +2684,11 @@ class _SupervisedMindMapLister:
             replay_safe=True,
             response_type=list,
         )
+
+    async def list_mind_map_artifacts_with_content(
+        self, notebook_id: str
+    ) -> tuple[list[Artifact], list[MindMap]]:
+        return await self.list_mind_map_artifacts(notebook_id), []
 
 
 @pytest.mark.asyncio

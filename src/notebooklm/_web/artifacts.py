@@ -313,7 +313,12 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
     # =========================================================================
 
     async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
-        """Prepare Web rows once while keeping their wire representation private."""
+        """Prepare completed candidates without exposing backend caches.
+
+        Validate the representation before I/O. Every returned selection is
+        bound to this backend instance, notebook, and current client generation.
+        Partial results retain typed failure evidence; they do not prove absence.
+        """
         # Validate before reading either aggregate backing, including the empty
         # listing case where ``PreparedDownloadCache.prepare`` would not run.
         resolve_download_format(request.kind, request.output_format)
@@ -355,26 +360,32 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
             )
 
     async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
-        """Consume an exact Web selection without repeating aggregate reads."""
-        async with self._operation_scope("artifacts.download") as lease:
-            snapshot = self._prepared_downloads.require(selection, epoch=lease.epoch)
-            request = ArtifactDownloadRequest(
-                selection.notebook_id,
-                selection.kind,
-                selection.representation,
-            )
-            # An interactive Studio mind map remains usable when its optional
-            # notes aggregate failed. ``[]`` means this prepared selection has
-            # no note-backed match and deliberately avoids retrying that RPC.
-            mind_maps = snapshot.mind_maps if snapshot.mind_maps is not None else []
-            return await self._download_with_legacy_prefetch(
-                request,
-                output_path,
-                selection.artifact_id,
-                artifacts_data=snapshot.artifacts_data,
-                mind_maps=mind_maps,
-                artifacts=snapshot.artifacts,
-            )
+        """Download an owned prepared identity within its admitted generation."""
+        snapshot: _PreparedWebDownload | None = None
+        request: ArtifactDownloadRequest | None = None
+        mind_maps: builtins.list[Any] | None = None
+        try:
+            async with self._operation_scope("artifacts.download") as lease:
+                snapshot = self._prepared_downloads.require(selection, epoch=lease.epoch)
+                request = ArtifactDownloadRequest(
+                    selection.notebook_id,
+                    selection.kind,
+                    selection.representation,
+                )
+                # An interactive Studio mind map remains usable when its optional
+                # notes aggregate failed. ``[]`` means this prepared selection has
+                # no note-backed match and deliberately avoids retrying that RPC.
+                mind_maps = snapshot.mind_maps if snapshot.mind_maps is not None else []
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    selection.artifact_id,
+                    artifacts_data=snapshot.artifacts_data,
+                    mind_maps=mind_maps,
+                    artifacts=snapshot.artifacts,
+                )
+        finally:
+            del self, snapshot, request, mind_maps
 
     async def _download_with_legacy_prefetch(
         self,
@@ -387,59 +398,62 @@ class WebArtifactsAPI(RequestPolicyOwner, ArtifactsAPI):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Dispatch compatibility rows through the existing typed backend methods."""
-        if request.kind is ArtifactType.AUDIO:
-            return await self._download_audio_legacy(
-                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-            )
-        if request.kind is ArtifactType.VIDEO:
-            return await self._download_video_legacy(
-                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-            )
-        if request.kind is ArtifactType.INFOGRAPHIC:
-            return await self._download_infographic_legacy(
-                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-            )
-        if request.kind is ArtifactType.SLIDE_DECK:
-            return await self._download_slide_deck_legacy(
-                request.notebook_id,
-                output_path,
-                artifact_id,
-                request.output_format or "pdf",
-                artifacts_data=artifacts_data,
-            )
-        if request.kind is ArtifactType.REPORT:
-            return await self._download_report_legacy(
-                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-            )
-        if request.kind is ArtifactType.MIND_MAP:
-            return await self._download_mind_map_legacy(
-                request.notebook_id,
-                output_path,
-                artifact_id,
-                mind_maps=mind_maps,
-                artifacts_data=artifacts_data,
-            )
-        if request.kind is ArtifactType.DATA_TABLE:
-            return await self._download_data_table_legacy(
-                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
-            )
-        if request.kind is ArtifactType.QUIZ:
-            return await self._download_quiz_legacy(
-                request.notebook_id,
-                output_path,
-                artifact_id,
-                request.output_format or "json",
-                artifacts=artifacts,
-            )
-        if request.kind is ArtifactType.FLASHCARDS:
-            return await self._download_flashcards_legacy(
-                request.notebook_id,
-                output_path,
-                artifact_id,
-                request.output_format or "json",
-                artifacts=artifacts,
-            )
-        raise AssertionError(f"unsupported prepared artifact kind: {request.kind!r}")
+        try:
+            if request.kind is ArtifactType.AUDIO:
+                return await self._download_audio_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.VIDEO:
+                return await self._download_video_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.INFOGRAPHIC:
+                return await self._download_infographic_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.SLIDE_DECK:
+                return await self._download_slide_deck_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "pdf" if request.output_format is None else request.output_format,
+                    artifacts_data=artifacts_data,
+                )
+            if request.kind is ArtifactType.REPORT:
+                return await self._download_report_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.MIND_MAP:
+                return await self._download_mind_map_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    mind_maps=mind_maps,
+                    artifacts_data=artifacts_data,
+                )
+            if request.kind is ArtifactType.DATA_TABLE:
+                return await self._download_data_table_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.QUIZ:
+                return await self._download_quiz_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "json" if request.output_format is None else request.output_format,
+                    artifacts=artifacts,
+                )
+            if request.kind is ArtifactType.FLASHCARDS:
+                return await self._download_flashcards_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "json" if request.output_format is None else request.output_format,
+                    artifacts=artifacts,
+                )
+            raise AssertionError(f"unsupported prepared artifact kind: {request.kind!r}")
+        finally:
+            del self, request, artifacts_data, mind_maps, artifacts
 
     async def _download_audio_legacy(
         self,
