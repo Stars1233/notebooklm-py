@@ -131,6 +131,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Ubuntu/macOS/Windows × Python 3.10–3.14 matrix now runs only in the nightly
   workflow, and manual nightly dispatches include it by default.
 
+### Documentation
+
+- **MCP/REST hosting threat model (`SECURITY.md`).** Operator-facing security
+  docs no longer claim the CLI has "no long-lived API keys or OAuth tokens".
+  They now document that `master_token.json` is account-equivalent, MCP OAuth
+  refresh tokens are long-lived (rotating `NOTEBOOKLM_MCP_OAUTH_PASSWORD` does
+  not revoke them), stdio `source_add(path)` reads server-host files, `/files/dl`
+  and `/files/ul` are HMAC-URL auth only, open OAuth DCR does not bypass the
+  login password, MCP loopback HTTP may be tokenless while REST always requires
+  `NOTEBOOKLM_SERVER_TOKEN`, `GET /healthz` is liveness not readiness, and
+  `pip-audit` in CI still exports `browser+dev+markdown` by default.
+  ([#2387](https://github.com/teng-lin/notebooklm-py/issues/2387))
+
 ### Removed
 
 - Removed six deprecated private `_auth` compatibility modules earlier than their documented
