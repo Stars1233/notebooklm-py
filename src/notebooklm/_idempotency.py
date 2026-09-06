@@ -555,7 +555,9 @@ def attach_operation_journal(
         primary_metadata=exact_primary_metadata,
         extra_entries=extra_entries,
     )
-    if existing is not None and exact_primary_metadata is None:
+    if existing is not None:
+        # Workflow owners may enrich an already attached leaf with aggregate
+        # settlement. Selecting that leaf again must retain the outer receipt.
         metadata = replace(
             metadata,
             known_resource_ids=tuple(
@@ -564,7 +566,7 @@ def attach_operation_journal(
             source_id=metadata.source_id or existing.source_id,
             stage=metadata.stage or existing.stage,
             reconciliation=metadata.reconciliation or existing.reconciliation,
-            batch_outcome=metadata.batch_outcome or existing.batch_outcome,
+            batch_outcome=existing.batch_outcome or metadata.batch_outcome,
             prerequisite_ids=tuple(
                 dict.fromkeys((*metadata.prerequisite_ids, *existing.prerequisite_ids))
             ),

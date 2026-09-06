@@ -596,6 +596,11 @@ other termination paths distinct:
 | Client generation is retired while the task unwinds | Cancellation propagates; stale work is not mislabeled as a deadline |
 | Deadline and external cancellation arrive in the same event-loop turn | Python 3.10 cannot count and remove individual cancellation requests, so this exact raw race is attributed to the owned deadline and surfaces as `OperationTimeoutError`. Python 3.11+ removes only the owned request and preserves the external `CancelledError`. |
 
+On Python 3.10, awaiting a cancelled `asyncio.Task` creates a new `CancelledError`
+whose `__context__` holds the original cancellation and its attached metadata.
+Inspect evidence inside the owning task, before that boundary, or on that original
+exception. The replacement exception does not copy custom metadata attributes.
+
 Code must not catch `CancelledError` and retry a mutation. Cancellation says
 why the local task stopped; `commit_state` says what is known about the remote
 write. Those are separate axes.
@@ -774,8 +779,8 @@ The updated
 shows how backend replay classification composes with the deadline and journal;
 the
 [guardrail map](https://teng-lin.github.io/notebooklm-py/diagrams/22-testing-and-guardrails.html)
-links its ownership pins to concrete source and test locations at the same
-revision.
+links its ownership pins to concrete source and test locations; each diagram records
+its own audited revision.
 
 #### Application action ownership
 
@@ -2109,7 +2114,7 @@ src/notebooklm/
 │   ├── chat.py                  # Click-free chat core: conversation-id selection ladder + configure mode/goal/length dispatch + history fetch/format-as-data + ask save-as-note workflow (raises public ValidationError; status emitted into injected ProgressSink)
 │   ├── doctor.py                # Click-free doctor core: run_checks(*, fix, paths) -> DoctorReport (five checks incl. headless-reauth readiness + fixes + has_failures; DoctorPaths injects the path helpers; CLI owns rendering/exit codes)
 │   ├── download.py              # Click-free download core: DownloadPlan/Result + build_download_plan/execute_download (injected resolvers; CLI builds the --json envelope from the typed DownloadResult)
-│   ├── download_specs.py        # Canonical artifact-download registry: type/binding + per-format extension/MIME descriptors; derives DownloadTypeSpec projections, MIME lookup, and adapter schema enums
+│   ├── download_specs.py        # Compatibility reexports of the canonical notebooklm.downloads representation registry
 │   ├── errors.py                # classify(exc) -> ClassifiedError (category + retriable); class-sensitive
 │   ├── events.py                # ProgressEvent + ProgressSink Protocol (neutral progress seam)
 │   ├── generate.py              # Click-free typed generation executor: validates and dispatches the exact request variant, resolves sources/language, and returns GenerationExecutionResult

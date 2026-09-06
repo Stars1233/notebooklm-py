@@ -47,10 +47,16 @@ async def test_default_selector_preserves_parent_context_and_shorter_deadline() 
         async with client.operation(timeout=USE_DEFAULT):
             assert current_operation_context(supervisor) is parent
             await asyncio.sleep(0.01)
-    async with client.operation(timeout=0.005):
+    # This verifies inheritance and shortening, not timer expiry. Keep the
+    # deadlines beyond platform timer resolution and CI scheduling jitter.
+    async with client.operation(timeout=60.0):
         parent = current_operation_context(supervisor)
         async with client.operation(timeout=USE_DEFAULT):
             assert current_operation_context(supervisor) is parent
+        async with client.operation(timeout=30.0):
+            child = current_operation_context(supervisor)
+            assert child.absolute_deadline < parent.absolute_deadline
+        assert current_operation_context(supervisor) is parent
 
 
 async def test_history_steps_share_one_budget_and_expire_before_second_dispatch() -> None:

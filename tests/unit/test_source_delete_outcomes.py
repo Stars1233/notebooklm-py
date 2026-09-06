@@ -13,7 +13,10 @@ from notebooklm._app.source_clean import SourceCleanPreview, execute_source_clea
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._idempotency import attach_operation_metadata
 from notebooklm._runtime.call_supervisor import CallSupervisor
-from notebooklm._runtime.operation_context import current_operation_context
+from notebooklm._runtime.operation_context import (
+    adopt_operation_journal_entry,
+    current_operation_context,
+)
 from notebooklm._sources import SourcesAPI
 from notebooklm.outcomes import CommitState, OperationMetadata, ReconciliationReport
 
@@ -138,14 +141,27 @@ async def test_cancel_settles_children_and_keeps_unattempted_tail():
             settled.append(sid)
 
     client, supervisor = _client(delete)
-    action = asyncio.create_task(execute_source_clean(_preview(12), client=client))
+    escaped = []
+
+    async def run_cleanup():
+        try:
+            await execute_source_clean(_preview(12), client=client)
+        except asyncio.CancelledError as error:
+            # Python 3.10 Task await wraps cancellation and keeps the original
+            # exception in __context__. Capture the API's own escaping carrier.
+            escaped.append(error)
+            raise
+
+    action = asyncio.create_task(run_cleanup())
     await first_done.wait()
     await paused.wait()
     # Admission can be cancelled while the batch owner is still scheduling children.
     action.cancel()
     with pytest.raises(asyncio.CancelledError) as caught:
         await action
-    metadata = caught.value._operation_metadata
+    assert escaped
+    assert caught.value is escaped[0] or caught.value.__context__ is escaped[0]
+    metadata = escaped[0]._operation_metadata
     items = metadata.batch_outcome.items
     assert len(items) == 12
     assert items[0].commit_state is CommitState.CONFIRMED
@@ -155,9 +171,21 @@ async def test_cancel_settles_children_and_keeps_unattempted_tail():
     await supervisor.wait_for_idle(1, 0)
 
 
-async def test_cleanup_timeout_keeps_confirmed_sibling_evidence():
+@pytest.mark.parametrize("with_journal", [False, True])
+async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal):
     async def delete(nb, sid):
+        entry = (
+            adopt_operation_journal_entry(
+                supervisor, method="DeleteSources", operation="sources.delete"
+            )
+            if with_journal
+            else None
+        )
+        if entry is not None:
+            entry.mark_dispatched()
         if sid == "0":
+            if entry is not None:
+                entry.record(CommitState.CONFIRMED, "server accepted deletion")
             return
         await asyncio.Event().wait()
 

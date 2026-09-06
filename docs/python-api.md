@@ -131,7 +131,11 @@ children inherit only through the supervisor, while shared polling leaders are
 detached so one waiter's timeout or cancellation cannot stop other waiters.
 Only the operation timer's own cancellation request becomes
 `OperationTimeoutError`; caller, `TaskGroup`, outer-timeout, and stale-epoch
-cancellation remain `CancelledError`. See the
+cancellation remain `CancelledError`. Python 3.10 cannot distinguish an external
+cancellation arriving in the same event-loop turn as the owned deadline; that
+specific race surfaces as `OperationTimeoutError`. When awaiting a cancelled task
+on Python 3.10, metadata stays on the original exception in `__context__` rather
+than the replacement `CancelledError`. See the
 [operation contracts](./architecture.md#operation-lifetime-deadlines-and-evidence) and the
 [deadline sequence](https://teng-lin.github.io/notebooklm-py/diagrams/36-operation-deadline-and-cancellation.html)
 for the exact ownership rules.

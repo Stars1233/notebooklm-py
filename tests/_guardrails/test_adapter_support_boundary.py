@@ -97,14 +97,14 @@ def test_adapter_specific_atomic_io_dependency_uses_public_io_facade() -> None:
         path.relative_to(SRC_ROOT).as_posix()
         for root in ADAPTER_ROOTS
         for path in root.rglob("*.py")
-        if "notebooklm._atomic_io" in _resolved_imports(path)
+        if _resolved_imports(path).intersection({"notebooklm._atomic_io"})
     }
     assert consumers == set()
     io_consumers = {
         path.relative_to(SRC_ROOT).as_posix()
         for root in ADAPTER_ROOTS
         for path in root.rglob("*.py")
-        if "notebooklm.io" in _resolved_imports(path)
+        if _resolved_imports(path).intersection({"notebooklm.io"})
     }
     assert io_consumers == {"mcp/_oauth.py"}
 
