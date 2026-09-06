@@ -68,3 +68,56 @@ def test_public_facades_and_local_private_modules_are_allowed() -> None:
     assert not adapter_violations(
         scan_source(source, package="notebooklm.mcp.tools"), relative="mcp/tools/studio.py"
     )
+
+
+@pytest.mark.parametrize("adapter,peer", [("cli", "mcp"), ("mcp", "server"), ("server", "cli")])
+@pytest.mark.parametrize(
+    "shape",
+    [
+        "function_alias",
+        "module_alias",
+        "fromlist_keyword",
+        "fromlist_positional",
+        "relative_alias",
+        "builtin_alias",
+    ],
+)
+def test_literal_dynamic_alias_and_fromlist_edges_cannot_bypass_boundary(adapter, peer, shape):
+    source = {
+        "function_alias": f"from importlib import import_module as load\nload('notebooklm.{peer}.api')",
+        "module_alias": f"import importlib as il\nil.import_module('notebooklm.{peer}.api')",
+        "fromlist_keyword": f"__import__('notebooklm', fromlist=['{peer}'])",
+        "fromlist_positional": f"__import__('notebooklm', None, None, ('{peer}',))",
+        "relative_alias": f"from importlib import import_module as load\nload('..{peer}.api', package='notebooklm.{adapter}')",
+        "builtin_alias": f"from builtins import __import__ as load\nload('notebooklm', fromlist=['{peer}'])",
+    }[shape]
+    assert adapter_violations(
+        scan_source(source, package=f"notebooklm.{adapter}"), relative=f"{adapter}/example.py"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "__import__('notebooklm', fromlist=['_auth'])",
+        "import builtins as bi\nbi.__import__('notebooklm.types', fromlist=['_secret'])",
+        "from importlib import import_module as load\nif TYPE_CHECKING:\n    load('notebooklm._web.assembly')",
+        "__import__('_web', globals(), locals(), ['assembly'], 2)",
+        "from importlib import import_module as load\nload(name='.._web.assembly', package=__package__)",
+    ],
+)
+def test_private_literal_dynamic_aliases_and_relative_levels_are_rejected(source):
+    assert adapter_violations(
+        scan_source(source, package="notebooklm.mcp"), relative="mcp/server.py"
+    )
+
+
+def test_literal_dynamic_aliases_preserve_local_and_public_imports():
+    source = (
+        "from importlib import import_module as load\n"
+        "load('._payloads', 'notebooklm.mcp.tools')\n"
+        "__import__('notebooklm', fromlist=['types', 'io'])"
+    )
+    assert not adapter_violations(
+        scan_source(source, package="notebooklm.mcp.tools"), relative="mcp/tools/studio.py"
+    )

@@ -20,6 +20,7 @@ in ``tests/unit/cli/test_source.py::TestSourceCleanCommand``.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -357,7 +358,7 @@ async def test_execute_clean_batches_with_sleep_between_chunks() -> None:
         dry_run=False,
         list_sources=list_sources,
     )
-    with patch("notebooklm._source.delete_batch.asyncio.sleep", sleep):
+    with patch.object(asyncio, "sleep", sleep):
         result = await execute_source_clean(preview, client=_cleanup_client(delete_source))
     # Oldest of the 12 is kept; the other 11 are duplicates deleted.
     assert result.status == "completed"

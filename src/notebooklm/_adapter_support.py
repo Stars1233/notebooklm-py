@@ -39,13 +39,15 @@ class _CallSupervisor(Protocol):
 
 
 class _ClientRuntime(Protocol):
-    call_supervisor: _CallSupervisor
+    @property
+    def call_supervisor(self) -> _CallSupervisor: ...
 
 
 class AdapterRuntimeClient(Protocol):
     """Narrow adapter crossing for epoch-qualified detached client work."""
 
-    _collaborators: _ClientRuntime
+    @property
+    def _collaborators(self) -> _ClientRuntime: ...
 
     def operation(self, timeout: float | None = None) -> AbstractAsyncContextManager[object]: ...
 

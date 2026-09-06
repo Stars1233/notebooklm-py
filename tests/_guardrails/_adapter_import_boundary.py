@@ -47,6 +47,8 @@ class _Visitor(ast.NodeVisitor):
         self._package = package
         self._type_only = False
         self.imports: list[AdapterImport] = []
+        self._loaders = {"__import__": "__import__", "import_module": "import_module"}
+        self._loader_modules = {"importlib": "importlib", "builtins": "builtins"}
 
     def visit_If(self, node: ast.If) -> None:
         if not _is_type_checking_guard(node.test):
@@ -63,6 +65,8 @@ class _Visitor(ast.NodeVisitor):
     def visit_Import(self, node: ast.Import) -> None:
         for alias in node.names:
             self._record(alias.name, node.lineno)
+            if alias.name in {"importlib", "builtins"}:
+                self._loader_modules[alias.asname or alias.name] = alias.name
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         module = node.module or ""
@@ -70,30 +74,51 @@ class _Visitor(ast.NodeVisitor):
             module = importlib.util.resolve_name(f"{'.' * node.level}{module}", self._package)
         for alias in node.names:
             self._record(f"{module}.{alias.name}", node.lineno)
+            if (module, alias.name) in {("importlib", "import_module"), ("builtins", "__import__")}:
+                self._loaders[alias.asname or alias.name] = alias.name
+
+    @staticmethod
+    def _argument(node: ast.Call, position: int, name: str) -> ast.AST | None:
+        return next(
+            (keyword.value for keyword in node.keywords if keyword.arg == name),
+            node.args[position] if len(node.args) > position else None,
+        )
+
+    def _loader(self, function: ast.AST) -> str | None:
+        if isinstance(function, ast.Name):
+            return self._loaders.get(function.id)
+        if isinstance(function, ast.Attribute) and isinstance(function.value, ast.Name):
+            module = self._loader_modules.get(function.value.id)
+            if (module, function.attr) in {
+                ("importlib", "import_module"),
+                ("builtins", "__import__"),
+            }:
+                return function.attr
+        return None
 
     def visit_Call(self, node: ast.Call) -> None:
-        function = (
-            node.func.id
-            if isinstance(node.func, ast.Name)
-            else (node.func.attr if isinstance(node.func, ast.Attribute) else None)
-        )
-        if (
-            function in {"__import__", "import_module"}
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-        ):
-            target = node.args[0].value
-            if target.startswith("."):
-                package_node = next(
-                    (kw.value for kw in node.keywords if kw.arg == "package"),
-                    node.args[1] if len(node.args) > 1 else None,
-                )
+        loader = self._loader(node.func)
+        name = self._argument(node, 0, "name")
+        if loader is not None and isinstance(name, ast.Constant) and isinstance(name.value, str):
+            target = name.value
+            if loader == "import_module":
+                package_node = self._argument(node, 1, "package")
                 package = self._package
                 if isinstance(package_node, ast.Constant) and isinstance(package_node.value, str):
                     package = package_node.value
-                target = importlib.util.resolve_name(target, package)
+                if target.startswith("."):
+                    target = importlib.util.resolve_name(target, package)
+            else:
+                level = self._argument(node, 4, "level")
+                if isinstance(level, ast.Constant) and isinstance(level.value, int) and level.value:
+                    target = importlib.util.resolve_name("." * level.value + target, self._package)
             self._record(target, node.lineno)
+            if loader == "__import__":
+                fromlist = self._argument(node, 3, "fromlist")
+                if isinstance(fromlist, ast.List | ast.Tuple):
+                    for member in fromlist.elts:
+                        if isinstance(member, ast.Constant) and isinstance(member.value, str):
+                            self._record(f"{target}.{member.value}", node.lineno)
         self.generic_visit(node)
 
     def _record(self, target: str, line: int) -> None:
@@ -122,6 +147,7 @@ def is_module_or_child(target: str, parent: str) -> bool:
 # a reviewed architectural disposition, not regeneration from current imports.
 PRIVATE_SYMBOL_ALLOWANCES: dict[str, dict[str, frozenset[str]]] = {
     "notebooklm._adapter_support": {
+        "AdapterRuntimeClient": frozenset({"mcp/_chattasks.py"}),
         "check_bind_allowed": frozenset({"mcp/__main__.py", "server/__main__.py"}),
         "is_loopback": frozenset({"mcp/__main__.py", "server/__main__.py"}),
         "LoopBoundPrimitive": frozenset({"mcp/_chattasks.py", "server/_limits.py"}),

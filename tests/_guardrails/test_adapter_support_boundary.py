@@ -136,3 +136,62 @@ def test_support_leaf_exports_only_adapter_hosting_primitives() -> None:
         "is_loopback",
         "redact",
     ]
+
+
+def test_real_client_satisfies_detached_adapter_typing_and_rejects_untyped_clients(tmp_path):
+    """Compile the real SDK crossing; Any must not hide an incompatible protocol."""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    positive = tmp_path / "valid_client.py"
+    positive.write_text(
+        textwrap.dedent("""\
+        from collections.abc import Awaitable, Callable
+        from typing import Any
+        from notebooklm import NotebookLMClient
+        from notebooklm._adapter_support import AdapterRuntimeClient, client_generation_epoch, _client_operation
+        from notebooklm.mcp._chattasks import ChatTaskRegistry
+
+        async def check(client: NotebookLMClient, registry: ChatTaskRegistry,
+                        produce: Callable[[], Awaitable[dict[str, Any]]]) -> None:
+            typed: AdapterRuntimeClient = client
+            epoch = client_generation_epoch(client)
+            async with _client_operation(typed, None, expected_epoch=epoch):
+                registry.start("key", produce, client=client)
+    """)
+    )
+    negative = tmp_path / "invalid_client.py"
+    negative.write_text(
+        textwrap.dedent("""\
+        from collections.abc import Awaitable, Callable
+        from typing import Any
+        from notebooklm.mcp._chattasks import ChatTaskRegistry
+
+        def check(registry: ChatTaskRegistry,
+                  produce: Callable[[], Awaitable[dict[str, Any]]]) -> None:
+            registry.start("key", produce, client=object())
+    """)
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+            str(positive),
+            str(negative),
+        ],
+        cwd=SRC_ROOT.parents[1],
+        env={**os.environ, "MYPYPATH": str(SRC_ROOT.parent)},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    errors = [line for line in result.stdout.splitlines() if ": error:" in line]
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert len(errors) == 1, result.stdout + result.stderr
+    assert "invalid_client.py:" in errors[0]
+    assert "AdapterRuntimeClient" in errors[0]

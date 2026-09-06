@@ -111,7 +111,7 @@ async def test_cleanup_pacing_and_concurrency_remain_bounded():
     client, supervisor = _client(delete)
     # Patch only the between-batch delay; no terminal or admission policy is mocked.
     sleep = AsyncMock()
-    with patch("notebooklm._source.delete_batch.asyncio.sleep", sleep):
+    with patch.object(asyncio, "sleep", sleep):
         action = asyncio.create_task(execute_source_clean(_preview(12), client=client))
         await started.wait()
         assert peak == 10

@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import asyncio
 import time
-from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -189,25 +188,6 @@ async def test_registry_queues_past_concurrency_and_autostarts() -> None:
     assert second.started_at is not None and second.started_at >= first.created_at
 
 
-class _EpochOwner:
-    def __init__(self, epoch: int) -> None:
-        self.epoch = epoch
-
-    def active_epoch(self) -> int:
-        return self.epoch
-
-
-class _DetachedClient:
-    def __init__(self, epoch: int = 1) -> None:
-        self.owner = _EpochOwner(epoch)
-        self._collaborators = SimpleNamespace(call_supervisor=self.owner)
-
-    @asynccontextmanager
-    async def operation(self, timeout: float | None = None):
-        del timeout
-        yield self
-
-
 def _supervised_client() -> tuple[Any, CallSupervisor]:
     supervisor = CallSupervisor(metrics=ClientMetrics(), max_concurrent_rpcs=None)
     supervisor.prepare_generation(1)
@@ -286,30 +266,36 @@ async def test_registry_preserves_metadata_timeout_from_fresh_client_operation()
 
 
 async def test_registry_fences_queued_job_from_reopened_client_epoch() -> None:
+    from notebooklm import NotebookLMClient
+    from notebooklm.auth import AuthTokens
+
     registry = ChatTaskRegistry(concurrency=1)
-    client = _DetachedClient()
-    release = asyncio.Event()
-    second_calls = 0
+    client = NotebookLMClient(
+        AuthTokens(cookies={"SID": "test"}, csrf_token="csrf", session_id="sid")
+    )
+    calls = 0
 
-    async def _first() -> dict[str, Any]:
-        await release.wait()
+    async def work() -> dict[str, Any]:
+        nonlocal calls
+        calls += 1
         return {}
 
-    async def _second() -> dict[str, Any]:
-        nonlocal second_calls
-        second_calls += 1
-        return {}
-
-    first, _ = registry.start("epoch-1", _first, client=client)
-    second, _ = registry.start("epoch-2", _second, client=client)
-    await asyncio.sleep(0)
-    client.owner.epoch = 2
-    release.set()
-    assert first.task is not None and second.task is not None
-    await asyncio.gather(first.task, second.task)
-    assert isinstance(second.error, RuntimeError)
-    assert "retired client generation" in str(second.error)
-    assert second_calls == 0
+    await client.__aenter__()
+    try:
+        registry.set_bound_loop(asyncio.get_running_loop())
+        # Keep the job queued across a real close/reopen; it cannot race into
+        # either generation's operation scope before the registry checks it.
+        async with registry._gate:
+            entry, _ = registry.start("old-epoch", work, client=client)
+            await client.close()
+            await client.__aenter__()
+        assert entry.task is not None
+        await entry.task
+        assert isinstance(entry.error, RuntimeError)
+        assert "retired client generation" in str(entry.error)
+        assert calls == 0
+    finally:
+        await client.close()
 
 
 async def test_registry_capacity_fuse_when_all_slots_unfinished() -> None:

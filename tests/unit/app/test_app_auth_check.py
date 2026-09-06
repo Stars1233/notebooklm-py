@@ -210,12 +210,30 @@ async def test_missing_required_cookies_fails_cookie_check(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_token_fetch_success(tmp_path: Path) -> None:
+@pytest.mark.parametrize("local_state", ["valid", "healed", "still_missing"])
+async def test_token_fetch_success(tmp_path: Path, local_state: str) -> None:
     storage = tmp_path / "storage_state.json"
-    storage.write_text(json.dumps(_valid_storage_state("HSID")), encoding="utf-8")
+    initial = (
+        _valid_storage_state("HSID")
+        if local_state == "valid"
+        else _storage_state("SID", "APISID", "SAPISID", "LSID")
+    )
+    storage.write_text(json.dumps(initial), encoding="utf-8")
+    if local_state != "valid":
+        auth_module.write_master_token(
+            storage.with_name("master_token.json"),
+            email="owner@gmail.com",
+            master_token="aas_et/secret",
+            android_id="0123456789abcdef",
+        )
     plan = _plan(storage_path=storage, test_fetch=True)
 
-    fetch = AsyncMock(return_value=("csrf-token-value", "session-id-value"))
+    async def fetch_tokens(*_args):
+        if local_state == "healed":
+            storage.write_text(json.dumps(_valid_storage_state("APISID", "SAPISID", "LSID")))
+        return "csrf-token-value", "session-id-value"
+
+    fetch = AsyncMock(side_effect=fetch_tokens)
     # ``run_auth_check`` does ``from ..auth import fetch_tokens_with_domains``
     # at call time, so patch the public facade name it resolves.
     with patch.object(auth_module, "fetch_tokens_with_domains", fetch):
@@ -224,7 +242,11 @@ async def test_token_fetch_success(tmp_path: Path) -> None:
     assert result.checks["token_fetch"] is True
     assert result.details["csrf_length"] == len("csrf-token-value")
     assert result.details["session_id_length"] == len("session-id-value")
-    assert result.all_passed is True
+    assert result.all_passed is (local_state != "still_missing")
+    # Guidance describes the latest sample: healing clears it; an unhealed
+    # reread emits one code rather than accumulating duplicate instructions.
+    assert result.guidance == (("master_token_psidts",) if local_state == "still_missing" else ())
+    assert (result.details["error"] is None) is (local_state != "still_missing")
     # File-based auth → the storage path is forwarded to the fetch.
     fetch.assert_awaited_once_with(storage, "default")
 

@@ -54,6 +54,7 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from .._adapter_support import (
+    AdapterRuntimeClient,
     LoopBoundPrimitive,
     _client_operation,
     _detached_adapter_context,
@@ -281,7 +282,7 @@ class ChatTaskRegistry(LoopBoundPrimitive):
         self,
         entry: ChatTaskEntry,
         coro_factory: Callable[[], Awaitable[dict[str, Any]]],
-        client: Any | None,
+        client: AdapterRuntimeClient | None,
     ) -> None:
         """Drive one ask to its terminal state, recording the outcome.
 
@@ -375,7 +376,7 @@ class ChatTaskRegistry(LoopBoundPrimitive):
         *,
         notebook_id: str | None = None,
         conversation_id: str | None = None,
-        client: Any | None = None,
+        client: AdapterRuntimeClient | None = None,
     ) -> tuple[ChatTaskEntry, Literal["created", "running"]]:
         """Claim ``key`` and return its entry plus how it was satisfied.
 

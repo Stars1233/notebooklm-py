@@ -287,6 +287,7 @@ async def run_auth_check(
 
     def _check_local_state(state: dict[str, Any]) -> str | None:
         """Refresh side-effect-free cookie diagnostics from one state snapshot."""
+        guidance.clear()
         entries = auth._sanitized_auth_entries(state)
         psidts = _psidts_status(state)
         details["psidts"] = psidts
