@@ -1030,6 +1030,14 @@ async def test_real_supervisor_outer_lease_keeps_create_alive_during_graceful_dr
     with pytest.raises(CollectionError) as raised:
         await create_task
     await idle_task
+    metadata = raised.value.operation_metadata
+    assert metadata is not None
+    assert metadata.commit_state is CommitState.CONFIRMED
+    assert metadata.recovery_action is RecoveryAction.INSPECT_AND_RECONCILE
+    assert metadata.known_resource_ids == ()
+    assert metadata.reconciliation is not None
+    assert [candidate.id for candidate in metadata.reconciliation.candidates] == [COLLECTION_B]
+    assert metadata.entries[0].recovery_action is RecoveryAction.INSPECT_AND_RECONCILE
     assert raised.value.reconciliation_candidates == (COLLECTION_B,)  # type: ignore[attr-defined]
     assert [method for method, _request, _kwargs in server.calls] == [
         GET_LABELS_METHOD,
