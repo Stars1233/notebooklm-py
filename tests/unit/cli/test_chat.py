@@ -234,22 +234,20 @@ class TestAskSaveAsNote:
         mock_client.notes.create.assert_awaited_once()
         mock_client.chat.save_answer_as_note.assert_not_awaited()
 
-    def test_ask_save_as_note_text_failure_redacts_secrets(self, runner, mock_auth):
+    def test_ask_save_as_note_text_failure_redacts_secrets(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
         """Text mode keeps the redacted warning and does not dump secrets."""
         mock_client = create_mock_client()
         mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
         mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
         mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
 
-        with patch.object(
-            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
-        ) as mock_fetch:
-            mock_fetch.return_value = ("csrf", "session")
-            result = runner.invoke(
-                cli,
-                ["ask", "What is 42?", "--save-as-note", "-n", "nb_123"],
-                obj=inject_client(mock_client),
-            )
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123"],
+            obj=inject_client(mock_client),
+        )
 
         assert result.exit_code == 0, result.output
         combined = result.output + result.stdout + result.stderr
@@ -1196,7 +1194,7 @@ class TestChatJsonStdoutContract:
         assert "Warning" not in result.stdout
 
     def test_ask_json_save_as_note_unconfirmed_failure_projects_commit_evidence(
-        self, runner, mock_auth
+        self, runner, mock_auth, mock_fetch_tokens
     ):
         """A folded unconfirmed save keeps the ask answer and commit evidence.
 
@@ -1210,15 +1208,11 @@ class TestChatJsonStdoutContract:
         mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
         mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
 
-        with patch.object(
-            auth_module, "fetch_tokens_with_domains", new_callable=AsyncMock
-        ) as mock_fetch:
-            mock_fetch.return_value = ("csrf", "session")
-            result = runner.invoke(
-                cli,
-                ["ask", "What is 42?", "--save-as-note", "-n", "nb_123", "--json"],
-                obj=inject_client(mock_client),
-            )
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123", "--json"],
+            obj=inject_client(mock_client),
+        )
 
         assert result.exit_code == 0, result.stderr or result.output
         data = json.loads(result.stdout)
