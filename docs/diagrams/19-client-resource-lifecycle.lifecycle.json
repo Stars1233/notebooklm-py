@@ -33,7 +33,7 @@
     {"id": "reopen", "from": "reclosed", "to": "opening", "label": "fresh epoch", "variant": "dashed", "route": "top-channel"}
   ],
   "cards": [
-    {"dot": "cyan", "title": "Root ownership", "items": ["Sole construction: src/notebooklm/_client_assembly.py:76-80; state and participants: src/notebooklm/_runtime/lifecycle.py:140-165", "Graceful shutdown stops admission, awaits idle, then tears down the frozen generation"]},
+    {"dot": "cyan", "title": "Scope boundary", "items": ["Diagram 35 hands off a complete graph in CLOSED; ClientLifecycle does not construct or install services", "This diagram owns resource epochs, admission, rollback, drain, and teardown order"]},
     {"dot": "rose", "title": "Lifecycle evidence", "items": ["Open, drain, close, rollback, and reopen: src/notebooklm/_runtime/lifecycle.py:178-634", "https://github.com/teng-lin/notebooklm-py @ 719378b8af7023b8eca0c33d2de6d44d35db3434"]}
   ]
 }

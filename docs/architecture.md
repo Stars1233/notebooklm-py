@@ -87,8 +87,10 @@ runtime factory; neither backend assembly owns the bridge.
 
 Use the [runtime and transport view](https://teng-lin.github.io/notebooklm-py/diagrams/03-client-runtime-and-transport.html)
 and the [ownership-boundary view](https://teng-lin.github.io/notebooklm-py/diagrams/34-client-ownership-boundaries.html)
-for ownership. The [construction and lifecycle view](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html)
-shows normalization, selected-graph installation, open, close, rollback, and reopen. The
+for ownership. The [construction and lifecycle handoff](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html)
+shows direct and deferred inputs converging on one complete, installed CLOSED graph. The
+[resource lifecycle](https://teng-lin.github.io/notebooklm-py/diagrams/19-client-resource-lifecycle.html)
+separately owns open, drain, close, rollback, and reopen. The
 [RPC sequence](https://teng-lin.github.io/notebooklm-py/diagrams/07-rpc-call-path.html) shows call order, and
 the [runtime class model](https://teng-lin.github.io/notebooklm-py/diagrams/23-runtime-class-model.html) for constructor
 relationships. The [capability-contract map](https://teng-lin.github.io/notebooklm-py/diagrams/27-capability-contracts.html)
@@ -595,8 +597,10 @@ the executor on direct collaborator dependencies.
 ```
 
 The explorable [ownership-boundary diagram](https://teng-lin.github.io/notebooklm-py/diagrams/34-client-ownership-boundaries.html)
-expands this hand-off, while the [construction/lifecycle diagram](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html)
-shows the state transitions and rollback paths.
+expands this hand-off, while the [construction/lifecycle handoff](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html)
+shows how direct and deferred inputs reach the installed CLOSED graph. The
+[resource lifecycle](https://teng-lin.github.io/notebooklm-py/diagrams/19-client-resource-lifecycle.html)
+owns the subsequent state transitions and rollback paths.
 
 | Collaborator | Module | Responsibility |
 |--------------|--------|----------------|

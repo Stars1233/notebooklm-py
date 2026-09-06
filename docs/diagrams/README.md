@@ -31,7 +31,7 @@ system overview at the [Pages site root](https://teng-lin.github.io/notebooklm-p
 | 29 | Organization and sharing | Which APIs span account and notebook scope, and where do sharing and membership live? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/29-organization-and-sharing.architecture.html) · [Source](./29-organization-and-sharing.architecture.json) |
 | 30 | Transfer security boundaries | How do the Web and Android transfer planes fence URLs, credentials, cleanup, and publication? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/30-transfer-security-boundaries.dataflow.html) · [Source](./30-transfer-security-boundaries.dataflow.json) |
 | 34 | Client ownership boundaries | Which resources belong to configuration, construction, one client instance, or one operation? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/34-client-ownership-boundaries.html) · [Source](./34-client-ownership-boundaries.architecture.json) |
-| 35 | Client construction and lifecycle | How do build, open, drain, close, and reopen preserve one-owner resource rules? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html) · [Source](./35-client-construction-and-lifecycle.lifecycle.json) |
+| 35 | Client construction and lifecycle handoff | How do direct and deferred construction converge on one installed CLOSED graph? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/35-client-construction-and-lifecycle.html) · [Source](./35-client-construction-and-lifecycle.lifecycle.json) |
 
 ## Authentication
 
@@ -51,7 +51,7 @@ system overview at the [Pages site root](https://teng-lin.github.io/notebooklm-p
 | 12 | Source ingest | How do file bytes and no-byte inputs become ready grounding sources? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/12-source-ingest-dataflow.html) · [Source](./12-source-ingest-dataflow.dataflow.json) |
 | 13 | Artifact lifecycle | How does generation move through pending, complete, failed, and retry states? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/13-artifact-lifecycle.html) · [Source](./13-artifact-lifecycle.lifecycle.json) |
 | 15 | Android call path | What happens between an Android namespace call and protobuf projection? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/15-android-call-path.html) · [Source](./15-android-call-path.sequence.json) |
-| 19 | Client resource lifecycle | How do open, bind, drain, close, and reopen affect owned resources? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/19-client-resource-lifecycle.html) · [Source](./19-client-resource-lifecycle.lifecycle.json) |
+| 19 | Client resource lifecycle | After construction, how do open, bind, drain, close, rollback, and reopen affect owned resources? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/19-client-resource-lifecycle.html) · [Source](./19-client-resource-lifecycle.lifecycle.json) |
 | 20 | Retry policy | How do both backends preserve retry parity and surface ambiguous writes honestly? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/20-retry-policy-workflow.html) · [Source](./20-retry-policy-workflow.workflow.json) |
 | 21 | Deep research lifecycle | How do research tasks progress through polling, completion, import, failure, or cancellation? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/21-deep-research-lifecycle.html) · [Source](./21-deep-research-lifecycle.lifecycle.json) |
 | 32 | MCP client provider | How does the MCP adapter open, reuse, invalidate, and recover its shared client? | [Explore](https://teng-lin.github.io/notebooklm-py/diagrams/32-mcp-client-provider.html) · [Source](./32-mcp-client-provider.sequence.json) |
@@ -84,9 +84,10 @@ root compatibility-sidecar, shared source workflow, and guarded-transfer refacto
 affected diagrams without adding external systems, RPC ids, or wire shapes.
 Diagrams 31–33 add the previously missing cold-authentication recovery sequence, MCP provider
 open/recovery sequence, and detached-task lifecycle, where concurrency and cleanup ordering matter.
-Diagrams 34–38 document the client ownership model, construction and shutdown lifecycle,
+Diagrams 34–38 document the client ownership model, construction-to-lifecycle handoff,
 whole-operation deadline and cancellation contract, mutation journal and recovery evidence, and
-the adapter prepare/confirm/execute boundary introduced by the September 2026 ownership refactor.
+the adapter prepare/confirm/execute boundary introduced by the September 2026 ownership refactor;
+Diagram 19 exclusively covers runtime open, drain, close, rollback, and reopen transitions.
 
 Some views are deliberately not generated:
 
