@@ -1,8 +1,8 @@
 # Measured Coupling and Ownership Dispositions
 
-**Status:** C8 baseline complete; lazy-barrel change deferred
+**Status:** C8 audit complete; lazy-barrel change deferred
 **Measured:** 2026-09-06  
-**Source baseline:** `f31f0f9d1db225242ac8f7754f955444b0fcff46`
+**Source baseline:** `bd1647fbbba412600710bedcd8fd707c5b90f588`
 
 This audit measures the focused `_app` import cost, checks three candidate shared-policy areas,
 and records the ownership map requested by C8. Similar names and root-module count are not evidence
@@ -24,9 +24,9 @@ times are local diagnostic measurements, not performance budgets.
 
 | Fresh import | `_app` modules loaded | `notebooklm` modules loaded | All new modules | Median (min–max) |
 | --- | ---: | ---: | ---: | ---: |
-| `notebooklm` | 0 | 116 | 440 | 109.654 ms (105.705–112.236) |
-| `notebooklm._app` | 31 | 149 | 475 | 139.583 ms (137.215–141.803) |
-| `notebooklm._app.resolve` | 31 | 149 | 475 | 141.643 ms (138.244–145.256) |
+| `notebooklm` | 0 | 119 | 439 | 315.536 ms (279.221–692.215) |
+| `notebooklm._app` | 31 | 153 | 475 | 389.891 ms (382.089–483.730) |
+| `notebooklm._app.resolve` | 31 | 153 | 475 | 396.376 ms (383.000–469.731) |
 
 Importing one focused `_app` submodule executes `_app/__init__.py` first, whose convenience barrel
 eagerly imports 30 siblings. The exact `_app` set is:
@@ -40,9 +40,11 @@ source_clean, source_content, source_listing, source_mutations,
 source_play_books, source_wait
 ```
 
-**Disposition: defer a lazy-barrel change to a standalone bounded follow-up.** The measured delta is
-33 `notebooklm` modules, 35 total modules, and roughly 32 ms against the root import median on this
-machine. It is real but low priority beside behavioral work. `_app.__init__` is a large convenience
+**Disposition: defer a lazy-barrel change to a standalone bounded follow-up.** The deterministic graph
+delta is 34 `notebooklm` modules and 36 total modules. The timing samples above ran while other
+repository validation was active, so they confirm cold-import cost but are not a reliable comparison
+with the earlier quiet-worktree numbers. The eager graph is real but low priority beside behavioral
+work. `_app.__init__` is a large convenience
 re-export surface used throughout adapters/tests, so a correct lazy conversion must preserve symbol
 identity, `TYPE_CHECKING` visibility, `__all__`, import-boundary checks, and focused-import behavior.
 No evidence here justifies relocating `skill` or `mcp_install`; both are framework-free application
