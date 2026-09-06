@@ -400,7 +400,11 @@ def register_chat_commands(cli):
                 # the current conversation. Confirm stays a sync prompt (no
                 # client ``operation()`` held across stdin).
                 sources = await resolve_source_ids(
-                    client, nb_id_resolved, source_ids, json_output=json_output
+                    client,
+                    nb_id_resolved,
+                    source_ids,
+                    json_output=json_output,
+                    require_existing=new_conversation,
                 )
                 if new_conversation and last_conv_id:
                     _confirm_new_conversation_deletion(

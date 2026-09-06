@@ -8708,7 +8708,7 @@
     },
     {
       "kind": "from",
-      "lineno": 16,
+      "lineno": 15,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.cli.resolve",
@@ -11268,7 +11268,7 @@
       "modules": 33
     },
     "cli": {
-      "lines": 22743,
+      "lines": 22759,
       "modules": 76
     },
     "mcp": {
@@ -11301,7 +11301,7 @@
     }
   },
   "summary": {
-    "authored_lines": 150037,
+    "authored_lines": 150053,
     "authored_modules": 476,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1239,
