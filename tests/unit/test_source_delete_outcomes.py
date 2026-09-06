@@ -175,6 +175,7 @@ async def test_cancel_settles_children_and_keeps_unattempted_tail():
 async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal, monkeypatch):
     loop = asyncio.get_running_loop()
     now = loop.time()
+    expiry = now + 0.02
     monkeypatch.setattr(loop, "time", lambda: now)
     first_done = asyncio.Event()
 
@@ -197,7 +198,7 @@ async def test_cleanup_timeout_keeps_confirmed_sibling_evidence(with_journal, mo
         await first_done.wait()
         # Expire only after a sibling has confirmed, so the test always reaches
         # the evidence-preservation path even under Windows scheduling jitter.
-        now += 0.02
+        now = expiry
         await asyncio.Event().wait()
 
     client, supervisor = _client(delete, timeout=0.01)

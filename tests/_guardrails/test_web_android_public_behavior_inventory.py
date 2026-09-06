@@ -11,6 +11,8 @@ stops linking the contract page. It does **not** implement #2384.
 
 from __future__ import annotations
 
+import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -175,6 +177,23 @@ def _inventory_table(text: str) -> list[tuple[str, ...]]:
     return []
 
 
+@dataclass(frozen=True)
+class PinningTestReference:
+    """A cited module and the test identifiers named beside it."""
+
+    module: str
+    identifiers: tuple[str, ...]
+
+
+def _pinning_test_references(cell: str) -> list[PinningTestReference]:
+    return [
+        PinningTestReference(module, tuple(re.findall(r"`(test_\w+)`", description)))
+        for module, description in re.findall(
+            r"`(tests/[^`]+\.py)`(.*?)(?=`tests/[^`]+\.py`|$)", cell
+        )
+    ]
+
+
 def inventory_problems(text: str) -> list[str]:
     """Return human-readable problems for a candidate inventory document."""
     problems: list[str] = []
@@ -206,6 +225,19 @@ def inventory_problems(text: str) -> list[str]:
         for extra in required.extra_needles:
             if extra not in haystack:
                 problems.append(f"{required.key}: missing {extra!r}")
+        for reference in _pinning_test_references(matched[-1]):
+            path = REPO_ROOT / reference.module
+            if not path.is_file():
+                problems.append(f"pinning test {reference.module} does not exist")
+                continue
+            definitions = {
+                node.name
+                for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            for identifier in reference.identifiers:
+                if identifier not in definitions:
+                    problems.append(f"pinning test {reference.module}::{identifier} does not exist")
     return problems
 
 
@@ -225,6 +257,13 @@ mutation executor; do not implement #2384.
 """
     gutted_problems = inventory_problems(gutted)
     assert "missing inventory row: chat.get_history" in gutted_problems
+
+
+def test_inventory_detector_rejects_a_stale_named_test() -> None:
+    text = INVENTORY_DOC.read_text(encoding="utf-8").replace(
+        "test_get_history_raises_on_chat_error", "test_removed_history_case"
+    )
+    assert any("::test_removed_history_case does not exist" in p for p in inventory_problems(text))
 
 
 def test_web_android_public_behavior_inventory_is_complete() -> None:
