@@ -442,7 +442,7 @@ class WebChatAPI(RequestPolicyOwner, ChatAPI):
 
         Returns:
             List of (question, answer) pairs, oldest-first.
-            Empty means no conversation or no turns; turn-fetch failures raise.
+            For positive limits, empty means no conversation or no turns; fetch failures raise.
         """
         async with self._operation_scope("chat.get_history"):
             logger.debug(

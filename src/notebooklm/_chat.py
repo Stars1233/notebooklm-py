@@ -749,7 +749,7 @@ class ChatAPI(LoopBoundPrimitive, ABC):
     ) -> list[tuple[str, str]]:
         """Return decoded question/answer history.
 
-        Empty means no conversation or no turns; turn-fetch failures raise.
+        For positive limits, empty means no conversation or no turns; fetch failures raise.
         """
 
     async def configure(
