@@ -65,11 +65,14 @@ def is_android_inventory_only_slide_failure(
     """Recognize only the typed failure for an Android slide without a PDF URL."""
 
     detail = structured_failure_detail(result)
+    failure = result.get("failure") if isinstance(result, Mapping) else None
     return (
         isinstance(result, Mapping)
+        and isinstance(failure, Mapping)
         and backend == "android"
         and artifact_type == "slide-deck"
         and result.get("outcome") == "error"
+        and failure.get("reason") == "download_failed"
         and detail is not None
         and _ANDROID_INVENTORY_ONLY_SLIDE_DETAIL in detail
     )

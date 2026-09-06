@@ -240,7 +240,35 @@ def test_android_inventory_only_slide_recognizes_typed_mcp_failure() -> None:
             "android",
             "slide-deck",
         ),
+        (
+            {
+                "outcome": "error",
+                "failure": {"detail": "PDF URL not available in artifact data"},
+            },
+            "android",
+            "slide-deck",
+        ),
+        (
+            {
+                "outcome": "error",
+                "failure": {
+                    "reason": "authentication",
+                    "detail": "PDF URL not available in artifact data",
+                },
+            },
+            "android",
+            "slide-deck",
+        ),
     ],
+    ids=(
+        "web-backend",
+        "non-slide-artifact",
+        "success-outcome",
+        "legacy-flat-error",
+        "different-detail",
+        "missing-failure-reason",
+        "wrong-failure-reason",
+    ),
 )
 def test_android_inventory_only_slide_preserves_nonmatching_failures(
     result: dict[str, object],
