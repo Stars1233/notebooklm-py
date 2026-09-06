@@ -628,17 +628,21 @@ class ArtifactsAPI(ABC):
         # format validation, and exception precedence. The additive typed API
         # is used by first-party orchestration; routing legacy calls through
         # its aggregate selection would change these established contracts.
-        async with self._operation_scope(f"artifacts.download_{request.kind.value}"):
-            if any(value is not None for value in (artifacts_data, mind_maps, artifacts)):
-                warn_registered_deprecation("artifact_raw_download_prefetch")
-            return await self._download_with_legacy_prefetch(
-                request,
-                output_path,
-                artifact_id,
-                artifacts_data=artifacts_data,
-                mind_maps=mind_maps,
-                artifacts=artifacts,
-            )
+        try:
+            async with self._operation_scope(f"artifacts.download_{request.kind.value}"):
+                if any(value is not None for value in (artifacts_data, mind_maps, artifacts)):
+                    warn_registered_deprecation("artifact_raw_download_prefetch")
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    artifact_id,
+                    artifacts_data=artifacts_data,
+                    mind_maps=mind_maps,
+                    artifacts=artifacts,
+                )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data, mind_maps, artifacts
 
     async def download_audio(
         self,
@@ -649,12 +653,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Audio Overview to a file."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_video(
         self,
@@ -665,12 +673,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a Video Overview to a file."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.VIDEO, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.VIDEO, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_infographic(
         self,
@@ -681,12 +693,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Infographic to a file."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.INFOGRAPHIC, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.INFOGRAPHIC, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_slide_deck(
         self,
@@ -698,12 +714,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a slide deck as PDF or PPTX."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.SLIDE_DECK, output_format),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.SLIDE_DECK, output_format),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_report(
         self,
@@ -714,12 +734,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a report artifact as markdown."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.REPORT, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.REPORT, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_mind_map(
         self,
@@ -731,13 +755,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a mind map as JSON."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.MIND_MAP, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-            mind_maps=mind_maps,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.MIND_MAP, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+                mind_maps=mind_maps,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data, mind_maps
 
     async def download_data_table(
         self,
@@ -748,12 +776,16 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a data table as CSV."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.DATA_TABLE, None),
-            output_path,
-            artifact_id,
-            artifacts_data=artifacts_data,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.DATA_TABLE, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
     async def download_quiz(
         self,
@@ -765,12 +797,16 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download quiz questions."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.QUIZ, output_format),
-            output_path,
-            artifact_id,
-            artifacts=artifacts,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.QUIZ, output_format),
+                output_path,
+                artifact_id,
+                artifacts=artifacts,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts
 
     async def download_flashcards(
         self,
@@ -782,12 +818,16 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download flashcard deck."""
-        return await self._download_per_kind(
-            ArtifactDownloadRequest(notebook_id, ArtifactType.FLASHCARDS, output_format),
-            output_path,
-            artifact_id,
-            artifacts=artifacts,
-        )
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.FLASHCARDS, output_format),
+                output_path,
+                artifact_id,
+                artifacts=artifacts,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts
 
     @abstractmethod
     async def delete(self, notebook_id: str, artifact_id: str) -> None:
