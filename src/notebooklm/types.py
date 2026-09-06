@@ -22,7 +22,11 @@ from ._types.artifact_content import (
     FlashcardArtifactUserState,
     UnknownArtifactUserState,
 )
-from ._types.artifact_download import ArtifactDownloadRequest, ArtifactDownloadSelection
+from ._types.artifact_download import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+)
 from ._types.artifacts import (
     Artifact,
     ArtifactCustomizationChoices,
@@ -226,6 +230,7 @@ _CITED_SOURCE_SELECTION_TYPE_HINT_GLOBALS = (ResearchSourceInput,)
 
 
 __all__ = [
+    "ArtifactDownloadListing",
     "ArtifactDownloadRequest",
     "ArtifactDownloadSelection",
     "SourceDeleteOutcome",
@@ -389,6 +394,7 @@ del _public_common_type
 
 
 for _public_moved_type in (
+    ArtifactDownloadListing,
     ArtifactDownloadRequest,
     ArtifactDownloadSelection,
     Artifact,

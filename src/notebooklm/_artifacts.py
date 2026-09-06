@@ -36,10 +36,14 @@ from ._types.enums import (
     VideoStyle,
 )
 from ._types.research import MindMapResult
-from .exceptions import ArtifactNotFoundError, RPCError, ValidationError
+from .downloads import resolve_download_format
+from .exceptions import ArtifactNotFoundError, ArtifactNotReadyError, RPCError, ValidationError
 from .types import (
     Artifact,
     ArtifactCustomizationChoices,
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
     ArtifactListing,
     ArtifactListingFailure,
     ArtifactLookup,
@@ -587,6 +591,95 @@ class ArtifactsAPI(ABC):
         """
 
     @abstractmethod
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare completed candidates without exposing backend caches.
+
+        Validate the representation before I/O. Every returned selection is
+        bound to this backend instance, notebook, and current client generation.
+        Partial results retain typed failure evidence; they do not prove absence.
+        """
+
+    @abstractmethod
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Download an owned prepared identity within its admitted generation."""
+
+    @abstractmethod
+    async def _download_with_legacy_prefetch(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        """Backend-owned compatibility adapter for existing raw-prefetch kwargs."""
+
+    def _download_sort_key(self, selection: ArtifactDownloadSelection) -> float:
+        return selection.created_at.timestamp() if selection.created_at is not None else 0.0
+
+    def _select_download_default(
+        self, selections: tuple[ArtifactDownloadSelection, ...], *, epoch: int
+    ) -> ArtifactDownloadSelection:
+        """Backend-overridable legacy SDK default; application selection is separate."""
+        return max(selections, key=self._download_sort_key)
+
+    async def _download_per_kind(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        async with self._operation_scope(f"artifacts.download_{request.kind.value}") as lease:
+            legacy_prefetch = any(
+                value is not None for value in (artifacts_data, mind_maps, artifacts)
+            )
+            if legacy_prefetch:
+                warn_registered_deprecation("artifact_raw_download_prefetch")
+            try:
+                resolve_download_format(request.kind, request.output_format)
+            except ValidationError:
+                # The new typed preparation API is strict. Keep historical
+                # per-kind error/ignored-format behavior in its compatibility
+                # adapter instead of introducing an incidental breaking change.
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    artifact_id,
+                    artifacts_data=artifacts_data,
+                    mind_maps=mind_maps,
+                    artifacts=artifacts,
+                )
+            if legacy_prefetch:
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    artifact_id,
+                    artifacts_data=artifacts_data,
+                    mind_maps=mind_maps,
+                    artifacts=artifacts,
+                )
+            listing = await self.prepare_downloads(request)
+            selected = (
+                next((item for item in listing.selections if item.artifact_id == artifact_id), None)
+                if artifact_id is not None
+                else None
+            )
+            if selected is None:
+                if not listing.is_complete:
+                    raise _incomplete_lookup_error(listing.failures)
+                if artifact_id is not None or not listing.selections:
+                    raise ArtifactNotReadyError(request.kind.value, artifact_id=artifact_id)
+                if lease is None:
+                    raise RuntimeError("Download preparation requires an active operation lease")
+                selected = self._select_download_default(listing.selections, epoch=lease.epoch)
+            return await self.download(selected, output_path)
+
     async def download_audio(
         self,
         notebook_id: str,
@@ -596,8 +689,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Audio Overview to a file."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_video(
         self,
         notebook_id: str,
@@ -607,8 +705,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a Video Overview to a file."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.VIDEO, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_infographic(
         self,
         notebook_id: str,
@@ -618,8 +721,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Infographic to a file."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.INFOGRAPHIC, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_slide_deck(
         self,
         notebook_id: str,
@@ -630,8 +738,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a slide deck as PDF or PPTX."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.SLIDE_DECK, output_format),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_report(
         self,
         notebook_id: str,
@@ -641,8 +754,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a report artifact as markdown."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.REPORT, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_mind_map(
         self,
         notebook_id: str,
@@ -653,8 +771,14 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a mind map as JSON."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.MIND_MAP, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+            mind_maps=mind_maps,
+        )
 
-    @abstractmethod
     async def download_data_table(
         self,
         notebook_id: str,
@@ -664,8 +788,13 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a data table as CSV."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.DATA_TABLE, None),
+            output_path,
+            artifact_id,
+            artifacts_data=artifacts_data,
+        )
 
-    @abstractmethod
     async def download_quiz(
         self,
         notebook_id: str,
@@ -676,8 +805,13 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download quiz questions."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.QUIZ, output_format),
+            output_path,
+            artifact_id,
+            artifacts=artifacts,
+        )
 
-    @abstractmethod
     async def download_flashcards(
         self,
         notebook_id: str,
@@ -688,6 +822,12 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download flashcard deck."""
+        return await self._download_per_kind(
+            ArtifactDownloadRequest(notebook_id, ArtifactType.FLASHCARDS, output_format),
+            output_path,
+            artifact_id,
+            artifacts=artifacts,
+        )
 
     @abstractmethod
     async def delete(self, notebook_id: str, artifact_id: str) -> None:

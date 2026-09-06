@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from .artifacts import ArtifactType
+from .artifacts import ArtifactListingFailure, ArtifactType
 
 
 @dataclass(frozen=True)
@@ -38,3 +38,18 @@ class ArtifactDownloadSelection:
     representation: str
     extension: str
     mime_type: str
+    last_modified_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ArtifactDownloadListing:
+    """Prepared completed candidates with the aggregate read's completeness.
+
+    An exact positive identity can remain usable when another backing failed.
+    Absence, partial identifiers, names, or selection across the whole listing
+    require completeness. The application owns naming and destination policy.
+    """
+
+    selections: tuple[ArtifactDownloadSelection, ...]
+    is_complete: bool
+    failures: tuple[ArtifactListingFailure, ...] = ()

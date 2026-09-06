@@ -319,6 +319,20 @@ DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
             removal="1.0",
             stacklevel=5,
         ),
+        "artifact_raw_download_prefetch": DeprecationSpec(
+            key="artifact_raw_download_prefetch",
+            message=(
+                "Raw artifact download prefetch parameters are deprecated. Use "
+                "artifacts.prepare_downloads(...) and artifacts.download(selection, path). "
+                "Their removal requires this warning's own shipped compatibility interval; "
+                "they remain supported until an eligible breaking release."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=4,
+        ),
         "artifact_ambiguous_absence": DeprecationSpec(
             key="artifact_ambiguous_absence",
             message=(

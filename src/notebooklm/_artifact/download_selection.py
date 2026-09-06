@@ -64,6 +64,7 @@ class PreparedDownloadCache(Generic[_Snapshot]):
             representation=representation,
             extension=output.extension,
             mime_type=output.mime_type,
+            last_modified_at=artifact.last_modified_at,
         )
         self._entries[selection] = _PreparedState(fields=astuple(selection), snapshot=snapshot)
         return selection

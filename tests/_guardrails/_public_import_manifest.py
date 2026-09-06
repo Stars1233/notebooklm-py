@@ -104,6 +104,7 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
         "RPCMethod",
     ],
     "notebooklm.types": [
+        "ArtifactDownloadListing",
         "ArtifactDownloadRequest",
         "ArtifactDownloadSelection",
         "ArtifactListing",

@@ -77,6 +77,7 @@ _SPEC_FIELDS = ("key", "message", "category", "replacement", "since", "removal",
 _REGISTERED_SPEC_KEYS = frozenset(
     {
         "artifact_ambiguous_absence",
+        "artifact_raw_download_prefetch",
         "auth_tokens_flat_cookies",
         "auth_tokens_from_storage",
         "auth_tokens_replace_cookie_jar",
