@@ -291,7 +291,10 @@ class AndroidChatAPI(ChatAPI):
         limit: int = 100,
         conversation_id: str | None = None,
     ) -> list[tuple[str, str]]:
-        """Return captured newest-first Android history as oldest-first pairs."""
+        """Return captured newest-first Android history as oldest-first pairs.
+
+        Empty means no conversation or no turns; turn-fetch failures raise.
+        """
         bounded_limit = max(0, limit)
         if bounded_limit == 0:
             return []
