@@ -9,19 +9,27 @@ import builtins
 import contextlib
 import logging
 import reprlib
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .._artifact import polling as _artifact_polling
+from .._artifact.download_selection import PreparedDownloadCache
 from .._artifact.downloads import AssetDownloadService
 from .._artifacts import ArtifactsAPI, _ArtifactCopyResult
 from .._idempotency import call_unconfirmed_on_transport_loss, unresolved_commit_error
 from .._notebook_metadata import NotebookSourceIdProvider
+from .._types.artifact_download import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+)
 from .._types.enums import (
     ArtifactTypeCode,
     ExportType,
 )
 from .._types.research import MindMapResult
+from ..downloads import resolve_download_format
 from ..exceptions import (
     ArtifactNotFoundError,
     NetworkError,
@@ -60,6 +68,16 @@ if TYPE_CHECKING:
     from .._runtime.call_supervisor import CallSupervisor, OperationLease
 
 logger = logging.getLogger("notebooklm._artifacts")
+
+
+@dataclass(frozen=True)
+class _PreparedWebDownload:
+    """Private rows retained for one opaque prepared selection."""
+
+    artifacts_data: builtins.list[Any]
+    mind_maps: builtins.list[Any] | None
+    artifacts: builtins.list[Artifact]
+    is_note_backed_mind_map: bool
 
 
 class WebArtifactsAPI(ArtifactsAPI):
@@ -138,6 +156,9 @@ class WebArtifactsAPI(ArtifactsAPI):
             rpc=self._rpc,
             notebooks=self._notebooks,
             note_service=self._note_service,
+        )
+        self._prepared_downloads: PreparedDownloadCache[_PreparedWebDownload] = (
+            PreparedDownloadCache()
         )
 
     async def _send_create_artifact(
@@ -283,7 +304,147 @@ class WebArtifactsAPI(ArtifactsAPI):
     # Download Operations
     # =========================================================================
 
-    async def download_audio(
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare Web rows once while keeping their wire representation private."""
+        # Validate before reading either aggregate backing, including the empty
+        # listing case where ``PreparedDownloadCache.prepare`` would not run.
+        resolve_download_format(request.kind, request.output_format)
+        async with self._operation_scope("artifacts.prepare_downloads") as lease:
+            (
+                listing,
+                artifacts_data,
+                mind_maps,
+            ) = await self._listing.list_artifacts_with_status_and_raw(
+                request.notebook_id,
+                request.kind,
+                list_raw=self._list_raw,
+                list_mind_maps=self._list_mind_maps,
+            )
+            selections: list[ArtifactDownloadSelection] = []
+            for artifact in listing.items:
+                if artifact.kind is not request.kind or not artifact.is_completed:
+                    continue
+                selections.append(
+                    self._prepared_downloads.prepare(
+                        request,
+                        artifact,
+                        _PreparedWebDownload(
+                            artifacts_data=artifacts_data,
+                            mind_maps=mind_maps,
+                            artifacts=list(listing.items),
+                            is_note_backed_mind_map=(
+                                artifact.kind is ArtifactType.MIND_MAP
+                                and artifact._artifact_type == ArtifactTypeCode.MIND_MAP.value
+                            ),
+                        ),
+                        epoch=lease.epoch,
+                    )
+                )
+            return ArtifactDownloadListing(
+                selections=tuple(selections),
+                is_complete=listing.is_complete,
+                failures=listing.failures,
+            )
+
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Consume an exact Web selection without repeating aggregate reads."""
+        async with self._operation_scope("artifacts.download") as lease:
+            snapshot = self._prepared_downloads.require(selection, epoch=lease.epoch)
+            request = ArtifactDownloadRequest(
+                selection.notebook_id,
+                selection.kind,
+                selection.representation,
+            )
+            # An interactive Studio mind map remains usable when its optional
+            # notes aggregate failed. ``[]`` means this prepared selection has
+            # no note-backed match and deliberately avoids retrying that RPC.
+            mind_maps = snapshot.mind_maps if snapshot.mind_maps is not None else []
+            return await self._download_with_legacy_prefetch(
+                request,
+                output_path,
+                selection.artifact_id,
+                artifacts_data=snapshot.artifacts_data,
+                mind_maps=mind_maps,
+                artifacts=snapshot.artifacts,
+            )
+
+    def _select_download_default(
+        self, selections: tuple[ArtifactDownloadSelection, ...], *, epoch: int
+    ) -> ArtifactDownloadSelection:
+        """Keep the note-backed mind-map default ahead of Studio interactive rows."""
+        if selections and selections[0].kind is ArtifactType.MIND_MAP:
+            for selection in selections:
+                snapshot = self._prepared_downloads.require(selection, epoch=epoch)
+                if snapshot.is_note_backed_mind_map:
+                    return selection
+        return super()._select_download_default(selections, epoch=epoch)
+
+    async def _download_with_legacy_prefetch(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        """Dispatch compatibility rows through the existing typed backend methods."""
+        if request.kind is ArtifactType.AUDIO:
+            return await self._download_audio_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.VIDEO:
+            return await self._download_video_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.INFOGRAPHIC:
+            return await self._download_infographic_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.SLIDE_DECK:
+            return await self._download_slide_deck_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "pdf",
+                artifacts_data=artifacts_data,
+            )
+        if request.kind is ArtifactType.REPORT:
+            return await self._download_report_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.MIND_MAP:
+            return await self._download_mind_map_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                mind_maps=mind_maps,
+                artifacts_data=artifacts_data,
+            )
+        if request.kind is ArtifactType.DATA_TABLE:
+            return await self._download_data_table_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.QUIZ:
+            return await self._download_quiz_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "json",
+                artifacts=artifacts,
+            )
+        if request.kind is ArtifactType.FLASHCARDS:
+            return await self._download_flashcards_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "json",
+                artifacts=artifacts,
+            )
+        raise AssertionError(f"unsupported prepared artifact kind: {request.kind!r}")
+
+    async def _download_audio_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -297,7 +458,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
             )
 
-    async def download_video(
+    async def _download_video_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -311,7 +472,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
             )
 
-    async def download_infographic(
+    async def _download_infographic_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -325,7 +486,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
             )
 
-    async def download_slide_deck(
+    async def _download_slide_deck_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -355,7 +516,7 @@ class WebArtifactsAPI(ArtifactsAPI):
             notebook_id, output_path, artifact_id, output_format, artifact_type, artifacts=artifacts
         )
 
-    async def download_report(
+    async def _download_report_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -369,7 +530,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
             )
 
-    async def download_mind_map(
+    async def _download_mind_map_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -388,7 +549,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 artifacts_data=artifacts_data,
             )
 
-    async def download_data_table(
+    async def _download_data_table_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -402,7 +563,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
             )
 
-    async def download_quiz(
+    async def _download_quiz_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -417,7 +578,7 @@ class WebArtifactsAPI(ArtifactsAPI):
                 notebook_id, output_path, artifact_id, output_format, "quiz", artifacts=artifacts
             )
 
-    async def download_flashcards(
+    async def _download_flashcards_legacy(
         self,
         notebook_id: str,
         output_path: str,

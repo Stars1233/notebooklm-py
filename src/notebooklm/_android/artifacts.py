@@ -8,10 +8,12 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
 
+from .._artifact.download_selection import PreparedDownloadCache
 from .._artifacts import ArtifactsAPI, _incomplete_lookup_error
 from .._idempotency import (
     attach_journal_entry,
@@ -22,6 +24,11 @@ from .._idempotency import (
 )
 from .._notebook_metadata import NotebookSourceIdProvider
 from .._runtime.call_supervisor import CallSupervisor, OperationLease
+from .._types.artifact_download import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+)
 from .._types.artifacts import _status_from_code
 from .._types.enums import (
     ArtifactStatus,
@@ -31,6 +38,7 @@ from .._types.enums import (
     ExportType,
 )
 from .._types.research import MindMapResult
+from ..downloads import resolve_download_format
 from ..exceptions import (
     ArtifactDownloadError,
     ArtifactNotFoundError,
@@ -105,6 +113,14 @@ from .session import AndroidSession
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _PreparedAndroidDownload:
+    """Backend-local typed state for one prepared Android selection."""
+
+    artifact: Artifact
+    is_note_backed_mind_map: bool
+
+
 def android_request_context() -> Any:
     from .upload import android_request_context as build_request_context
 
@@ -162,6 +178,9 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             supervisor=supervisor,
             notebooks=notebooks,
             asset_downloads=asset_downloads,
+        )
+        self._prepared_downloads: PreparedDownloadCache[_PreparedAndroidDownload] = (
+            PreparedDownloadCache()
         )
 
     async def _list_all_studio(
@@ -625,7 +644,154 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             return None
         return decode_interactive_mind_map_tree(content, artifact_id=artifact_id)
 
-    async def download_audio(
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare Android candidates once, retaining only local typed state."""
+        # Do this before either aggregate read.  The cache also resolves the
+        # format, but an empty list must still reject unsupported formats.
+        resolve_download_format(request.kind, request.output_format)
+        async with self._operation_scope("artifacts.prepare_downloads") as lease:
+            listing, note_state = await self._list_with_status_and_note_state(
+                request.notebook_id,
+                request.kind,
+                expected_epoch=lease.epoch,
+            )
+            note_ids = {artifact.id for artifact in note_state or ()}
+            selections: list[ArtifactDownloadSelection] = []
+            for artifact in listing.items:
+                if artifact.kind is not request.kind or not artifact.is_completed:
+                    continue
+                selections.append(
+                    self._prepared_downloads.prepare(
+                        request,
+                        artifact,
+                        _PreparedAndroidDownload(
+                            artifact=artifact,
+                            is_note_backed_mind_map=(
+                                artifact.kind is ArtifactType.MIND_MAP and artifact.id in note_ids
+                            ),
+                        ),
+                        epoch=lease.epoch,
+                    )
+                )
+            return ArtifactDownloadListing(
+                selections=tuple(selections),
+                is_complete=listing.is_complete,
+                failures=listing.failures,
+            )
+
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Consume an owned Android selection while preserving ownership reads."""
+        async with self._operation_scope("artifacts.download") as lease:
+            snapshot = self._prepared_downloads.require(selection, epoch=lease.epoch)
+            request = ArtifactDownloadRequest(
+                selection.notebook_id,
+                selection.kind,
+                selection.representation,
+            )
+            if snapshot.is_note_backed_mind_map:
+                # The aggregate projection contains only an Artifact shell;
+                # hydrate the current note-owned tree before writing it.
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    selection.artifact_id,
+                )
+            return await self._download_with_legacy_prefetch(
+                request,
+                output_path,
+                selection.artifact_id,
+                artifacts_data=[snapshot.artifact],
+                # A prepared Studio interactive mind map must not retry a
+                # failed notes aggregate merely to prove its already-known id.
+                mind_maps=[] if selection.kind is ArtifactType.MIND_MAP else None,
+                artifacts=[snapshot.artifact],
+            )
+
+    def _download_sort_key(self, selection: ArtifactDownloadSelection) -> float:
+        """Android has always treated the last native modification as newest."""
+        return (
+            selection.last_modified_at.timestamp()
+            if selection.last_modified_at is not None
+            else 0.0
+        )
+
+    def _select_download_default(
+        self, selections: tuple[ArtifactDownloadSelection, ...], *, epoch: int
+    ) -> ArtifactDownloadSelection:
+        """Keep Android's note-backed mind-map default ahead of Studio rows."""
+        if selections and selections[0].kind is ArtifactType.MIND_MAP:
+            for selection in selections:
+                snapshot = self._prepared_downloads.require(selection, epoch=epoch)
+                if snapshot.is_note_backed_mind_map:
+                    return selection
+        return super()._select_download_default(selections, epoch=epoch)
+
+    async def _download_with_legacy_prefetch(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        """Use explicit per-kind dispatch for old raw-prefetch callers."""
+        if request.kind is ArtifactType.AUDIO:
+            return await self._download_audio_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.VIDEO:
+            return await self._download_video_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.INFOGRAPHIC:
+            return await self._download_infographic_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.SLIDE_DECK:
+            return await self._download_slide_deck_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "pdf",
+                artifacts_data=artifacts_data,
+            )
+        if request.kind is ArtifactType.REPORT:
+            return await self._download_report_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.MIND_MAP:
+            return await self._download_mind_map_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                mind_maps=mind_maps,
+                artifacts_data=artifacts_data,
+            )
+        if request.kind is ArtifactType.DATA_TABLE:
+            return await self._download_data_table_legacy(
+                request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+            )
+        if request.kind is ArtifactType.QUIZ:
+            return await self._download_quiz_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "json",
+                artifacts=artifacts,
+            )
+        if request.kind is ArtifactType.FLASHCARDS:
+            return await self._download_flashcards_legacy(
+                request.notebook_id,
+                output_path,
+                artifact_id,
+                request.output_format or "json",
+                artifacts=artifacts,
+            )
+        raise AssertionError(f"unsupported prepared artifact kind: {request.kind!r}")
+
+    async def _download_audio_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -657,7 +823,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_video(
+    async def _download_video_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -689,7 +855,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_infographic(
+    async def _download_infographic_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -774,7 +940,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         assert result is not None
         return result
 
-    async def download_slide_deck(
+    async def _download_slide_deck_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -822,7 +988,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_report(
+    async def _download_report_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -861,7 +1027,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_mind_map(
+    async def _download_mind_map_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -908,7 +1074,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_data_table(
+    async def _download_data_table_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -1027,7 +1193,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_quiz(
+    async def _download_quiz_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -1046,7 +1212,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             prefetched=artifacts,
         )
 
-    async def download_flashcards(
+    async def _download_flashcards_legacy(
         self,
         notebook_id: str,
         output_path: str,
