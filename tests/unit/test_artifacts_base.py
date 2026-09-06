@@ -81,6 +81,7 @@ class _ConcreteArtifacts(ArtifactsAPI):
     generate_mind_map = _unsupported
     get_prompt = _unsupported
     list = _unsupported
+    list_with_status = _unsupported
     rename = _unsupported
     retry_failed = _unsupported
     revise_slide = _unsupported

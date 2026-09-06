@@ -12,7 +12,7 @@ from typing import Any, cast
 
 import httpx
 
-from .._artifacts import ArtifactsAPI
+from .._artifacts import ArtifactsAPI, _incomplete_lookup_error
 from .._idempotency import (
     attach_journal_entry,
     bind_operation_journal_entries,
@@ -42,7 +42,16 @@ from ..exceptions import (
     ValidationError,
 )
 from ..outcomes import CommitState
-from ..types import Artifact, ArtifactType, GenerationStatus, ReportSuggestion
+from ..types import (
+    Artifact,
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactLookupStatus,
+    ArtifactType,
+    GenerationStatus,
+    ReportSuggestion,
+)
 from .artifact_collaborators import NoteBackedMindMapLister
 from .artifact_creation import (
     CREATE_ARTIFACT_METHOD,
@@ -187,6 +196,22 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
     ) -> tuple[builtins.list[Artifact], builtins.list[Artifact] | None]:
         """Return the aggregate plus ``None`` when note availability is unknown."""
 
+        listing, note_state = await self._list_with_status_and_note_state(
+            notebook_id,
+            artifact_type,
+            expected_epoch=expected_epoch,
+        )
+        return list(listing.items), note_state
+
+    async def _list_with_status_and_note_state(
+        self,
+        notebook_id: str,
+        artifact_type: ArtifactType | None,
+        *,
+        expected_epoch: int | None = None,
+    ) -> tuple[ArtifactListing, builtins.list[Artifact] | None]:
+        """Build the aggregate result before secondary failure evidence is lost."""
+
         studio = [
             artifact
             for artifact in await self._list_all_studio(
@@ -196,7 +221,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             if matches_artifact_type(artifact, artifact_type)
         ]
         if artifact_type is not None and artifact_type != ArtifactType.MIND_MAP:
-            return studio, []
+            return ArtifactListing(tuple(studio), is_complete=True), []
         try:
             note_backed = await self._mind_maps.list_mind_map_artifacts(notebook_id)
         except DecodingError:
@@ -206,11 +231,23 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 "Note-backed mind-map listing is temporarily unavailable (%s).",
                 type(error).__name__,
             )
-            return studio, None
+            failure = ArtifactListingFailure(
+                component=ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+                error_type=type(error).__name__[:80],
+                message="The note-backed mind-map listing is unavailable.",
+            )
+            return (
+                ArtifactListing(
+                    tuple(studio),
+                    is_complete=False,
+                    failures=(failure,),
+                ),
+                None,
+            )
         filtered = [
             item for item in note_backed if matches_artifact_type(item, ArtifactType.MIND_MAP)
         ]
-        return [*studio, *filtered], filtered
+        return ArtifactListing((*studio, *filtered), is_complete=True), filtered
 
     async def list(
         self,
@@ -219,13 +256,22 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
     ) -> builtins.list[Artifact]:
         """Merge ordered Studio artifacts with the required notes-owned mind maps."""
 
+        listing = await self.list_with_status(notebook_id, artifact_type)
+        return list(listing.items)
+
+    async def list_with_status(
+        self,
+        notebook_id: str,
+        artifact_type: ArtifactType | None = None,
+    ) -> ArtifactListing:
+        """Merge artifacts while retaining bounded secondary-read evidence."""
         async with self._transport.operation_scope("artifacts.list") as lease:
-            artifacts, _note_state = await self._list_with_note_state(
+            listing, _note_state = await self._list_with_status_and_note_state(
                 notebook_id,
                 artifact_type,
                 expected_epoch=lease.epoch,
             )
-            return artifacts
+            return listing
 
     async def _list_studio(
         self,
@@ -283,8 +329,23 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         assert result is not None
         return result
 
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        require_complete: bool = False,
+    ) -> str | None:
         """Return the decoded Studio prompt or ``None`` for a note-backed mind map."""
+
+        if require_complete:
+            result = await self.lookup(notebook_id, artifact_id)
+            if result.status is ArtifactLookupStatus.UNKNOWN:
+                raise _incomplete_lookup_error(result.failures)
+            if result.status is ArtifactLookupStatus.MISSING:
+                raise ArtifactNotFoundError(artifact_id, method_id=LIST_ARTIFACTS_METHOD)
+            assert result.artifact is not None
+            return result.artifact.generation_prompt
 
         artifact = await self.get_or_none(notebook_id, artifact_id)
         if artifact is None:

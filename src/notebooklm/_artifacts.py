@@ -15,6 +15,7 @@ from ._artifact import polling as _artifact_polling  # noqa: F401
 from ._artifact import validation as _artifact_validation  # noqa: F401
 from ._artifact.downloads import AssetDownloadService, DownloadResult
 from ._artifact.polling import ArtifactPollingService
+from ._deprecation import warn_registered_deprecation
 from ._env import get_default_language
 from ._notebook_metadata import NotebookSourceIdProvider, reconcile_copy_mapping
 from ._polling_registry import PollRegistry
@@ -35,10 +36,14 @@ from ._types.enums import (
     VideoStyle,
 )
 from ._types.research import MindMapResult
-from .exceptions import ArtifactNotFoundError, ValidationError
+from .exceptions import ArtifactNotFoundError, RPCError, ValidationError
 from .types import (
     Artifact,
     ArtifactCustomizationChoices,
+    ArtifactListing,
+    ArtifactListingFailure,
+    ArtifactLookup,
+    ArtifactLookupStatus,
     ArtifactType,
     CopiedArtifact,
     GenerationStatus,
@@ -49,6 +54,24 @@ if TYPE_CHECKING:
     from ._runtime.call_supervisor import CallSupervisor
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_ambiguous_artifact_absence() -> None:
+    """Emit the single registered warning for the legacy absence projection."""
+    warn_registered_deprecation("artifact_ambiguous_absence")
+
+
+def _incomplete_lookup_error(
+    failures: tuple[ArtifactListingFailure, ...],
+) -> RPCError:
+    """Project bounded aggregate-read evidence through the existing RPC error."""
+    components = ", ".join(sorted({failure.component.value for failure in failures}))
+    if not components:
+        components = "unspecified"
+    return RPCError(
+        f"Artifact lookup is incomplete; unavailable components: {components}",
+        method_id="artifacts.lookup",
+    )
 
 
 @dataclass(frozen=True)
@@ -141,6 +164,39 @@ class ArtifactsAPI(ABC):
         ``ArtifactType.MIND_MAP`` for mind maps only).
         """
 
+    @abstractmethod
+    async def list_with_status(
+        self, notebook_id: str, artifact_type: ArtifactType | None = None
+    ) -> ArtifactListing:
+        """List artifacts together with aggregate-read completeness evidence.
+
+        Primary Studio failures and all decoding failures raise directly.
+        A transient secondary backing failure returns the successfully decoded
+        items with ``is_complete=False`` and a bounded component diagnostic.
+        """
+
+    async def lookup(self, notebook_id: str, artifact_id: str) -> ArtifactLookup:
+        """Look up one artifact without confusing an incomplete read with absence.
+
+        An exact positive match is ``FOUND`` even if another aggregate backing
+        was unavailable. ``MISSING`` requires a complete aggregate read;
+        otherwise the result is ``UNKNOWN`` with bounded failure evidence.
+        """
+        listing = await self.list_with_status(notebook_id)
+        artifact = next((item for item in listing.items if item.id == artifact_id), None)
+        if artifact is not None:
+            return ArtifactLookup(
+                status=ArtifactLookupStatus.FOUND,
+                artifact=artifact,
+                failures=listing.failures,
+            )
+        if listing.is_complete:
+            return ArtifactLookup(status=ArtifactLookupStatus.MISSING)
+        return ArtifactLookup(
+            status=ArtifactLookupStatus.UNKNOWN,
+            failures=listing.failures,
+        )
+
     async def get(self, notebook_id: str, artifact_id: str) -> Artifact:
         """Get a specific artifact by ID.
 
@@ -149,10 +205,15 @@ class ArtifactsAPI(ABC):
                 (matches ``notebooks.get``; issue #1247). Use :meth:`get_or_none`
                 for the sanctioned ``None``-on-miss lookup.
         """
-        artifact = await self.get_or_none(notebook_id, artifact_id)
-        if artifact is None:
+        result = await self.lookup(notebook_id, artifact_id)
+        if result.is_found:
+            assert result.artifact is not None
+            return result.artifact
+        if result.is_unknown:
+            _warn_ambiguous_artifact_absence()
+        if result.artifact is None:
             raise ArtifactNotFoundError(artifact_id)
-        return artifact
+        raise AssertionError("non-FOUND artifact lookup unexpectedly carried an artifact")
 
     async def get_or_none(self, notebook_id: str, artifact_id: str) -> Artifact | None:
         """Get an artifact by ID, returning ``None`` when it does not exist.
@@ -168,19 +229,30 @@ class ArtifactsAPI(ABC):
         studio-artifact listing propagate unchanged.
         """
         logger.debug("Getting artifact %s from notebook %s", artifact_id, notebook_id)
-        return next(
-            (artifact for artifact in await self.list(notebook_id) if artifact.id == artifact_id),
-            None,
-        )
+        result = await self.lookup(notebook_id, artifact_id)
+        if result.is_found:
+            return result.artifact
+        if result.is_unknown:
+            _warn_ambiguous_artifact_absence()
+        return None
 
     _get_or_none = get_or_none
 
     @abstractmethod
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        require_complete: bool = False,
+    ) -> str | None:
         """Get the free-text prompt an artifact was generated from (any studio type).
 
         Returns ``None`` when the artifact stores no prompt (e.g. a note-backed
         mind map); raises :class:`ArtifactNotFoundError` for an unknown id.
+        ``require_complete=True`` prevents a failed aggregate backing from
+        being projected as absence. Web's direct prompt read is already strict;
+        Android uses :meth:`lookup` for this explicit path.
 
         .. versionadded:: 0.8.0
         """

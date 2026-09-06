@@ -1480,10 +1480,12 @@ field 19.
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
-| `list(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `list[Artifact]` | List artifacts |
-| `get(notebook_id, artifact_id)` | `str, str` | `Artifact` | Get artifact details; raises `ArtifactNotFoundError` on a miss |
-| `get_or_none(notebook_id, artifact_id)` | `str, str` | `Artifact \| None` | Optional lookup; returns `None` when absent |
-| `get_prompt(notebook_id, artifact_id)` | `str, str` | `str \| None` | Get the free-text prompt the artifact was generated from (any studio type). Returns `None` if the artifact has no stored prompt (e.g. a note-backed mind map); raises `ArtifactNotFoundError` for an unknown id |
+| `list(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `list[Artifact]` | Compatibility best-effort list. A transient note-backed mind-map outage leaves successfully read Studio artifacts available. Use `list_with_status()` when completeness matters. |
+| `list_with_status(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `ArtifactListing` | Aggregate artifacts plus `is_complete` and bounded `failures`. Primary failures and all `DecodingError`s raise directly. |
+| `lookup(notebook_id, artifact_id)` | `str, str` | `ArtifactLookup` | Authoritative exact lookup: `FOUND` for an exact hit, `MISSING` only after all relevant backings succeed, and `UNKNOWN` with bounded component failures after an incomplete no-hit. |
+| `get(notebook_id, artifact_id)` | `str, str` | `Artifact` | Legacy lookup; raises `ArtifactNotFoundError` on a miss. Until its independent migration gate matures, an incomplete no-hit preserves this projection and emits a targeted `DeprecationWarning`; use `lookup()` to distinguish it. |
+| `get_or_none(notebook_id, artifact_id)` | `str, str` | `Artifact \| None` | Legacy optional lookup. Complete misses and positive hits are warning-free; an incomplete no-hit preserves `None` and emits the targeted migration warning. |
+| `get_prompt(notebook_id, artifact_id, *, require_complete=False)` | `str, str, bool` | `str \| None` | Get the free-text generation prompt. `require_complete=True` makes Android use authoritative lookup; first-party consumers select it. The 0.x default stays `False`. Web retains its direct strict prompt decoder without an added preflight. |
 | `delete(notebook_id, artifact_id)` | `str, str` | `None` | Delete artifact (idempotent; returns `None` whether or not it existed) |
 | `rename(notebook_id, artifact_id, new_title, *, return_object=True)` | `str, str, str` | `Artifact \| None` | Rename artifact (re-fetched; raises `ArtifactNotFoundError` if missing). `return_object=False` skips the re-fetch and returns `None`. |
 | `poll_status(notebook_id, task_id)` | `str, str` | `GenerationStatus` | Check generation status |
@@ -1491,6 +1493,15 @@ field 19.
 | `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="pending"` (re-queued; advances to `in_progress` on a later poll); a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
 | `copy(notebook_id, artifact_ids, target_notebook_id)` | `str, list[str], str` | `list[CopiedArtifact]` | Copy Studio artifacts into another notebook (`CopyArtifactsAsync`); each result pairs `original_id` with the full new `artifact` row. Raises `ArtifactNotFoundError` when nothing was copied; a partial result is returned with a warning. |
 | `get_customization_choices(notebook_id=None)` | `str \| None` | `ArtifactCustomizationChoices` | The Studio "Customize" option tables (`GetArtifactCustomizationChoices`): `audio` / `video` / `slide_deck` format choices (tuples; codes use `AudioFormat` / `VideoFormat` / `SlideDeckFormat` values) and `reports` presets with their full generation `directive`. This is an account/UI availability table, not an exhaustive enum manifest; dedicated options such as cinematic video may be omitted. Account-level — the server ignores the notebook id (it only fills the request's `project_id` slot). The server always serves the table, so a missing / re-shaped envelope raises `DecodingError` rather than returning empty families. |
+
+`ArtifactListingComponent` identifies the bounded backing (`studio_artifacts` or
+`note_backed_mind_maps`) named by each `ArtifactListingFailure`. Failure records
+contain a fixed sanitized message and an exception type name; they never retain
+response objects, raw exceptions, signed URLs, or credentials.
+
+`ArtifactLookupStatus` is a string enum with `FOUND`, `MISSING`, and `UNKNOWN`.
+An exact positive result can carry failures from another optional backing while
+remaining `FOUND`; only a no-hit needs complete reads to become `MISSING`.
 
 #### Type-Specific List Methods
 

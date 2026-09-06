@@ -20,7 +20,15 @@ from ...rpc import (
     RPCError,
     RPCMethod,
 )
-from ...types import Artifact, ArtifactNotFoundError, ArtifactNotReadyError, ArtifactType
+from ...types import (
+    Artifact,
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactNotFoundError,
+    ArtifactNotReadyError,
+    ArtifactType,
+)
 from ..contracts import RpcCaller
 from ..rows.artifacts import (
     ArtifactRow,
@@ -215,10 +223,33 @@ class ArtifactListingService:
         It is also ``[]`` when the sub-fetch was skipped (a specific non-mind-map
         ``artifact_type``); that list is never threaded to ``download_mind_map``.
         """
+        listing, raw_studio_rows, mind_map_rows = await self.list_artifacts_with_status_and_raw(
+            notebook_id,
+            artifact_type,
+            list_raw=list_raw,
+            list_mind_maps=list_mind_maps,
+        )
+        return list(listing.items), raw_studio_rows, mind_map_rows
+
+    async def list_artifacts_with_status_and_raw(
+        self,
+        notebook_id: str,
+        artifact_type: ArtifactType | None,
+        *,
+        list_raw: ListRawCallback,
+        list_mind_maps: ListMindMapsCallback,
+    ) -> tuple[ArtifactListing, list[Any], list[Any] | None]:
+        """Build the aggregate result before secondary-read evidence is lost.
+
+        The raw-row values remain an internal download compatibility seam. The
+        public :class:`ArtifactListing` retains only typed artifacts and bounded,
+        sanitized failure evidence.
+        """
         raw_studio_rows = await list_raw(notebook_id)
         artifacts = self._filter_studio_artifacts(raw_studio_rows, artifact_type)
 
         mind_map_rows: list[Any] | None = []
+        failures: tuple[ArtifactListingFailure, ...] = ()
         if artifact_type is None or artifact_type == ArtifactType.MIND_MAP:
             try:
                 mind_map_rows = await list_mind_maps(notebook_id)
@@ -233,9 +264,24 @@ class ArtifactListingService:
                 # is temporarily unavailable. Use ``None`` (not ``[]``) as the
                 # "fetch failed" sentinel so a downstream caller re-fetches.
                 mind_map_rows = None
-                logger.warning("Failed to fetch mind maps: %s", e)
+                failures = (
+                    ArtifactListingFailure(
+                        component=ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+                        error_type=type(e).__name__[:80],
+                        message="The note-backed mind-map listing is unavailable.",
+                    ),
+                )
+                logger.warning("Failed to fetch mind maps (%s).", type(e).__name__)
 
-        return artifacts, raw_studio_rows, mind_map_rows
+        return (
+            ArtifactListing(
+                items=tuple(artifacts),
+                is_complete=not failures,
+                failures=failures,
+            ),
+            raw_studio_rows,
+            mind_map_rows,
+        )
 
     async def get(
         self,

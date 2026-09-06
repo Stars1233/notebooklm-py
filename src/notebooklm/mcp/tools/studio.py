@@ -45,7 +45,7 @@ from ...exceptions import (
     ServerError,
     ValidationError,
 )
-from ...types import GrpcStatusCode
+from ...types import ArtifactLookupStatus, GrpcStatusCode
 from .._coerce import coerce_list
 from .._confirm import (
     DESTRUCTIVE,
@@ -765,8 +765,22 @@ def register(mcp: Any) -> None:
                     GrpcStatusCode.FAILED_PRECONDITION,
                 ):
                     raise
-                art = await client.artifacts.get_or_none(nb_id, art_id)
-                if art is not None and not art.is_failed:
+                lookup = await client.artifacts.lookup(nb_id, art_id)
+                if lookup.status is ArtifactLookupStatus.UNKNOWN:
+                    components = (
+                        ", ".join(sorted({failure.component.value for failure in lookup.failures}))
+                        or "unspecified"
+                    )
+                    raise RPCError(
+                        f"Artifact lookup is incomplete; unavailable components: {components}",
+                        method_id="artifacts.lookup",
+                    ) from None
+                art = lookup.artifact
+                if (
+                    lookup.status is ArtifactLookupStatus.FOUND
+                    and art is not None
+                    and not art.is_failed
+                ):
                     raise ValidationError(
                         f"artifact is not failed (status: {art.status_str}); retry only "
                         "re-runs a failed artifact — use studio_generate for a new one."

@@ -76,6 +76,7 @@ _SPEC_TABLE = "DEPRECATION_SPECS"
 _SPEC_FIELDS = ("key", "message", "category", "replacement", "since", "removal", "stacklevel")
 _REGISTERED_SPEC_KEYS = frozenset(
     {
+        "artifact_ambiguous_absence",
         "auth_tokens_flat_cookies",
         "auth_tokens_from_storage",
         "auth_tokens_replace_cookie_jar",

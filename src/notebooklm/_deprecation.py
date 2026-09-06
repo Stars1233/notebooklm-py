@@ -319,6 +319,23 @@ DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
             removal="1.0",
             stacklevel=5,
         ),
+        "artifact_ambiguous_absence": DeprecationSpec(
+            key="artifact_ambiguous_absence",
+            message=(
+                "Artifact get()/get_or_none() and Android get_prompt(..., "
+                "require_complete=False) encountered an unavailable aggregate backing and "
+                "are preserving the legacy absence result. Use artifacts.lookup(...) or "
+                "get_prompt(..., require_complete=True) to distinguish MISSING from UNKNOWN. "
+                "The legacy ambiguous-absence projection is scheduled to change in v1.0 only "
+                "after this warning has shipped for the required interval; otherwise it will "
+                "remain until a later breaking release."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=4,
+        ),
     }
 )
 

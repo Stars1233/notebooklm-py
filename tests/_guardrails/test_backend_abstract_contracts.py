@@ -68,6 +68,7 @@ BASE_ABSTRACT_CONTRACTS: tuple[_AbstractContract, ...] = (
                 "generate_mind_map",
                 "get_prompt",
                 "list",
+                "list_with_status",
                 "rename",
                 "retry_failed",
                 "revise_slide",
@@ -307,6 +308,7 @@ _ANDROID_INHERITED_WORKFLOWS = {
             "get",
             "get_customization_choices",
             "get_or_none",
+            "lookup",
             "list_audio",
             "list_data_tables",
             "list_flashcards",
@@ -442,7 +444,7 @@ _ARTIFACT_DOCSTRING_SHA256 = {
     (
         "WebArtifactsAPI",
         "__init__",
-    ): "d1b96af651ebc15337c480fd5d9cdb4efb6948dc326f2e6ecc08406982b2e701",
+    ): "bddc9a6f3522e1f249d351c3caf38e8c071e26ee21471a4b65c8ecfd5acec297",
 }
 
 
@@ -541,6 +543,7 @@ def test_artifact_workflow_ownership_and_docstrings_are_preserved() -> None:
         "get",
         "get_customization_choices",
         "get_or_none",
+        "lookup",
         "list_audio",
         "list_data_tables",
         "list_flashcards",
@@ -604,6 +607,7 @@ def test_artifact_class_constructor_docstrings_and_web_signature_are_pinned() ->
         "mind_maps",
         "note_service",
         "storage_path",
+        "asset_downloads",
     )
     assert all(
         parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in web_parameters.values()

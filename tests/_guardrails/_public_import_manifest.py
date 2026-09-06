@@ -17,6 +17,11 @@ from __future__ import annotations
 
 _DOCUMENTED_PUBLIC_IMPORTS = {
     "notebooklm": [
+        "ArtifactListing",
+        "ArtifactListingComponent",
+        "ArtifactListingFailure",
+        "ArtifactLookup",
+        "ArtifactLookupStatus",
         "ArtifactType",
         "AudioFormat",
         "AudioLength",
@@ -101,6 +106,11 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
     "notebooklm.types": [
         "ArtifactDownloadRequest",
         "ArtifactDownloadSelection",
+        "ArtifactListing",
+        "ArtifactListingComponent",
+        "ArtifactListingFailure",
+        "ArtifactLookup",
+        "ArtifactLookupStatus",
         "ConnectionLimits",
         "SourceDeleteOutcome",
     ],

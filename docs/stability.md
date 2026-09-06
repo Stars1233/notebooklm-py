@@ -76,6 +76,8 @@ GrpcUnaryMethod, GrpcUnaryStreamMethod, ReplayPolicy
 
 # Types
 Notebook, Source, Artifact, Note, Label, MindMap, Collection
+ArtifactListing, ArtifactListingComponent, ArtifactListingFailure
+ArtifactLookup, ArtifactLookupStatus
 GenerationState, GenerationStatus, AskResult  # incl. the .is_terminal predicate on both
 NotebookDescription, ConversationTurn, ChatSession, PremiumFeatureInfo
 ShareStatus, SharedUser, SourceFulltext, SourceGuide

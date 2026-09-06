@@ -157,6 +157,10 @@ def _install_registered_tree(
     immutable: bool = True,
 ) -> None:
     entries = entries or [
+        _spec_entry(
+            "artifact_ambiguous_absence",
+            replacement='"notebooklm.NotebookLMClient"',
+        ),
         _spec_entry("auth_tokens_flat_cookies"),
         _spec_entry("auth_tokens_from_storage"),
         _spec_entry(
@@ -230,6 +234,7 @@ def _install_registered_tree(
         ),
     ]
     calls = calls or [
+        'warn_registered_deprecation("artifact_ambiguous_absence")',
         'warn_registered_deprecation("auth_tokens_flat_cookies")',
         'warn_registered_deprecation("auth_tokens_from_storage")',
         'warn_registered_deprecation("auth_tokens_replace_cookie_jar")',

@@ -3,7 +3,7 @@
     "PRIVATE_SYMBOL_ALLOWANCES": 51
   },
   "tests/_guardrails/_public_import_manifest.py": {
-    "_DOCUMENTED_PUBLIC_IMPORTS": 92
+    "_DOCUMENTED_PUBLIC_IMPORTS": 102
   },
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,
@@ -74,9 +74,9 @@
     "_NON_AUTHTOKENS_CANDIDATES": 30
   },
   "tests/_guardrails/test_backend_abstract_contracts.py": {
-    "BASE_ABSTRACT_CONTRACTS": 173,
+    "BASE_ABSTRACT_CONTRACTS": 174,
     "_ANDROID_IMPLEMENTATIONS": 33,
-    "_ANDROID_INHERITED_WORKFLOWS": 102
+    "_ANDROID_INHERITED_WORKFLOWS": 103
   },
   "tests/_guardrails/test_backend_boundaries.py": {
     "LAZY_WEB_IMPORT_ALLOWLIST": 34
@@ -134,7 +134,7 @@
     "_REEXPORTED_RPC_ENUMS": 24,
     "_RPC_LEGACY_REEXPORTS": 47,
     "_TOP_LEVEL_EXCEPTION_EXPORTS": 53,
-    "_TOP_LEVEL_TYPE_EXPORTS": 61
+    "_TOP_LEVEL_TYPE_EXPORTS": 66
   },
   "tests/_guardrails/test_server_classify_consistency.py": {
     "_EXEMPLARS": 22

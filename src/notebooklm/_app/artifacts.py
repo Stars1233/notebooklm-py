@@ -48,9 +48,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..exceptions import ArtifactNotFoundError
+from ..exceptions import ArtifactNotFoundError, RPCError
 from ..options import USE_DEFAULT
-from ..types import Artifact, ExportType
+from ..types import Artifact, ArtifactLookupStatus, ExportType
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -69,16 +69,26 @@ async def get_artifact(
 ) -> Artifact:
     """Fetch a single artifact, raising :class:`ArtifactNotFoundError` on a miss.
 
-    Mirrors the v0.8.0 fail-loud contract (issue #1247): ``get_or_none``
-    returning ``None`` — the artifact was deleted between the partial-id resolve
-    and the get, or a canonical UUID points at a since-deleted artifact — is
-    surfaced as a typed not-found error the adapter maps to its own exit policy
-    (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
+    Mirrors the v0.8.0 fail-loud contract (issue #1247): an authoritative
+    ``MISSING`` result is surfaced as a typed not-found error the adapter maps
+    to its own exit policy (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
     """
-    art = await client.artifacts.get_or_none(notebook_id, artifact_id)
-    if art is None:
+    result = await client.artifacts.lookup(notebook_id, artifact_id)
+    if result.status is ArtifactLookupStatus.FOUND:
+        assert result.artifact is not None
+        return result.artifact
+    if result.status is ArtifactLookupStatus.UNKNOWN:
+        components = (
+            ", ".join(sorted({failure.component.value for failure in result.failures}))
+            or "unspecified"
+        )
+        raise RPCError(
+            f"Artifact lookup is incomplete; unavailable components: {components}",
+            method_id="artifacts.lookup",
+        )
+    if result.status is ArtifactLookupStatus.MISSING:
         raise ArtifactNotFoundError(artifact_id)
-    return art
+    raise AssertionError(f"unrecognized artifact lookup status: {result.status!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -98,7 +108,11 @@ async def get_artifact_prompt(
     studio artifact matches ``artifact_id`` — the adapter maps that to its own
     not-found policy (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
     """
-    return await client.artifacts.get_prompt(notebook_id, artifact_id)
+    return await client.artifacts.get_prompt(
+        notebook_id,
+        artifact_id,
+        require_complete=True,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import inspect
 import json
 import threading
 import traceback
+import warnings
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -79,7 +80,15 @@ from notebooklm.exceptions import (
     ServerError,
     ValidationError,
 )
-from notebooklm.types import Artifact, ArtifactType, MindMap, MindMapKind, Note
+from notebooklm.types import (
+    Artifact,
+    ArtifactListingComponent,
+    ArtifactLookupStatus,
+    ArtifactType,
+    MindMap,
+    MindMapKind,
+    Note,
+)
 
 _PROTO = artifacts_pb2
 
@@ -361,6 +370,94 @@ async def test_transient_note_failure_returns_partial_studio_and_unknown_sentine
     assert note_state is None
     assert type(error).__name__ in caplog.text
     assert str(error) not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_status_and_lookup_preserve_partial_read_evidence() -> None:
+    _, _, mind_maps, _, api = _graph([_artifact("studio")])
+    mind_maps.error = RPCError("secret cookie: SID=do-not-retain", method_id="notes")
+
+    listing = await api.list_with_status("notebook-1")
+    found = await api.lookup("notebook-1", "studio")
+    unknown = await api.lookup("notebook-1", "absent")
+
+    assert [item.id for item in listing.items] == ["studio"]
+    assert not listing.is_complete
+    assert len(listing.failures) == 1
+    failure = listing.failures[0]
+    assert failure.component is ArtifactListingComponent.NOTE_BACKED_MIND_MAPS
+    assert failure.error_type == "RPCError"
+    assert "secret" not in failure.message.lower()
+    assert found.status is ArtifactLookupStatus.FOUND
+    assert found.artifact is not None and found.artifact.id == "studio"
+    assert found.failures == listing.failures
+    assert unknown.status is ArtifactLookupStatus.UNKNOWN
+    assert unknown.artifact is None
+
+
+@pytest.mark.asyncio
+async def test_complete_empty_lookup_is_missing_without_warning() -> None:
+    _, _, _, _, api = _graph()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lookup = await api.lookup("notebook-1", "absent")
+        assert await api.get_or_none("notebook-1", "absent") is None
+
+    assert lookup.status is ArtifactLookupStatus.MISSING
+    assert not [item for item in caught if item.category is DeprecationWarning]
+
+
+@pytest.mark.asyncio
+async def test_primary_failure_and_primary_schema_drift_raise_directly() -> None:
+    session, _, _, _, api = _graph()
+    primary = RPCError("primary unavailable", method_id=LIST_ARTIFACTS_METHOD)
+    session.errors[LIST_ARTIFACTS_METHOD] = primary
+    with pytest.raises(RPCError) as raised:
+        await api.list_with_status("notebook-1")
+    assert raised.value is primary
+
+    _, _, _, _, malformed_api = _graph([_artifact("")])
+    with pytest.raises(DecodingError, match="required artifact id"):
+        await malformed_api.list_with_status("notebook-1")
+
+
+@pytest.mark.asyncio
+async def test_android_strict_prompt_projects_unknown_as_rpc_error() -> None:
+    _, _, mind_maps, _, api = _graph()
+    mind_maps.error = RPCError("token=https://secret.invalid", method_id="notes")
+
+    with pytest.raises(RPCError, match="note_backed_mind_maps") as raised:
+        await api.get_prompt("notebook-1", "absent", require_complete=True)
+
+    assert raised.value.method_id == "artifacts.lookup"
+    assert "secret.invalid" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_android_strict_prompt_returns_studio_hit_despite_note_outage() -> None:
+    _, _, mind_maps, _, api = _graph(
+        [_artifact("studio", type_code=_PROTO.ARTIFACT_TYPE_APP, variant=2)]
+    )
+    mind_maps.error = RPCError("temporary", method_id="notes")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert await api.get_prompt("notebook-1", "studio", require_complete=True) is None
+
+    assert not [item for item in caught if item.category is DeprecationWarning]
+
+
+@pytest.mark.asyncio
+async def test_android_legacy_prompt_warns_only_when_absence_is_ambiguous() -> None:
+    _, _, mind_maps, _, api = _graph()
+    mind_maps.error = RPCError("temporary", method_id="notes")
+
+    with (
+        pytest.warns(DeprecationWarning, match="require_complete=True"),
+        pytest.raises(ArtifactNotFoundError),
+    ):
+        await api.get_prompt("notebook-1", "absent")
 
 
 @pytest.mark.asyncio

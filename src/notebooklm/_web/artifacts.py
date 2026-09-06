@@ -33,6 +33,7 @@ from ..rpc import RPCMethod
 from ..types import (
     Artifact,
     ArtifactCustomizationChoices,
+    ArtifactListing,
     ArtifactType,
     CopiedArtifact,
     CustomizationChoice,
@@ -165,19 +166,36 @@ class WebArtifactsAPI(ArtifactsAPI):
         ``ArtifactType.MIND_MAP``. Pass ``artifact_type`` to filter (e.g.
         ``ArtifactType.MIND_MAP`` for mind maps only).
         """
+        listing = await self.list_with_status(notebook_id, artifact_type)
+        return list(listing.items)
+
+    async def list_with_status(
+        self, notebook_id: str, artifact_type: ArtifactType | None = None
+    ) -> ArtifactListing:
+        """List artifacts together with aggregate-read completeness evidence.
+
+        Primary Studio failures and all decoding failures raise directly.
+        A transient secondary backing failure returns the successfully decoded
+        items with ``is_complete=False`` and a bounded component diagnostic.
+        """
         logger.debug("Listing artifacts in notebook %s", notebook_id)
-        return await self._listing.list_artifacts(
-            notebook_id,
-            artifact_type,
-            list_raw=self._list_raw,
-            list_mind_maps=self._list_mind_maps,
-        )
+        async with self._operation_scope("artifacts.list"):
+            (
+                listing,
+                _raw_studio_rows,
+                _mind_map_rows,
+            ) = await self._listing.list_artifacts_with_status_and_raw(
+                notebook_id,
+                artifact_type,
+                list_raw=self._list_raw,
+                list_mind_maps=self._list_mind_maps,
+            )
+        return listing
 
     async def _list_for_download(
         self, notebook_id: str, artifact_type: ArtifactType | None = None
     ) -> tuple[builtins.list[Artifact], builtins.list[Any], builtins.list[Any] | None]:
-        """List artifacts + the raw rows fetched to build them — same RPC set as
-        :meth:`list`. Internal seam for the ``_app`` download executor (#1488)."""
+        """List artifacts + raw rows for the legacy download-prefetch seam."""
         return await self._listing.list_artifacts_with_raw(
             notebook_id,
             artifact_type,
@@ -185,14 +203,26 @@ class WebArtifactsAPI(ArtifactsAPI):
             list_mind_maps=self._list_mind_maps,
         )
 
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        require_complete: bool = False,
+    ) -> str | None:
         """Get the free-text prompt an artifact was generated from (any studio type).
 
         Returns ``None`` when the artifact stores no prompt (e.g. a note-backed
         mind map); raises :class:`ArtifactNotFoundError` for an unknown id.
+        ``require_complete=True`` prevents a failed aggregate backing from
+        being projected as absence. Web's direct prompt read is already strict;
+        Android uses :meth:`lookup` for this explicit path.
 
         .. versionadded:: 0.8.0
         """
+        # This decoder already reads Studio directly and propagates the exact
+        # note-backed lookup failure on a Studio miss. ``require_complete`` is
+        # therefore an additive cross-backend spelling, not a Web preflight.
         return await self._listing.get_prompt(notebook_id, artifact_id, list_raw=self._list_raw, list_mind_maps=self._list_mind_maps)  # fmt: skip
 
     # =========================================================================
