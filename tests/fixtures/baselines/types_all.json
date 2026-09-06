@@ -1,4 +1,6 @@
 [
+  "ArtifactDownloadRequest",
+  "ArtifactDownloadSelection",
   "SourceDeleteOutcome",
   "AccountLimits",
   "UserSettings",

@@ -96,6 +96,7 @@ UNGATED_PUBLIC_MODULES: tuple[str, ...] = (
     "notebooklm",
     "notebooklm.artifacts",
     "notebooklm.config",
+    "notebooklm.downloads",
     "notebooklm.exceptions",
     "notebooklm.io",
     "notebooklm.log",

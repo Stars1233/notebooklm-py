@@ -181,6 +181,17 @@
     "get_default_language",
     "PERSONAL_BASE_HOST"
   ],
+  "notebooklm.downloads": [
+    "DOWNLOAD_FORMAT_NAMES",
+    "DOWNLOAD_REGISTRY",
+    "DOWNLOAD_SPECS_BY_NAME",
+    "EXTENSION_MIME_TYPES",
+    "FORMAT_EXTENSIONS",
+    "DownloadFormatSpec",
+    "DownloadRegistryEntry",
+    "DownloadTypeSpec",
+    "resolve_download_format"
+  ],
   "notebooklm.exceptions": [
     "NotebookLMError",
     "NotFoundError",

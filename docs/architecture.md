@@ -3,6 +3,8 @@
 This document is the canonical map of `notebooklm-py`'s current runtime shape.
 The historical refactor narrative (including the program that first established
 this layering) lives in [`docs/refactor-history.md`](./refactor-history.md).
+The [download contract](./architecture-download-contracts.md) describes the shared
+representation registry and backend-owned prepared identities.
 
 ## System shape
 

@@ -99,11 +99,24 @@ _DOCUMENTED_PUBLIC_IMPORTS = {
         "RPCMethod",
     ],
     "notebooklm.types": [
+        "ArtifactDownloadRequest",
+        "ArtifactDownloadSelection",
         "ConnectionLimits",
         "SourceDeleteOutcome",
     ],
     "notebooklm.urls": [
         "is_google_auth_redirect",
         "is_youtube_url",
+    ],
+    "notebooklm.downloads": [
+        "DOWNLOAD_FORMAT_NAMES",
+        "DOWNLOAD_REGISTRY",
+        "DOWNLOAD_SPECS_BY_NAME",
+        "DownloadFormatSpec",
+        "DownloadRegistryEntry",
+        "DownloadTypeSpec",
+        "EXTENSION_MIME_TYPES",
+        "FORMAT_EXTENSIONS",
+        "resolve_download_format",
     ],
 }

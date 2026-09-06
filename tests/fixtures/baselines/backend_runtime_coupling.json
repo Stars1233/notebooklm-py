@@ -48,7 +48,7 @@
             "auth": 32,
             "root": 62,
             "runtime": 10,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -193,6 +193,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -277,7 +278,7 @@
             "auth": 32,
             "root": 62,
             "runtime": 10,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -422,6 +423,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -523,7 +525,7 @@
             "root": 62,
             "rpc": 3,
             "runtime": 10,
-            "types": 17,
+            "types": 18,
             "web": 93
           },
           "module_delta": [
@@ -694,6 +696,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -900,7 +903,7 @@
             "auth": 32,
             "root": 60,
             "runtime": 9,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -993,6 +996,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -1072,7 +1076,7 @@
             "auth": 32,
             "root": 62,
             "runtime": 10,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -1242,6 +1246,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -1382,7 +1387,7 @@
             "auth": 32,
             "root": 62,
             "runtime": 10,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -1552,6 +1557,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -1722,7 +1728,7 @@
             "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 17,
+            "types": 18,
             "web": 93
           },
           "module_delta": [
@@ -1818,6 +1824,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -2023,7 +2030,7 @@
             "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 17,
+            "types": 18,
             "web": 93
           },
           "module_delta": [
@@ -2119,6 +2126,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -2259,7 +2267,7 @@
             "auth": 32,
             "root": 60,
             "runtime": 9,
-            "types": 17
+            "types": 18
           },
           "module_delta": [
             "notebooklm",
@@ -2352,6 +2360,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -2455,7 +2464,7 @@
             "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 17,
+            "types": 18,
             "web": 93
           },
           "module_delta": [
@@ -2551,6 +2560,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -2758,7 +2768,7 @@
             "root": 61,
             "rpc": 3,
             "runtime": 10,
-            "types": 17,
+            "types": 18,
             "web": 93
           },
           "module_delta": [
@@ -2854,6 +2864,7 @@
             "notebooklm._sources",
             "notebooklm._types",
             "notebooklm._types.artifact_content",
+            "notebooklm._types.artifact_download",
             "notebooklm._types.artifacts",
             "notebooklm._types.chat",
             "notebooklm._types.collections",
@@ -3003,7 +3014,7 @@
         "auth": 32,
         "root": 60,
         "runtime": 9,
-        "types": 17
+        "types": 18
       },
       "module_delta": [
         "notebooklm",
@@ -3100,6 +3111,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",
@@ -3136,7 +3148,7 @@
         "auth": 32,
         "root": 60,
         "runtime": 9,
-        "types": 17
+        "types": 18
       },
       "module_delta": [
         "notebooklm",
@@ -3229,6 +3241,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",
@@ -3265,7 +3278,7 @@
         "auth": 32,
         "root": 60,
         "runtime": 9,
-        "types": 17,
+        "types": 18,
         "web": 3
       },
       "module_delta": [
@@ -3359,6 +3372,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",
@@ -3398,7 +3412,7 @@
         "auth": 32,
         "root": 60,
         "runtime": 9,
-        "types": 17
+        "types": 18
       },
       "module_delta": [
         "notebooklm",
@@ -3491,6 +3505,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",
@@ -3527,7 +3542,7 @@
         "auth": 32,
         "root": 60,
         "runtime": 9,
-        "types": 17
+        "types": 18
       },
       "module_delta": [
         "notebooklm",
@@ -3620,6 +3635,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",
@@ -3657,7 +3673,7 @@
         "root": 60,
         "rpc": 3,
         "runtime": 9,
-        "types": 17,
+        "types": 18,
         "web": 2
       },
       "module_delta": [
@@ -3751,6 +3767,7 @@
         "notebooklm._sources",
         "notebooklm._types",
         "notebooklm._types.artifact_content",
+        "notebooklm._types.artifact_download",
         "notebooklm._types.artifacts",
         "notebooklm._types.chat",
         "notebooklm._types.collections",

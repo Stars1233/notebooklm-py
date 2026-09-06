@@ -1,6 +1,9 @@
 {
+  "tests/_guardrails/_adapter_import_boundary.py": {
+    "PRIVATE_SYMBOL_ALLOWANCES": 51
+  },
   "tests/_guardrails/_public_import_manifest.py": {
-    "_DOCUMENTED_PUBLIC_IMPORTS": 80
+    "_DOCUMENTED_PUBLIC_IMPORTS": 92
   },
   "tests/_guardrails/_wire_contract.py": {
     "ENUM_BINDINGS": 156,

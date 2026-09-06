@@ -1,6 +1,6 @@
 # Measured Coupling and Ownership Dispositions
 
-**Status:** C8 baseline complete; no package move authorized  
+**Status:** C8 baseline complete; lazy-barrel change deferred
 **Measured:** 2026-09-06  
 **Source baseline:** `f31f0f9d1db225242ac8f7754f955444b0fcff46`
 
@@ -8,6 +8,12 @@ This audit measures the focused `_app` import cost, checks three candidate share
 and records the ownership map requested by C8. Similar names and root-module count are not evidence
 for extraction. A follow-up needs matching preconditions, result/error behavior, and tests before it
 moves policy.
+
+C5b moves the canonical download representation registry from `_app.download_specs`
+to public `downloads`, retaining compatibility reexports. Backend preparation now
+needs the same format/extension/MIME rules as adapters; placing that shared policy
+below `_app` avoids an upward dependency. This is an ownership correction, not a
+claim of import-time improvement over the measurements below.
 
 ## Cold import measurement
 
