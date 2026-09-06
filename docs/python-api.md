@@ -249,7 +249,7 @@ public contract and separate wire graphs; the
 
 A few **public** methods still differ by backend (notes tombstone projection,
 raw escape-hatch types, tracked default flips, deliberate research-import
-policy, and one `get_history` contract gap). Those splits are classified in the
+policy, creation validation, and upload source kinds). Those splits are classified in the
 [Web vs Android public-behavior inventory](web-android-public-behavior.md) so
 callers do not treat every difference as a defect or every defect as "just the
 wire."
@@ -1893,7 +1893,7 @@ else:
 | `ask(notebook_id, question, ...)` | `str, str, ...` | `AskResult` | Ask a question |
 | `configure(notebook_id, ...)` | `str, ...` | `None` | Set chat persona. **Writes the whole chat-settings block with no merge** — an omitted `goal`/`response_length` resets that field to its default. For a partial, merge-preserving update use the CLI `configure` / MCP `chat_configure` (they read `get_settings` first). |
 | `get_settings(notebook_id)` | `str` | `ChatSettings` | Read the notebook's current chat configuration (`goal`, `response_length`, `custom_prompt`). A never-configured notebook reads back as `DEFAULT`/`DEFAULT`. |
-| `get_history(notebook_id, limit=100, conversation_id=None)` | `str, int, str` | `list[tuple[str, str]]` | Get Q&A pairs from most recent conversation. On turn-fetch `ChatError`/`NetworkError`, Web currently returns `[]` while Android raises — classified as a bug, not policy; see [#2384](https://github.com/teng-lin/notebooklm-py/issues/2384) and the [Web vs Android inventory](web-android-public-behavior.md). |
+| `get_history(notebook_id, limit=100, conversation_id=None)` | `str, int, str` | `list[tuple[str, str]]` | Get Q&A pairs from most recent conversation. For a positive `limit`, empty means no conversation or no turns; turn-fetch failures raise. Android also returns `[]` for non-positive limits. |
 | `get_conversation_turns(notebook_id, conversation_id, limit=2)` | `str, str, int` | `Any` | Raw turn payload. Web: batchexecute rows. Android: protobuf `ListChatTurnsResponse`. Prefer `get_history` for typed Q&A pairs. |
 | `get_conversation_id(notebook_id)` | `str` | `str \| None` | Get most recent conversation ID from server |
 | `session_status(notebook_id, conversation_id=None)` | `str, str \| None` | `ChatSessionStatus` | Read the selected session's live generation state. Omitting `conversation_id` selects the most recent session; a notebook with no session is idle. |

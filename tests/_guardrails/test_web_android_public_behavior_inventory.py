@@ -74,7 +74,7 @@ REQUIRED_ROWS: tuple[InventoryRow, ...] = (
     ),
     InventoryRow(
         key="chat.get_history",
-        class_needle="Bug / missing contract",
+        class_needle="Resolved bug",
         test_needles=(
             "tests/unit/test_chat_characterization.py",
             "tests/unit/android/test_chat.py",
