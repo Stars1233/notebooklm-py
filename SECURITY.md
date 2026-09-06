@@ -68,7 +68,10 @@ By default, files are stored per-profile under `~/.notebooklm/profiles/<profile>
 - Does not transmit credentials to any third party
 - Does not store passwords (uses browser-based OAuth)
 - Does not access data outside of NotebookLM except for user-selected local files
-  and opt-in browser-cookie extraction during login/refresh
+  and opt-in browser-cookie extraction during login/refresh. MCP stdio
+  `source_add(source_type="file", path=...)` is operator-mediated and **off**
+  unless `NOTEBOOKLM_MCP_ALLOWED_ROOTS` is set; it never treats `$HOME` or
+  `~/.notebooklm` as an upload root. Remote HTTP never opens a server-host `path`.
 - Does not modify Google account settings
 
 ## Dependency Security

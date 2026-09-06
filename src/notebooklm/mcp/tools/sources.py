@@ -71,7 +71,13 @@ from .._resolve import (
     resolve_sources,
 )
 from ._content_sanity import _annotate_thin_warnings
-from ._fileupload import _add_bytes, _add_one, _broker_upload, _decode_upload_b64
+from ._fileupload import (
+    _add_bytes,
+    _add_one,
+    _broker_upload,
+    _decode_upload_b64,
+    _stdio_host_upload_path,
+)
 from ._passthrough import passthrough_child_id
 from ._preview import title_for_id
 from ._waitagg import _aggregate_wait_outcomes, _wait_all_sources
@@ -634,7 +640,9 @@ def register(mcp: Any) -> None:
         * ``url`` / ``youtube`` — require ``url`` (``youtube`` → a YouTube link).
         * ``text``    — requires ``text``; ``title`` optional.
         * ``file``    — over **stdio**, requires ``path`` (a local path on the
-          server host). Over the **remote (http) connector** the host filesystem is
+          server host inside ``NOTEBOOKLM_MCP_ALLOWED_ROOTS``; host-path file-add
+          is off until that env is set — not ``$HOME`` and not ``~/.notebooklm``).
+          Over the **remote (http) connector** the host filesystem is
           unreachable, so it returns ``upload_required`` with two actor paths:
           ``human_upload`` (open the signed URL in a browser) and ``agent_upload`` (an
           agent POSTs the bytes as the raw body); ``agent_instructions`` gives the rule
@@ -788,6 +796,9 @@ def register(mcp: Any) -> None:
                     )
                 else:
                     content = _select_content(source_type, url=url, text=text, path=path)
+                    # Host-enforced allowed-root check BEFORE the lazy open so a
+                    # denied path stays VALIDATION even when auth is expired.
+                    _stdio_host_upload_path(content, False)
             elif source_type == "drive":
                 if not document_id:
                     raise ValidationError("source_type 'drive' requires 'document_id'")
@@ -862,6 +873,7 @@ def register(mcp: Any) -> None:
                 title=title,
                 mime_type=mime_type,
                 allow_internal=allow_internal,
+                validate_path=_stdio_host_upload_path if source_type == "file" else None,
             )
             if wait:
                 return await _wait_after_add(

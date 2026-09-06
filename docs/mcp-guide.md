@@ -218,8 +218,12 @@ bearer-only deploy → the two file tools return a clear "not configured" error
   adding the source.
 - Links are HMAC-signed and short-lived (upload 15 min, download 30 min) and expire on
   a server restart. Google Drive (`source_add` with a Drive id) remains a no-browser
-  alternative for adding files. stdio (local) installs are unchanged — they still read
-  and write real local paths directly.
+  alternative for adding files. stdio host-path `source_add(source_type="file", path=...)`
+  is **off unless** `NOTEBOOKLM_MCP_ALLOWED_ROOTS` is set to one or more upload
+  directories (not `$HOME` and not `~/.notebooklm`). Credential filenames
+  (`storage_state.json`, `master_token.json`) and Playwright profile dirs are
+  refused even inside an allowed root. `bytes_base64` and remote signed-URL
+  transfer are unchanged and never open a server-host `path`.
 
 ## Core concepts
 

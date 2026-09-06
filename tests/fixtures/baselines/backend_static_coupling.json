@@ -2705,6 +2705,15 @@
     },
     {
       "kind": "from",
+      "lineno": 375,
+      "scope": "_forbidden_upload_root_keys",
+      "scope_kind": "function",
+      "source": "notebooklm._app.source_add",
+      "target": "notebooklm.paths",
+      "type_only": false
+    },
+    {
+      "kind": "from",
       "lineno": 12,
       "scope": null,
       "scope_kind": "module",
@@ -8105,7 +8114,7 @@
     },
     {
       "kind": "from",
-      "lineno": 659,
+      "lineno": 665,
       "scope": "_render_play_books_result",
       "scope_kind": "function",
       "source": "notebooklm.cli._source_render",
@@ -9698,7 +9707,7 @@
     },
     {
       "kind": "from",
-      "lineno": 29,
+      "lineno": 30,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools._fileupload",
@@ -9707,7 +9716,7 @@
     },
     {
       "kind": "from",
-      "lineno": 30,
+      "lineno": 31,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools._fileupload",
@@ -9716,7 +9725,7 @@
     },
     {
       "kind": "from",
-      "lineno": 37,
+      "lineno": 38,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools._fileupload",
@@ -9725,7 +9734,7 @@
     },
     {
       "kind": "from",
-      "lineno": 38,
+      "lineno": 39,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools._fileupload",
@@ -10256,7 +10265,7 @@
     },
     {
       "kind": "from",
-      "lineno": 80,
+      "lineno": 86,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.sources",
@@ -10265,7 +10274,7 @@
     },
     {
       "kind": "from",
-      "lineno": 81,
+      "lineno": 87,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.sources",
@@ -11260,7 +11269,7 @@
       "modules": 53
     },
     "app": {
-      "lines": 13020,
+      "lines": 13142,
       "modules": 40
     },
     "auth": {
@@ -11268,11 +11277,11 @@
       "modules": 33
     },
     "cli": {
-      "lines": 22743,
+      "lines": 22749,
       "modules": 76
     },
     "mcp": {
-      "lines": 10856,
+      "lines": 10908,
       "modules": 38
     },
     "root": {
@@ -11301,12 +11310,12 @@
     }
   },
   "summary": {
-    "authored_lines": 150037,
+    "authored_lines": 150217,
     "authored_modules": 476,
     "class_local_edges": 0,
-    "cross_subsystem_edges": 1239,
+    "cross_subsystem_edges": 1240,
     "dynamic_import_calls": 10,
-    "function_local_edges": 86,
+    "function_local_edges": 87,
     "module_level_edges": 1153,
     "type_only_edges": 132
   },

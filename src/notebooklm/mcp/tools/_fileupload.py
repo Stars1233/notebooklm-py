@@ -22,6 +22,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastmcp import Context
@@ -36,6 +37,11 @@ from .._filelink import UPLOAD_TTL, FileLinkError, FileTransferConfig
 if TYPE_CHECKING:
     from ...client import NotebookLMClient
     from ...types import Source
+
+#: Operator-configured directories that stdio ``source_add(source_type="file",
+#: path=...)`` may read. OS pathsep-separated; unset/empty → host-path file-add
+#: is off. ``$HOME`` and ``~/.notebooklm`` are rejected as roots.
+ALLOWED_ROOTS_ENV = "NOTEBOOKLM_MCP_ALLOWED_ROOTS"
 
 #: Cap on ``source_add``'s ``bytes_base64`` payload — measured on the base64 STRING
 #: (what rides in the MCP message), NOT the decoded size. 10,000 chars ≈ 7.3 KiB of
@@ -252,6 +258,36 @@ def _seed_upload_filename(
     return None
 
 
+def _stdio_host_upload_path(content: str, follow_symlinks: bool) -> Path:
+    """Validate a stdio host-path file-add against operator-configured roots.
+
+    Default-deny: unset ``NOTEBOOKLM_MCP_ALLOWED_ROOTS`` refuses every host
+    path. Credential filenames and Playwright profile dirs are refused even
+    inside a configured root. Remote HTTP never calls this — it brokers a
+    signed URL and does not open ``path``.
+    """
+    try:
+        return add_core.validate_upload_path(
+            content,
+            follow_symlinks,
+            allowed_roots=add_core.parse_upload_allowed_roots(os.environ.get(ALLOWED_ROOTS_ENV)),
+        )
+    except add_core.SourceAddValidationError as exc:
+        if exc.reason == "upload_root_not_configured":
+            raise ValidationError(
+                "stdio source_add(source_type='file', path=...) is off until "
+                f"{ALLOWED_ROOTS_ENV} is set to one or more upload directories "
+                "(not $HOME and not ~/.notebooklm)"
+            ) from exc
+        if exc.reason == "path_outside_allowed_root":
+            raise ValidationError(f"path is outside {ALLOWED_ROOTS_ENV}") from exc
+        if exc.reason == "credential_path_disallowed":
+            raise ValidationError(
+                "refusing to upload a credential or Playwright profile path"
+            ) from exc
+        raise
+
+
 async def _add_bytes(
     client: NotebookLMClient,
     notebook_id: str,
@@ -305,6 +341,7 @@ async def _add_one(
     title: str | None,
     mime_type: str | None,
     allow_internal: bool,
+    validate_path: Callable[[str, bool], Path] | None = None,
 ) -> Source:
     """Build the source-add plan + execute it, returning the created ``Source``.
 
@@ -313,6 +350,9 @@ async def _add_one(
     presence / host validation BEFORE reaching here — single mode via
     ``_select_content`` (which keeps the YouTube-host guard), batch mode via
     the explicit ``source_type="url"`` that forces :func:`add_core.validate_url`.
+    Stdio host-path file-add passes :func:`_stdio_host_upload_path`; in-channel
+    byte spools keep the unrestricted validator (the bytes are already in
+    memory, not a caller-chosen host path).
     """
     plan = add_core.build_source_add_plan(
         content=content,
@@ -320,7 +360,7 @@ async def _add_one(
         title=title,
         mime_type=mime_type,
         follow_symlinks=False,
-        validate_path=add_core.validate_upload_path,
+        validate_path=validate_path or add_core.validate_upload_path,
         looks_path_shaped=add_core.looks_like_path,
         allow_internal=allow_internal,
     )

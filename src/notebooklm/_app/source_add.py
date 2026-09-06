@@ -26,7 +26,7 @@ import ipaddress
 import os
 import re
 import socket
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
@@ -123,6 +123,9 @@ SourceAddValidationReason = Literal[
     "symlink_disallowed",
     "not_regular_file",
     "missing_upload_path",
+    "upload_root_not_configured",
+    "path_outside_allowed_root",
+    "credential_path_disallowed",
 ]
 
 
@@ -322,12 +325,109 @@ def looks_like_path(content: str) -> bool:
     return suffix in _PATH_SHAPED_EXTENSIONS
 
 
-def validate_upload_path(content: str, follow_symlinks: bool) -> Path:
+#: Basenames that are account-equivalent NotebookLM credentials. Matched
+#: case-insensitively so a dummy ``storage_state.json`` anywhere the process
+#: can read is refused even inside an allowed upload root.
+_CREDENTIAL_FILENAMES = frozenset({"storage_state.json", "master_token.json"})
+#: Playwright Chromium profile directory names. The conventional profile layout
+#: uses ``browser_profile/``; an explicit storage path may instead use a
+#: ``*.browser_profile`` sibling. Either is account-equivalent.
+_PLAYWRIGHT_DIR_NAME = "browser_profile"
+_PLAYWRIGHT_DIR_SUFFIX = ".browser_profile"
+
+
+def parse_upload_allowed_roots(raw: str | None) -> tuple[Path, ...]:
+    """Parse an OS-pathsep list of upload roots into resolved directories.
+
+    Empty / whitespace-only input yields no roots (default-deny). ``$HOME``,
+    the NotebookLM home (``NOTEBOOKLM_HOME`` / ``~/.notebooklm``), and the
+    filesystem root are dropped even if the operator lists them — those are
+    not upload directories.
+    """
+    if raw is None or not raw.strip():
+        return ()
+    forbidden = _forbidden_upload_root_keys()
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for part in raw.split(os.pathsep):
+        text = part.strip()
+        if not text:
+            continue
+        try:
+            resolved = Path(text).expanduser().resolve()
+        except OSError:
+            continue
+        if resolved.parent == resolved:
+            continue
+        key = os.path.normcase(str(resolved))
+        if key in seen or key in forbidden:
+            continue
+        seen.add(key)
+        roots.append(resolved)
+    return tuple(roots)
+
+
+def _forbidden_upload_root_keys() -> frozenset[str]:
+    """Return normcased paths that must never be configured as upload roots."""
+    keys: set[str] = set()
+    candidates = [Path.home(), Path.home() / ".notebooklm"]
+    try:
+        from ..paths import get_home_dir
+
+        candidates.append(get_home_dir())
+    except OSError:
+        pass
+    for candidate in candidates:
+        try:
+            keys.add(os.path.normcase(str(Path(candidate).expanduser().resolve())))
+        except OSError:
+            continue
+    return frozenset(keys)
+
+
+def _is_credential_upload_path(path: Path) -> bool:
+    """Return True if ``path`` is a known credential file or Playwright profile."""
+    if path.name.lower() in _CREDENTIAL_FILENAMES:
+        return True
+    for part in path.parts:
+        lowered = part.lower()
+        if lowered == _PLAYWRIGHT_DIR_NAME or lowered.endswith(_PLAYWRIGHT_DIR_SUFFIX):
+            return True
+    return False
+
+
+def _is_under_allowed_root(path: Path, root: Path) -> bool:
+    """Return True if ``path`` is ``root`` or a descendant, including case-fold."""
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        pass
+    path_s = os.path.normcase(str(path))
+    root_s = os.path.normcase(str(root))
+    if path_s == root_s:
+        return True
+    return path_s.startswith(root_s.rstrip(os.sep) + os.sep)
+
+
+def validate_upload_path(
+    content: str,
+    follow_symlinks: bool,
+    *,
+    allowed_roots: Sequence[str | Path] | None = None,
+) -> Path:
     """Validate a local-file path before uploading it as a source.
 
+    Always refuses known credential filenames (``storage_state.json``,
+    ``master_token.json``) and Playwright profile directories. When
+    ``allowed_roots`` is passed (including an empty sequence), the resolved
+    path must also sit inside one of those roots; an empty sequence is
+    default-deny. ``allowed_roots=None`` skips the root check (CLI and
+    trusted temp spools).
+
     Raises:
-        SourceAddValidationError: if the path is a refused symlink or is
-            not a regular file.
+        SourceAddValidationError: if the path is a refused symlink, is not a
+            regular file, is a credential path, or falls outside ``allowed_roots``.
     """
     # Expand ``~`` BEFORE the symlink check — otherwise a ``~``-prefixed path
     # (e.g. ``~/evil_symlink``) passes the guard as a non-existent literal and
@@ -343,6 +443,27 @@ def validate_upload_path(content: str, follow_symlinks: bool) -> Path:
 
     if not file_path.is_file():
         raise SourceAddValidationError("not_regular_file", path=content)
+
+    if _is_credential_upload_path(file_path):
+        raise SourceAddValidationError("credential_path_disallowed", path=str(file_path))
+
+    if allowed_roots is not None:
+        resolved_roots: list[Path] = []
+        seen: set[str] = set()
+        for root in allowed_roots:
+            try:
+                resolved = Path(root).expanduser().resolve()
+            except OSError:
+                continue
+            key = os.path.normcase(str(resolved))
+            if key in seen:
+                continue
+            seen.add(key)
+            resolved_roots.append(resolved)
+        if not resolved_roots:
+            raise SourceAddValidationError("upload_root_not_configured", path=str(file_path))
+        if not any(_is_under_allowed_root(file_path, root) for root in resolved_roots):
+            raise SourceAddValidationError("path_outside_allowed_root", path=str(file_path))
 
     return file_path
 
@@ -499,6 +620,7 @@ __all__ = [
     "build_source_add_plan",
     "execute_source_add",
     "looks_like_path",
+    "parse_upload_allowed_roots",
     "safe_upload_name",
     "validate_upload_path",
     "validate_url",
