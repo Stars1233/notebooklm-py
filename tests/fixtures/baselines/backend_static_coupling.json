@@ -2552,7 +2552,7 @@
     },
     {
       "kind": "from",
-      "lineno": 43,
+      "lineno": 45,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._app.research",
@@ -2561,7 +2561,7 @@
     },
     {
       "kind": "from",
-      "lineno": 44,
+      "lineno": 46,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._app.research",
@@ -2570,7 +2570,16 @@
     },
     {
       "kind": "from",
-      "lineno": 45,
+      "lineno": 47,
+      "scope": null,
+      "scope_kind": "module",
+      "source": "notebooklm._app.research",
+      "target": "notebooklm.research",
+      "type_only": false
+    },
+    {
+      "kind": "from",
+      "lineno": 48,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm._app.research",
@@ -10040,7 +10049,7 @@
     },
     {
       "kind": "from",
-      "lineno": 45,
+      "lineno": 44,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.research",
@@ -10049,7 +10058,7 @@
     },
     {
       "kind": "from",
-      "lineno": 46,
+      "lineno": 45,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.research",
@@ -10058,7 +10067,7 @@
     },
     {
       "kind": "from",
-      "lineno": 47,
+      "lineno": 46,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.research",
@@ -10067,7 +10076,7 @@
     },
     {
       "kind": "from",
-      "lineno": 48,
+      "lineno": 47,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.research",
@@ -10076,16 +10085,7 @@
     },
     {
       "kind": "from",
-      "lineno": 49,
-      "scope": null,
-      "scope_kind": "module",
-      "source": "notebooklm.mcp.tools.research",
-      "target": "notebooklm.research",
-      "type_only": false
-    },
-    {
-      "kind": "from",
-      "lineno": 50,
+      "lineno": 48,
       "scope": null,
       "scope_kind": "module",
       "source": "notebooklm.mcp.tools.research",
@@ -11260,7 +11260,7 @@
       "modules": 53
     },
     "app": {
-      "lines": 13020,
+      "lines": 13097,
       "modules": 40
     },
     "auth": {
@@ -11272,7 +11272,7 @@
       "modules": 76
     },
     "mcp": {
-      "lines": 10856,
+      "lines": 10831,
       "modules": 38
     },
     "root": {
@@ -11288,7 +11288,7 @@
       "modules": 10
     },
     "server": {
-      "lines": 3865,
+      "lines": 3864,
       "modules": 19
     },
     "types": {
@@ -11301,7 +11301,7 @@
     }
   },
   "summary": {
-    "authored_lines": 150037,
+    "authored_lines": 150088,
     "authored_modules": 476,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1239,
