@@ -165,6 +165,33 @@ _format_single_qa = format_single_qa
 _format_history = format_history
 
 
+def _confirm_new_conversation_deletion(
+    conversation_id: str, *, assume_yes: bool, json_output: bool
+) -> None:
+    """Prompt for ``ask --new`` history deletion.
+
+    Sync and client-free so confirmation never sits inside a client
+    ``operation()`` scope. ``--json`` implies ``--yes`` so scripted callers
+    don't hang on stdin (which would also clobber JSON stdout purity). See
+    ``cli/artifact_cmd.py::artifact_delete`` for the same pattern.
+    """
+    if assume_yes or json_output:
+        return
+    if click.confirm(
+        f"This will permanently delete conversation "
+        f"{conversation_id[:8]}... and all its turns. Continue?",
+        default=False,
+    ):
+        return
+    # Exit 1 (BaseException-bypassing ``SystemExit``) so scripts can
+    # distinguish "user said no" from "ask succeeded" — the intended
+    # ``ask`` did not run. ``click.exceptions.Exit`` and ``ctx.exit``
+    # both raise ``RuntimeError`` subclasses that the ``handle_errors``
+    # catch-all (error_handler.py) would remap to exit 2.
+    console.print("[yellow]Aborted — no conversation deleted.[/yellow]")
+    exit_with_code(1)
+
+
 def _determine_conversation_id(
     *,
     explicit_conversation_id: str | None,
@@ -342,6 +369,7 @@ def register_chat_commands(cli):
         async def _run():
             async with resolve_client_factory(ctx)(client_auth, **client_kwargs) as client:
                 nb_id_resolved = await resolve_notebook_id(client, nb_id, json_output=json_output)
+                last_conv_id: str | None = None
                 if new_conversation:
                     # Dropping ``conversation_id`` alone extends the most-recent
                     # conversation (see ChatAPI.ask Note). Deleting it first
@@ -349,30 +377,6 @@ def register_chat_commands(cli):
                     # conversation is fine — skip both the prompt and the
                     # delete; ``ask`` then creates the notebook's first one.
                     last_conv_id = await client.chat.get_conversation_id(nb_id_resolved)
-                    if last_conv_id:
-                        # ``--json`` implies ``--yes`` so scripted callers don't
-                        # hang on stdin (which would also clobber JSON stdout
-                        # purity). See ``cli/artifact_cmd.py::artifact_delete``
-                        # for the same pattern.
-                        if (
-                            not assume_yes
-                            and not json_output
-                            and not click.confirm(
-                                f"This will permanently delete conversation "
-                                f"{last_conv_id[:8]}... and all its turns. Continue?",
-                                default=False,
-                            )
-                        ):
-                            # Exit 1 (BaseException-bypassing ``SystemExit``)
-                            # so scripts can distinguish "user said no" from
-                            # "ask succeeded" — the intended ``ask`` did not
-                            # run. ``click.exceptions.Exit`` and ``ctx.exit``
-                            # both raise ``RuntimeError`` subclasses that the
-                            # ``handle_errors`` catch-all (error_handler.py)
-                            # would remap to exit 2.
-                            console.print("[yellow]Aborted — no conversation deleted.[/yellow]")
-                            exit_with_code(1)
-                        await client.chat.delete_conversation(nb_id_resolved, last_conv_id)
                     effective_conv_id: str | None = None
                 else:
                     effective_conv_id = _determine_conversation_id(
@@ -391,9 +395,18 @@ def register_chat_commands(cli):
                     if effective_conv_id:
                         resumed_from_server = True
 
+                # ``--source`` resolution can still abort; finish it before any
+                # ``--new`` delete so a bad/ambiguous reference cannot destroy
+                # the current conversation. Confirm stays a sync prompt (no
+                # client ``operation()`` held across stdin).
                 sources = await resolve_source_ids(
                     client, nb_id_resolved, source_ids, json_output=json_output
                 )
+                if new_conversation and last_conv_id:
+                    _confirm_new_conversation_deletion(
+                        last_conv_id, assume_yes=assume_yes, json_output=json_output
+                    )
+                    await client.chat.delete_conversation(nb_id_resolved, last_conv_id)
                 result = await client.chat.ask(
                     nb_id_resolved,
                     question,
