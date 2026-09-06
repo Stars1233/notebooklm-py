@@ -1548,13 +1548,13 @@ class TestGetHistoryErrorHandling:
     """Tests for get_history error handling ."""
 
     @pytest.mark.asyncio
-    async def test_get_history_returns_empty_on_chat_error(
+    async def test_get_history_raises_on_chat_error(
         self,
         auth_tokens,
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """Test get_history returns [] when get_conversation_turns raises ChatError."""
+        """Turn-fetch ChatError from get_conversation_turns propagates (#2384)."""
         from notebooklm.exceptions import ChatError
 
         id_response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [[["conv_001"]]])
@@ -1566,30 +1566,38 @@ class TestGetHistoryErrorHandling:
                 new_callable=AsyncMock,
                 side_effect=ChatError("API error"),
             ):
-                result = await client.chat.get_history("nb_123")
-        assert result == []
+                with pytest.raises(ChatError, match="API error"):
+                    await client.chat.get_history("nb_123")
 
     @pytest.mark.asyncio
-    async def test_get_history_returns_empty_on_network_error(
+    async def test_get_history_raises_on_network_error(
         self,
         auth_tokens,
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """Test get_history returns [] when get_conversation_turns raises NetworkError."""
+        """Turn-fetch NetworkError from the conversation-turns RPC propagates (#2384)."""
+        import httpx
+
         from notebooklm.exceptions import NetworkError
+        from notebooklm.options import ClientConfig, RetryOptions
 
         id_response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [[["conv_001"]]])
-        httpx_mock.add_response(content=id_response.encode())
-        async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.chat,
-                "get_conversation_turns",
-                new_callable=AsyncMock,
-                side_effect=NetworkError("connection error"),
-            ):
-                result = await client.chat.get_history("nb_123")
-        assert result == []
+        httpx_mock.add_response(
+            url=re.compile(r".*batchexecute.*rpcids=hPTbtc.*"),
+            content=id_response.encode(),
+            method="POST",
+        )
+        httpx_mock.add_exception(
+            httpx.ConnectError("connection error"),
+            url=re.compile(r".*batchexecute.*rpcids=khqZz.*"),
+        )
+        async with NotebookLMClient(
+            auth_tokens,
+            config=ClientConfig(retry=RetryOptions(server_error_max_retries=0)),
+        ) as client:
+            with pytest.raises(NetworkError, match="connection error"):
+                await client.chat.get_history("nb_123")
 
     @pytest.mark.asyncio
     async def test_get_history_returns_empty_when_no_conversation(
@@ -1598,7 +1606,7 @@ class TestGetHistoryErrorHandling:
         httpx_mock: HTTPXMock,
         build_rpc_response,
     ):
-        """Test get_history returns [] when get_conversation_id returns None."""
+        """No conversation is a real empty history, not a swallowed fetch failure (#2384)."""
         response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [])
         httpx_mock.add_response(content=response.encode())
         async with NotebookLMClient(auth_tokens) as client:

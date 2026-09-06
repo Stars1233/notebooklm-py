@@ -8,10 +8,12 @@ the start→status poll shape, the import workflow, and error projection.
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -1363,3 +1365,87 @@ async def test_research_status_sources_carry_their_hints(mcp_call, mock_client) 
     content = (await mcp_call("research_status", {"notebook": NB_ID})).structured_content
 
     assert content["sources"][0]["hint"] == "why this one"
+
+
+def _bind_operation(mock_client: Any, timeout: float | None = None) -> Any:
+    from notebooklm import NotebookLMClient
+    from notebooklm._client_metrics import ClientMetrics
+    from notebooklm._runtime.call_supervisor import CallSupervisor
+
+    supervisor = CallSupervisor(
+        metrics=ClientMetrics(), max_concurrent_rpcs=1, operation_timeout=timeout
+    )
+    supervisor.prepare_generation(1)
+    supervisor.start_accepting(1)
+    real = object.__new__(NotebookLMClient)
+    real._collaborators = SimpleNamespace(call_supervisor=supervisor)
+    mock_client.operation = real.operation
+    return supervisor
+
+
+async def test_research_import_does_not_dispatch_import_after_poll_exhausts_budget(
+    mcp_call, mock_client
+) -> None:
+    supervisor = _bind_operation(mock_client, 0.06)
+    calls: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            calls.append("poll")
+            await asyncio.sleep(0.05)
+            return FakeResearchTask(
+                status=FakeResearchStatus.COMPLETED,
+                sources=[FakeSource(url="http://a", title="A")],
+                task_id=TASK_ID,
+            )
+
+    async def import_sources_with_verification(notebook_id, task_id, sources, **kwargs):
+        async with supervisor.operation_scope("research.import_sources"):
+            await asyncio.sleep(0.05)
+            async with supervisor.call_scope("import.dispatch", None, None):
+                calls.append("import")
+            return [{"id": "src-1", "title": "A"}]
+
+    mock_client.research.poll = poll
+    mock_client.research.import_sources_with_verification = import_sources_with_verification
+    with pytest.raises(ToolError):
+        await mcp_call("research_import", {"notebook": NB_ID, "poll_task_id": TASK_ID})
+    assert calls == ["poll"]
+
+
+async def test_research_import_drain_rejects_new_work_between_poll_and_import(
+    mcp_call, mock_client
+) -> None:
+    supervisor = _bind_operation(mock_client)
+    poll_started = asyncio.Event()
+    resume_poll = asyncio.Event()
+    imported: list[str] = []
+
+    async def poll(notebook_id, task_id=None):
+        async with supervisor.operation_scope("research.poll"):
+            poll_started.set()
+            await resume_poll.wait()
+            return FakeResearchTask(
+                status=FakeResearchStatus.COMPLETED,
+                sources=[FakeSource(url="http://a", title="A")],
+                task_id=task_id or TASK_ID,
+            )
+
+    async def import_sources_with_verification(notebook_id, task_id, sources, **kwargs):
+        async with supervisor.operation_scope("research.import_sources"):
+            imported.append(task_id)
+            return [{"id": "src-1", "title": "A"}]
+
+    mock_client.research.poll = poll
+    mock_client.research.import_sources_with_verification = import_sources_with_verification
+    action = asyncio.create_task(
+        mcp_call("research_import", {"notebook": NB_ID, "poll_task_id": TASK_ID})
+    )
+    await poll_started.wait()
+    await supervisor.stop_accepting(1)
+    with pytest.raises(ToolError):
+        await mcp_call("research_import", {"notebook": NB_ID, "poll_task_id": "run-2"})
+    resume_poll.set()
+    result = await action
+    assert result.structured_content["status"] == "imported"
+    assert imported == [TASK_ID]

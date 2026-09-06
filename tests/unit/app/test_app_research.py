@@ -27,6 +27,7 @@ from notebooklm._app.research import (
     cancel_research,
     classify_research_task,
     discover_and_classify,
+    execute_research_import,
     execute_research_wait,
     poll_and_classify,
     poll_importable_research,
@@ -665,6 +666,50 @@ async def test_import_research_sources_plain_list_return_has_empty_already_prese
     assert outcome.already_present == []
     _, kwargs = client.research.import_sources_with_verification.await_args
     assert kwargs == {"allow_duplicate": True}
+
+
+async def test_execute_research_import_oneshot_uses_import_sources() -> None:
+    client = _client(
+        poll=_task(
+            status=ResearchStatus.COMPLETED,
+            sources=[{"title": "S", "url": "http://example.com/1"}],
+        )
+    )
+    client.research.import_sources = AsyncMock(return_value=[{"id": "src_1", "title": "S"}])
+
+    execution = await execute_research_import(client, "nb_1", "run_1", oneshot=True)
+
+    assert execution.sources_found[0]["url"] == "http://example.com/1"
+    assert execution.imported == [{"id": "src_1", "title": "S"}]
+    client.research.import_sources.assert_awaited_once()
+    client.research.import_sources_with_verification.assert_not_called()
+
+
+async def test_execute_research_import_cited_only_then_max_sources() -> None:
+    client = _client(
+        poll=_task(
+            status=ResearchStatus.COMPLETED,
+            sources=[
+                {"title": "A", "url": "http://a"},
+                {"title": "B", "url": "http://b"},
+                {"title": "C", "url": "http://c"},
+            ],
+            report="See [A](http://a) and [B](http://b).",
+        )
+    )
+    client.research.import_sources_with_verification = AsyncMock(
+        return_value=[{"id": "src-a", "title": "A"}]
+    )
+
+    execution = await execute_research_import(
+        client, "nb_1", "run_1", cited_only=True, max_sources=1
+    )
+
+    imported_sources = client.research.import_sources_with_verification.await_args.args[2]
+    assert [src["url"] for src in imported_sources] == ["http://a"]
+    assert execution.sources_found[0]["url"] == "http://a"
+    assert len(execution.sources_selected) == 1
+    assert execution.cited_fallback is False
 
 
 # ===========================================================================

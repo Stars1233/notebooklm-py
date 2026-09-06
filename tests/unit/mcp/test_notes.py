@@ -18,7 +18,18 @@ pytest.importorskip("fastmcp")
 
 from fastmcp.exceptions import ToolError  # noqa: E402 - after importorskip guard
 
-from notebooklm.exceptions import NoteNotFoundError  # noqa: E402 - after importorskip guard
+from notebooklm._idempotency import (  # noqa: E402 - after importorskip guard
+    attach_operation_metadata,
+)
+from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
+    NetworkError,
+    NoteNotFoundError,
+)
+from notebooklm.outcomes import (  # noqa: E402 - after importorskip guard
+    CommitState,
+    OperationMetadata,
+    RecoveryAction,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -49,6 +60,32 @@ async def test_note_save_create(mcp_call, mock_client) -> None:
         "created": True,
     }
     mock_client.notes.create.assert_awaited_once_with(NB_ID, "Idea", "body")
+
+
+async def test_note_save_create_unconfirmed_preserves_operation_metadata(
+    mcp_call, mock_client
+) -> None:
+    """MCP note_save raises through mcp_errors, so commit evidence stays on the wire."""
+    failure = NetworkError("lost after dispatch")
+    attach_operation_metadata(
+        failure,
+        OperationMetadata(
+            commit_state=CommitState.UNKNOWN,
+            known_resource_ids=("note-accepted",),
+            recovery_action=RecoveryAction.INSPECT_AND_RECONCILE,
+            operation="notes.create",
+        ),
+    )
+    mock_client.notes.create = AsyncMock(side_effect=failure)
+
+    with pytest.raises(ToolError) as excinfo:
+        await mcp_call("note_save", {"notebook": NB_ID, "title": "Idea", "content": "body"})
+
+    message = str(excinfo.value)
+    assert "unconfirmed=true" in message
+    assert "note-accepted" in message
+    assert '"commit_state": "unknown"' in message or '"commit_state":"unknown"' in message
+    assert "inspect_and_reconcile" in message
 
 
 @pytest.mark.parametrize("payload", [{"title": "T"}, {"content": "C"}, {}])
