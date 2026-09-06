@@ -1332,6 +1332,7 @@ print(url)
 | `refresh(notebook_id, source_id)` | `str, str` | `None` | Refresh URL/Drive source. `None` means the server accepted the call; a rejection raises `RPCError` (v0.9.0, #2290 — previously a server-side `INVALID_ARGUMENT` also returned `None`). |
 | `check_freshness(notebook_id, source_id)` | `str, str` | `bool` | Check if source needs refresh |
 | `delete(notebook_id, source_id)` | `str, str` | `None` | Delete source (idempotent; returns `None` whether or not it existed) |
+| `delete_many_with_outcomes(notebook_id, source_ids)` | `str, list[str] \| tuple[str, ...]` | `list[SourceDeleteOutcome]` | Supervised per-occurrence cleanup, preserving input order and duplicates, with at most ten active deletions and a pause between groups. Returns confirmed, rejected, unknown, or unattempted evidence per source. |
 | `wait_until_ready(notebook_id, source_id, timeout=120.0, ...)` | `str, str, float, ...` | `Source` | Poll until `status == READY` (fully processed). Raises `SourceTimeoutError`/`SourceProcessingError`/`SourceNotFoundError` — see [Processing failures vs. timeouts](#processing-failures-vs-timeouts). |
 | `add_urls_async(notebook_id, urls)` | `str, list[str]` | `list[Source]` | Queue URL sources with one non-blocking `AddSourcesAsync` call and return the queued stub rows (id, url, type; status still processing). Never replayed on a transport failure — the error is marked unconfirmed for the caller to reconcile against `list()`. |
 | `append_text(notebook_id, source_id, text, *, header="")` | `str, str, str, *, str` | `None` | Append a plain-text block to an existing source in place (`AppendSource`). `text` lands at the very end of the fulltext; `header` is accepted but not shown in the fulltext. |
@@ -1339,6 +1340,14 @@ print(url)
 | `wait_until_registered(notebook_id, source_id, timeout=30.0, ...)` | `str, str, float, ...` | `Source` | Poll until the source is visible server-side (any non-ERROR status). Completes quickly (seconds for typical sources); intended for narrow follow-up RPCs (e.g. `UPDATE_SOURCE`) that only require registration, not full processing. |
 | `wait_for_sources(notebook_id, source_ids, timeout=120.0, **kwargs)` | `str, list[str], float, ...` | `list[Source]` | Wait for multiple sources to become ready **in parallel**. Per-source timeout; `**kwargs` are forwarded to `wait_until_ready`. |
 | `wait_all_until_ready(notebook_id, source_ids, timeout=120.0, initial_interval=1.0, max_interval=10.0, backoff_factor=1.5, transient_error_types=None)` | `str, list[str], float, ...` | `list[SourceWaitResult]` | Wait for many sources with **one notebook snapshot per poll tick** (cheaper than `wait_for_sources`'s per-source polling for large batches). Terminal per-source failures (`SourceNotFoundError` / `SourceProcessingError` / `SourceTimeoutError`) are **returned**, not raised — one result per id, in input order. |
+
+`SourceDeleteOutcome` is imported from `notebooklm.types` or `notebooklm`. It carries
+`source_id`, a canonical `BatchItemOutcome`, and an optional original error.
+Cleanup accepts more than 20 sources. On cancellation or deadline expiry,
+`OperationMetadata.source_delete_outcomes` retains the complete ordered receipt;
+the diagnostic `batch_outcome` projects at most 20 items and reports `total_items`
+and `omitted_items` when truncated. Retry guidance considers every member, including
+the omitted tail. See [supervised source cleanup](architecture.md#supervised-source-cleanup).
 
 **Example:**
 ```python
