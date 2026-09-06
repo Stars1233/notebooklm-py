@@ -40,6 +40,9 @@ from ._mcp_live_helpers import (  # noqa: E402 - after importorskip guard
     call_tool as _call,
 )
 from ._mcp_live_helpers import (  # noqa: E402 - after importorskip guard
+    is_android_inventory_only_slide_failure as _is_android_inventory_only_slide_failure,
+)
+from ._mcp_live_helpers import (  # noqa: E402 - after importorskip guard
     mcp_client as _mcp_client,
 )
 from ._mcp_live_helpers import (  # noqa: E402 - after importorskip guard
@@ -476,11 +479,10 @@ class TestMcpArtifacts:
             },
         )
         assert isinstance(result, dict)
-        if (
-            client.backends["artifacts"] == "android"
-            and dl_type == "slide-deck"
-            and result.get("outcome") == "error"
-            and "PDF URL not available in artifact data" in str(result.get("error"))
+        if _is_android_inventory_only_slide_failure(
+            result,
+            backend=client.backends["artifacts"],
+            artifact_type=dl_type,
         ):
             pytest.skip("Android hydration confirmed an inventory-only slide deck")
         # The stdio download core writes the file and reports its path; assert
