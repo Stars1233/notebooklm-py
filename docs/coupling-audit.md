@@ -51,11 +51,11 @@ No evidence here justifies relocating `skill` or `mcp_install`; both are framewo
 workflows. A follow-up should change only the barrel, add a fresh-process module-count regression,
 and leave owner modules in place.
 
-Reproduction command shape:
+The checked-in runtime coupling audit supplies the broader clean-interpreter
+baseline. Run it with:
 
 ```bash
-PYTHONPATH=$PWD/src .venv/bin/python -c \
-  'import sys; before=set(sys.modules); import notebooklm._app.resolve; print(sorted(set(sys.modules)-before))'
+PYTHONPATH=$PWD/src .venv/bin/python scripts/audit_backend_coupling.py --mode runtime
 ```
 
 ## Candidate shared-policy inventory
