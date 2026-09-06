@@ -2684,6 +2684,7 @@ src/notebooklm/
 - [`docs/development.md`](./development.md) — how to add a new feature API.
 - [`docs/refactor-history.md`](./refactor-history.md) — historical narrative of the multi-phase refactor + downstream migration tables.
 - [`docs/python-api.md`](./python-api.md) — public Python API surface.
+- [`docs/web-android-public-behavior.md`](./web-android-public-behavior.md) — classified remaining public Web vs Android behavior splits.
 - [`docs/auth-cookie-lifecycle.md`](./auth-cookie-lifecycle.md) — cookie keepalive, rotation, and PSIDTS recovery.
 - [`docs/rpc-development.md`](./rpc-development.md) — capturing and debugging new RPCs.
 - [`docs/rpc-reference.md`](./rpc-reference.md) — RPC payload structures.

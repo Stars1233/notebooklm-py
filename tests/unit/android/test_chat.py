@@ -46,6 +46,7 @@ from notebooklm.exceptions import (
     ChatError,
     ChatResponseParseError,
     DecodingError,
+    NetworkError,
     UnknownRPCMethodError,
     ValidationError,
 )
@@ -703,6 +704,27 @@ async def test_history_uses_response_document_when_legacy_answer_text_is_empty()
     api, _, _ = _api(fake)
 
     assert await api.get_history("notebook-1", limit=1) == [("Document answer?", "Final answer")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ChatError("API error"), id="chat"),
+        pytest.param(NetworkError("connection error"), id="network"),
+    ],
+)
+async def test_get_history_propagates_turn_fetch_failures(error: BaseException) -> None:
+    """Android raises on turn-fetch ChatError/NetworkError; Web maps them to [].
+
+    This pins the current split. Do not swallow the failure here — see #2384.
+    """
+    fake = FakeSession()
+    fake.unary_responses[LIST_CHAT_TURNS_METHOD] = [error]
+    api, _, _ = _api(fake)
+
+    with pytest.raises(type(error)):
+        await api.get_history("notebook-1")
 
 
 @pytest.mark.asyncio
