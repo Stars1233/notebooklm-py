@@ -252,19 +252,13 @@ class BearerProvider(EpochFenced):
                 self._mint_task = task
             self._mint_waiters += 1
 
+        result: _MintResult | None = None
+        lock_acquired = False
         try:
             result = await asyncio.shield(task)
-        except BaseException:
-            self._settle_mint_waiter(task)
-            raise
-
-        try:
+            assert result is not None
             await lock.acquire()
-        except BaseException:
-            self._settle_mint_waiter(task)
-            del result
-            raise
-        try:
+            lock_acquired = True
             if (
                 self._provider_epoch != provider_epoch
                 or self._closing
@@ -276,12 +270,13 @@ class BearerProvider(EpochFenced):
                 self._cached = result.credential
                 self._cache_deadline = result.cache_deadline
             return result.credential
-        except BaseException:
-            del result
-            raise
         finally:
+            # Drop the bearer-owning mint result before an escaping exception
+            # can retain this frame through its traceback.
+            result = None
             self._settle_mint_waiter(task)
-            lock.release()
+            if lock_acquired:
+                lock.release()
 
     async def refresh(self, expected_epoch: int) -> BearerCredential:
         """Invalidate the cached bearer and mint/join one fresh credential."""

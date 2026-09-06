@@ -437,6 +437,24 @@ async def test_a_cancelled_mint_propagates_and_retains_nothing() -> None:
 
 
 @pytest.mark.asyncio
+async def test_cancelled_mint_before_result_assignment_settles_the_waiter() -> None:
+    """A pre-result cancellation must not become an undefined-result failure.
+
+    CPython 3.10 may materialize a fresh ``CancelledError`` while propagating a
+    cancelled task through ``shield``, so cancellation *type and semantics* are
+    the portable contract here rather than cross-task exception identity.
+    """
+    provider = _provider(minter=_Minter(asyncio.CancelledError()))
+    await _activate(provider)
+
+    with pytest.raises(asyncio.CancelledError):
+        await provider.get(1)
+
+    assert provider._mint_waiters == 0
+    assert provider._mint_task is None
+
+
+@pytest.mark.asyncio
 async def test_minting_for_a_superseded_provider_epoch_is_refused() -> None:
     provider = _provider()
     await _activate(provider)
@@ -510,9 +528,10 @@ async def test_cancelling_a_waiter_blocked_on_the_lock_releases_its_slot() -> No
     assert not pending.done(), "waiter should be blocked re-acquiring the lock"
 
     pending.cancel()
-    await asyncio.gather(pending, return_exceptions=True)
+    settled = await asyncio.gather(pending, return_exceptions=True)
     lock.release()
 
+    assert isinstance(settled[0], asyncio.CancelledError)
     assert provider._mint_waiters == 0
 
 
