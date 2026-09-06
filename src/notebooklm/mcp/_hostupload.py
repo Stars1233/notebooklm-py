@@ -133,7 +133,7 @@ def spool_host_upload(content: str, *, allowed_roots: Sequence[Path]) -> Iterato
     validate_upload_path(content, False, allowed_roots=allowed_roots)
     # Open the original spelling, so even a junction that resolved to another
     # allowed location still passes through the no-follow component walk.
-    path = Path(os.path.abspath(Path(content).expanduser()))
+    path = Path(os.path.abspath(os.path.expanduser(content)))
     try:
         fd, canonical = _open_windows(path) if sys.platform == "win32" else _open_posix(path)
     except OSError as exc:

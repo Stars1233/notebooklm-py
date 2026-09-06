@@ -444,7 +444,7 @@ def validate_upload_path(
 
     # abspath normalizes dot segments without following links or stat-ing the
     # target. Out-of-root targets always fail with the same boundary error.
-    raw = Path(os.path.abspath(Path(content).expanduser()))
+    raw = Path(os.path.abspath(os.path.expanduser(content)))
     if allowed_roots is not None and not any(
         _is_under_allowed_root(raw, root) for root in resolved_roots
     ):
