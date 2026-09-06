@@ -150,9 +150,7 @@ class ErrorCategory(Enum):
 #: error body (``server/_errors``), so the two surfaces cannot drift. Covers
 #: EVERY category (pinned by the adapter coverage tests).
 CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
-    ErrorCategory.NOT_FOUND: (
-        "Check the id/name with the matching *_list tool; the resource may have been deleted."
-    ),
+    ErrorCategory.NOT_FOUND: ("Check the supplied id or name; the resource may have been deleted."),
     ErrorCategory.AUTH: "Re-authenticate and retry.",
     ErrorCategory.RATE_LIMITED: "Back off and retry after a short delay.",
     ErrorCategory.VALIDATION: "Fix the invalid argument and retry; this will not succeed unchanged.",
@@ -174,8 +172,8 @@ CATEGORY_HINTS: dict[ErrorCategory, str | None] = {
     ErrorCategory.SOURCE_ADD: (
         "NotebookLM could not add this source (invalid/inaccessible URL, paywalled, empty, "
         "or unparseable); fix the input and retry — a failed source stub may have been "
-        "created, so list the notebook's sources filtered to the error status to "
-        "find and remove it."
+        "created, so inspect the notebook's sources filtered to the error status "
+        "to find and remove it."
     ),
     ErrorCategory.LIBRARY: None,
     ErrorCategory.UNEXPECTED: None,

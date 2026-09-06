@@ -558,6 +558,9 @@ def _sync_server_language_to_config(
             kwargs["path"] = str(storage_path)
         if profile is not None:
             kwargs["profile"] = profile
+        from ...._app.client_config import adapter_client_config
+
+        kwargs["config"] = adapter_client_config()
         async with NotebookLMClient.from_storage(**kwargs) as client:
             return await client.settings.get_output_language()
 

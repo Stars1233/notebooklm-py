@@ -7,8 +7,8 @@ values support transport hosting rather than transport-neutral business logic.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from typing import Any
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Protocol
 
 from ._loop_bound import LoopBoundPrimitive
 from ._redact import redact
@@ -23,7 +23,36 @@ from ._serving import (
 )
 
 
-def client_generation_epoch(client: Any) -> int:
+class _CallSupervisor(Protocol):
+    """The minimal runtime capability detached adapter work needs."""
+
+    def active_epoch(self) -> int | None: ...
+
+    def operation_scope(
+        self,
+        label: str,
+        *,
+        timeout: float | None,
+        expected_epoch: int,
+        _absolute_deadline: float | None,
+    ) -> AbstractAsyncContextManager[object]: ...
+
+
+class _ClientRuntime(Protocol):
+    @property
+    def call_supervisor(self) -> _CallSupervisor: ...
+
+
+class AdapterRuntimeClient(Protocol):
+    """Narrow adapter crossing for epoch-qualified detached client work."""
+
+    @property
+    def _collaborators(self) -> _ClientRuntime: ...
+
+    def operation(self, timeout: float | None = None) -> AbstractAsyncContextManager[object]: ...
+
+
+def client_generation_epoch(client: AdapterRuntimeClient) -> int:
     """Read the active client epoch through the adapter-support boundary."""
 
     epoch = client._collaborators.call_supervisor.active_epoch()
@@ -34,21 +63,15 @@ def client_generation_epoch(client: Any) -> int:
 
 @asynccontextmanager
 async def _client_operation(
-    client: Any,
+    client: AdapterRuntimeClient,
     timeout: float | None,
     *,
     expected_epoch: int,
     absolute_deadline: float | None = None,
-) -> AsyncIterator[Any]:
+) -> AsyncIterator[object]:
     """Create a fresh server-owned client operation for detached adapter work."""
 
-    supervisor = client._collaborators.call_supervisor
-    operation_scope = getattr(supervisor, "operation_scope", None)
-    if operation_scope is None:
-        async with client.operation(timeout=timeout) as lease:
-            yield lease
-        return
-    async with operation_scope(
+    async with client._collaborators.call_supervisor.operation_scope(
         "detached adapter operation",
         timeout=timeout,
         expected_epoch=expected_epoch,
@@ -65,6 +88,7 @@ def _detached_adapter_context():
 
 __all__ = [
     "DEFAULT_SERVER_KEEPALIVE_INTERVAL",
+    "AdapterRuntimeClient",
     "LOOPBACK_HOSTNAMES",
     "LoopBoundPrimitive",
     "addr_is_loopback",

@@ -68,6 +68,9 @@ class _ConcreteArtifacts(ArtifactsAPI):
 
     _list_studio = _unsupported
     _send_create_artifact = _unsupported
+    _download_with_legacy_prefetch = _unsupported
+    prepare_downloads = _unsupported
+    download = _unsupported
     delete = _unsupported
     download_audio = _unsupported
     download_data_table = _unsupported
@@ -81,10 +84,34 @@ class _ConcreteArtifacts(ArtifactsAPI):
     generate_mind_map = _unsupported
     get_prompt = _unsupported
     list = _unsupported
+    list_with_status = _unsupported
     rename = _unsupported
     retry_failed = _unsupported
     revise_slide = _unsupported
     suggest_reports = _unsupported
+
+
+class _CreationArtifacts(_ConcreteArtifacts):
+    def __init__(self) -> None:
+        super().__init__()
+        self.requests: list[Any] = []
+
+    async def _resolve_source_ids(self, notebook_id, source_ids):
+        return ["resolved"] if source_ids is None else source_ids
+
+    async def _send_create_artifact(self, request):
+        self.requests.append(request)
+        return request
+
+
+class _NormalizingCreationArtifacts(_CreationArtifacts):
+    def __init__(self) -> None:
+        super().__init__()
+        self.normalized: list[Any] = []
+
+    def _normalize_creation_request(self, request):
+        self.normalized.append(request)
+        return request
 
 
 @pytest.mark.asyncio
@@ -94,6 +121,38 @@ async def test_customization_choices_delegates_to_the_single_typed_read_hook() -
 
     assert await api.get_customization_choices("nb") is expected
     assert api.customization_calls == ["nb"]
+
+
+def test_creation_capabilities_are_immutable_implementation_metadata() -> None:
+    capabilities = _ConcreteArtifacts().creation_capabilities
+    assert isinstance(capabilities, tuple)
+    assert next(item for item in capabilities if item.family == "video").supported_options == (
+        "language",
+        "instructions",
+        "video_format",
+        "video_style",
+        "style_prompt",
+    )
+
+
+@pytest.mark.asyncio
+async def test_public_generation_constructs_a_closed_request_and_preserves_empty_sources() -> None:
+    api = _CreationArtifacts()
+    omitted = await api.generate_quiz("nb", None, instructions="focus")
+    explicit_empty = await api.generate_quiz("nb", [], instructions="focus")
+
+    assert omitted.source_ids == ("resolved",)
+    assert explicit_empty.source_ids == ()
+    assert type(omitted) is type(explicit_empty)
+
+
+@pytest.mark.asyncio
+async def test_public_generation_normalizes_the_typed_request_before_sending() -> None:
+    api = _NormalizingCreationArtifacts()
+
+    await api.generate_audio("nb", ["source"], instructions="focus")
+
+    assert api.normalized == api.requests
 
 
 @pytest.mark.asyncio

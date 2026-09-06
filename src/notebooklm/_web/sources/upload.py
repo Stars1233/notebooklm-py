@@ -27,6 +27,8 @@ from ..._idempotency import (
 )
 from ..._idempotency import mark_unconfirmed as _unconfirmed
 from ..._loop_bound import EpochFenced
+from ..._request_context import request_policy_scope
+from ..._request_policy import RequestPolicyOwner, request_scoped
 from ..._runtime.config import (
     DEFAULT_MAX_CONCURRENT_UPLOADS,
     normalize_max_concurrent_uploads,
@@ -174,7 +176,7 @@ class _TransportChildOutcome:
     error: BaseException | None = None
 
 
-class SourceUploadPipeline(EpochFenced):
+class SourceUploadPipeline(RequestPolicyOwner, EpochFenced):
     """Own file registration and resumable upload orchestration."""
 
     name = "web-upload"
@@ -255,6 +257,7 @@ class SourceUploadPipeline(EpochFenced):
         """Return one phase's configured timeout, or its backend default."""
         return configured if configured is not None else default
 
+    @request_scoped
     def _client_factory(self) -> AsyncClientFactory:
         if self._async_client_factory is not None:
             return self._async_client_factory
@@ -441,13 +444,14 @@ class SourceUploadPipeline(EpochFenced):
     @asynccontextmanager
     async def transport_operation_scope(self, label: str) -> AsyncIterator[int]:
         """Admit and track one direct-upload workflow under one epoch."""
-        self._supervisor.assert_bound_loop()
-        async with self._supervisor.operation_scope(label) as lease:
-            epoch, task = self._begin_transport_operation(lease.epoch)
-            try:
-                yield lease.epoch
-            finally:
-                self._finish_transport_operation(epoch, task)
+        with request_policy_scope(self.request_policy):
+            self._supervisor.assert_bound_loop()
+            async with self._supervisor.operation_scope(label) as lease:
+                epoch, task = self._begin_transport_operation(lease.epoch)
+                try:
+                    yield lease.epoch
+                finally:
+                    self._finish_transport_operation(epoch, task)
 
     def _track_transport_client(self, client: httpx.AsyncClient, epoch: int) -> None:
         """Publish a new client in one checkpoint-free fencing section."""
@@ -556,6 +560,7 @@ class SourceUploadPipeline(EpochFenced):
             finally:
                 download.path.unlink(missing_ok=True)
 
+    @request_scoped
     async def add_file(
         self,
         notebook_id: str,
@@ -963,6 +968,7 @@ class SourceUploadPipeline(EpochFenced):
             return decode_source(Source, result, method_id=RPCMethod.UPDATE_SOURCE.value)
         return None
 
+    @request_scoped
     async def start_resumable_upload(
         self,
         notebook_id: str,
@@ -1025,6 +1031,7 @@ class SourceUploadPipeline(EpochFenced):
         finally:
             self._transport_clients.discard(client)
 
+    @request_scoped
     async def upload_file_streaming(
         self,
         upload_url: str,

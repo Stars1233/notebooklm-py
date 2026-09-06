@@ -8,6 +8,11 @@ v0.7.0, and the breaking flips this ADR queued shipped in v0.8.0: namespace
 `None`-on-miss lookup, dict-subscript compatibility was removed, deprecated
 keyword aliases were removed, and synchronous kickoff refusals now raise.
 
+Amended for the post-v0.8 aggregate artifact-read contract: additive
+`ArtifactListing` and `ArtifactLookup` results preserve completeness evidence.
+The legacy artifact `get()`/`get_or_none()` behavior remains in its own release
+runway and warns only when an unavailable backing makes absence ambiguous.
+
 ## Context
 
 The public API has accreted incompatible conventions for the *same* outcome.
@@ -47,6 +52,8 @@ contract and converging the rest in the same release.
 | ----- | -------- |
 | object / dataclass | success |
 | collection | zero-or-more (empty → `[]`) |
+| `ArtifactListing` | aggregate items plus explicit completeness and bounded component failures |
+| `ArtifactLookup` | `FOUND`, authoritative `MISSING`, or incomplete-read `UNKNOWN` |
 | status handle (`GenerationStatus`/`ResearchTask`/`ResearchStart`) | async lifecycle only; terminal `failed`/`removed` and the *poll-observed* `not_found` are typed states. `status="failed"` ⇒ *started-then-failed*, never *couldn't-start* |
 | `None` | (a) idempotent `delete`; (b) explicit `get_or_none()`; (c) no-payload **command** success (`update`, `configure`, `remove_from_recent`, `rename(return_object=False)`); (d) a transient *not-ready* read (`get_tree` of an existing-but-unpopulated map); (e) a domain-optional field |
 
@@ -56,8 +63,8 @@ Anything else that today carries an error meaning is banned.
 
 | Class | Methods | Contract |
 | ----- | ------- | -------- |
-| Lookup one | `get` | found → object; missing → **raise `*NotFoundError`**. Public `get_or_none()` is the sole sanctioned `None`-on-miss path. |
-| List many | `list`, `list_*` | always a collection; empty → `[]`. |
+| Lookup one | `get` | found → object; missing → **raise `*NotFoundError`**. Public `get_or_none()` is the sole sanctioned `None`-on-miss path. Aggregate artifacts additionally expose `lookup`, where absence is `MISSING` only after every relevant backing succeeds and an incomplete no-hit is `UNKNOWN`. |
+| List many | `list`, `list_*` | always a collection; empty → `[]`. Aggregate artifact `list()` remains the compatibility best-effort projection; `list_with_status()` carries completeness evidence. |
 | Derived read | `get_summary`, `get_description`, `get_guide`, `get_tree`, `check_freshness` | **do not police parent existence** — missing parent → empty / not-ready value (`""`, empty dataclass, `None` tree); shape-drift → **raise** (`DecodingError`/`UnknownRPCMethodError`). Resource existence is `get()`'s job, not a derived read's. |
 | Idempotent mutation | `delete` | success *or* already-absent → `None`; raise only on real failure. |
 | Mutate existing | `rename`, `update`, `configure` | target missing → **raise `*NotFoundError`**; no-payload success → `None`. |
@@ -99,8 +106,13 @@ exception — refusal reuses the existing `RateLimitError`/`RPCError`.
    (`_note_service.py:135`, `_web/artifact/listing.py:123-137`). The composite-lister
    `except RPCError`/`HTTPError` that returns *partial* studio artifacts when the
    mind-map sub-fetch is down (`_web/artifact/listing.py:198-211`) is a **deliberate
-   partial-availability** behavior, **not** drift-collapse — it is out of scope
-   for Rule 3 and decided separately (see Scope).
+   partial-availability** behavior, **not** drift-collapse. The richer
+   `artifacts.list_with_status()` result now retains that secondary failure;
+   primary failures and every `DecodingError` still raise. Exact
+   `artifacts.lookup()` reports a positive hit as `FOUND`, complete absence as
+   `MISSING`, and a no-hit after a secondary outage as `UNKNOWN`. Legacy
+   `get()`/`get_or_none()` preserve their 0.x projections and emit a registered
+   warning only for the ambiguous `UNKNOWN` case.
 4. **Lifecycle is data.** Async status handles carry `failed`/`not_found`/
    `removed` as typed states; `wait_for_completion` returns a terminal `failed`
    and raises only on timeout or a cross-cutting fault. The poll-observed
@@ -139,8 +151,10 @@ In scope: the operation classes above across `notebooks`, `sources`,
 Explicitly **deferred / follow-existing-contract** (not changed in this ADR;
 tracked separately): bulk/derived helpers that today swallow drift to empty
 data (`notebooks.get_metadata`/`get_source_ids`/`get_raw`, the research-task
-parser fallbacks); `share`; export/download paths; and the chat surface. The
-composite-lister partial-availability policy (Rule 3) is decided in its own PR.
+parser fallbacks); `share`; export paths; and the chat surface. Aggregate
+artifact-list completeness and authoritative exact lookup are governed by the
+C3 amendment above. Studio polling remains deliberately Studio-only lifecycle
+data and does not acquire a notes dependency.
 
 ## Consequences
 

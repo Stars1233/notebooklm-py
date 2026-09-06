@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, cast
 
 from ..exceptions import ValidationError
+from ..options import USE_DEFAULT
 from ..types import Collection
 from .resolve import near_miss_candidates, validate_id
 
@@ -142,17 +143,20 @@ async def resolve_collection_id(
 
 async def execute_collection_list(client: NotebookLMClient) -> list[Collection]:
     """List all collections in the account."""
-    return await client.collections.list()
+    async with client.operation(timeout=USE_DEFAULT):
+        return await client.collections.list()
 
 
 async def execute_collection_notebooks(client: NotebookLMClient, collection_id: str):
     """Expand a collection to its notebook objects (the ``collection notebooks`` body)."""
-    return await client.collections.notebooks(collection_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        return await client.collections.notebooks(collection_id)
 
 
 async def execute_collection_create(client: NotebookLMClient, name: str) -> Collection:
     """Create an empty, named collection."""
-    return await client.collections.create(name)
+    async with client.operation(timeout=USE_DEFAULT):
+        return await client.collections.create(name)
 
 
 async def execute_collection_rename(
@@ -163,7 +167,8 @@ async def execute_collection_rename(
     ``return_object`` defaults to True, so the mutation returns a ``Collection``
     (or raises ``CollectionNotFoundError``) — never ``None`` here.
     """
-    return cast(Collection, await client.collections.rename(collection_id, new_name))
+    async with client.operation(timeout=USE_DEFAULT):
+        return cast(Collection, await client.collections.rename(collection_id, new_name))
 
 
 @dataclass(frozen=True)
@@ -178,25 +183,28 @@ async def execute_collection_add_notebooks(
     client: NotebookLMClient, collection_id: str, notebook_ids: Sequence[str]
 ) -> CollectionMembershipResult:
     """Add notebook(s) to a collection (append; existing members preserved)."""
-    ids = list(notebook_ids)
-    collection = cast(Collection, await client.collections.add_notebooks(collection_id, ids))
-    return CollectionMembershipResult(collection=collection, notebook_ids=ids)
+    async with client.operation(timeout=USE_DEFAULT):
+        ids = list(notebook_ids)
+        collection = cast(Collection, await client.collections.add_notebooks(collection_id, ids))
+        return CollectionMembershipResult(collection=collection, notebook_ids=ids)
 
 
 async def execute_collection_remove_notebooks(
     client: NotebookLMClient, collection_id: str, notebook_ids: Sequence[str]
 ) -> CollectionMembershipResult:
     """Un-assign notebook(s) from a collection (the inverse of ``add``)."""
-    ids = list(notebook_ids)
-    collection = cast(Collection, await client.collections.remove_notebooks(collection_id, ids))
-    return CollectionMembershipResult(collection=collection, notebook_ids=ids)
+    async with client.operation(timeout=USE_DEFAULT):
+        ids = list(notebook_ids)
+        collection = cast(Collection, await client.collections.remove_notebooks(collection_id, ids))
+        return CollectionMembershipResult(collection=collection, notebook_ids=ids)
 
 
 async def execute_collection_delete(
     client: NotebookLMClient, collection_ids: Sequence[str]
 ) -> None:
     """Delete one or more collections (the collection only, not its notebooks)."""
-    await client.collections.delete(list(collection_ids))
+    async with client.operation(timeout=USE_DEFAULT):
+        await client.collections.delete(list(collection_ids))
 
 
 __all__ = [

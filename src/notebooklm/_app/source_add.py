@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import urlsplit
 
 from ..exceptions import ValidationError
+from ..options import USE_DEFAULT
 from ..types import _PATH_SHAPED_FILE_EXTENSIONS, Source
 from ..urls import is_youtube_url
 
@@ -476,12 +477,13 @@ async def execute_source_add(
     messages belong to the command layer. The command wraps this awaitable
     with the desired status context so the spinner still spans the real I/O.
     """
-    src = await add_source(
-        client.sources,
-        notebook_id=plan.notebook_id,
-        plan=plan.plan,
-    )
-    return SourceAddResult(source=src)
+    async with client.operation(timeout=USE_DEFAULT):
+        src = await add_source(
+            client.sources,
+            notebook_id=plan.notebook_id,
+            plan=plan.plan,
+        )
+        return SourceAddResult(source=src)
 
 
 __all__ = [

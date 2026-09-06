@@ -268,6 +268,10 @@ class OperationMetadata:
     attempts: tuple[_AttemptMetadata, ...] = ()
     prerequisite_ids: tuple[str, ...] = ()
     entries: tuple[OperationMetadata, ...] = ()
+    # Full in-memory cleanup settlement. Canonical ``batch_outcome`` is absent
+    # above its cap; adapters emit an explicitly truncated diagnostic prefix.
+    # Large cleanup requests retain every occurrence here.
+    source_delete_outcomes: tuple[BatchItemOutcome, ...] = field(default=(), repr=False)
 
     def __post_init__(self) -> None:
         for name in ("operation", "invocation_id", "method", "phase", "source_id", "stage"):
@@ -276,6 +280,7 @@ class OperationMetadata:
         object.__setattr__(self, "prerequisite_ids", _safe_tuple(self.prerequisite_ids))
         object.__setattr__(self, "attempts", self.attempts[:_MAX_JOURNAL_RECORDS])
         object.__setattr__(self, "entries", self.entries[:_MAX_JOURNAL_RECORDS])
+        object.__setattr__(self, "source_delete_outcomes", tuple(self.source_delete_outcomes))
 
 
 def _wire_text(value: object) -> str:
@@ -337,13 +342,25 @@ def _wire_metadata(metadata: OperationMetadata) -> dict[str, object]:
         ]
     if metadata.reconciliation is not None:
         projected["reconciliation"] = _wire_report(metadata.reconciliation)
-    if metadata.batch_outcome is not None:
-        projected["batch_outcome"] = {
-            "whole_request_retriable": metadata.batch_outcome.whole_request_retriable,
-            "items": [
-                _wire_batch_item(item) for item in metadata.batch_outcome.items[:_MAX_COLLECTION]
-            ],
+    if metadata.batch_outcome is not None or metadata.source_delete_outcomes:
+        items = (
+            metadata.source_delete_outcomes or metadata.batch_outcome.items  # type: ignore[union-attr]
+        )
+        visible_items = items[:_MAX_COLLECTION]
+        batch: dict[str, object] = {
+            # A bounded prefix cannot grant replay of the whole cleanup.
+            # Only an explicit owner grant on a complete canonical batch can.
+            "whole_request_retriable": (
+                metadata.batch_outcome.whole_request_retriable
+                if metadata.batch_outcome is not None
+                else False
+            ),
+            "items": [_wire_batch_item(item) for item in visible_items],
         }
+        if len(metadata.source_delete_outcomes) > _MAX_COLLECTION:
+            batch["total_items"] = len(metadata.source_delete_outcomes)
+            batch["omitted_items"] = len(metadata.source_delete_outcomes) - len(visible_items)
+        projected["batch_outcome"] = batch
     return projected
 
 

@@ -26,6 +26,7 @@ from ..._idempotency import (
     mark_unconfirmed,
 )
 from ..._logging import get_request_id, reset_request_id, set_request_id
+from ..._request_policy import RequestPolicyOwner, request_scoped
 from ..._runtime.auth_refresh_retry import RefreshBudget, refresh_and_count
 from ..._runtime.operation_context import adopt_operation_journal_entry
 from ...exceptions import DecodingError, NotebookLMError
@@ -100,7 +101,7 @@ class DecodeResponse(Protocol):
     ) -> Any: ...
 
 
-class RpcExecutor:
+class RpcExecutor(RequestPolicyOwner):
     """Owns raw batchexecute RPC encode, transport dispatch, decode, and retry.
 
     Per ADR-0014 Rule 5, the constructor takes its runtime collaborators
@@ -133,6 +134,7 @@ class RpcExecutor:
         self._refresh_callback_enabled_provider = refresh_callback_enabled_provider
         self._refresh_retry_delay_provider = refresh_retry_delay_provider
 
+    @request_scoped
     async def rpc_call(
         self,
         method: RPCMethod,
@@ -588,6 +590,7 @@ class RpcExecutor:
                 mark_unconfirmed(decode_error)
             raise decode_error from exc
 
+    @request_scoped
     def build_url(
         self,
         rpc_method: RPCMethod,

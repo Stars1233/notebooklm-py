@@ -56,18 +56,13 @@ BASE_ABSTRACT_CONTRACTS: tuple[_AbstractContract, ...] = (
                 "_send_create_artifact",
                 "_send_export",
                 "delete",
-                "download_audio",
-                "download_data_table",
-                "download_flashcards",
-                "download_infographic",
-                "download_mind_map",
-                "download_quiz",
-                "download_report",
-                "download_slide_deck",
-                "download_video",
+                "_download_with_legacy_prefetch",
+                "prepare_downloads",
+                "download",
                 "generate_mind_map",
                 "get_prompt",
                 "list",
+                "list_with_status",
                 "rename",
                 "retry_failed",
                 "revise_slide",
@@ -291,6 +286,15 @@ _ANDROID_INHERITED_WORKFLOWS = {
     "ArtifactsAPI": frozenset(
         {
             "copy",
+            "download_audio",
+            "download_video",
+            "download_infographic",
+            "download_slide_deck",
+            "download_report",
+            "download_mind_map",
+            "download_data_table",
+            "download_quiz",
+            "download_flashcards",
             "export",
             "export_data_table",
             "export_report",
@@ -307,6 +311,7 @@ _ANDROID_INHERITED_WORKFLOWS = {
             "get",
             "get_customization_choices",
             "get_or_none",
+            "lookup",
             "list_audio",
             "list_data_tables",
             "list_flashcards",
@@ -442,7 +447,7 @@ _ARTIFACT_DOCSTRING_SHA256 = {
     (
         "WebArtifactsAPI",
         "__init__",
-    ): "d1b96af651ebc15337c480fd5d9cdb4efb6948dc326f2e6ecc08406982b2e701",
+    ): "bddc9a6f3522e1f249d351c3caf38e8c071e26ee21471a4b65c8ecfd5acec297",
 }
 
 
@@ -525,6 +530,15 @@ def test_artifact_workflow_ownership_and_docstrings_are_preserved() -> None:
 
     inherited_workflows = {
         "copy",
+        "download_audio",
+        "download_video",
+        "download_infographic",
+        "download_slide_deck",
+        "download_report",
+        "download_mind_map",
+        "download_data_table",
+        "download_quiz",
+        "download_flashcards",
         "export",
         "export_data_table",
         "export_report",
@@ -541,6 +555,7 @@ def test_artifact_workflow_ownership_and_docstrings_are_preserved() -> None:
         "get",
         "get_customization_choices",
         "get_or_none",
+        "lookup",
         "list_audio",
         "list_data_tables",
         "list_flashcards",
@@ -554,6 +569,7 @@ def test_artifact_workflow_ownership_and_docstrings_are_preserved() -> None:
     }
     web_overrides = ArtifactsAPI.__abstractmethods__ - {
         "_list_studio",
+        "_download_with_legacy_prefetch",
         "_send_copy",
         "_send_create_artifact",
         "_send_export",
@@ -604,6 +620,7 @@ def test_artifact_class_constructor_docstrings_and_web_signature_are_pinned() ->
         "mind_maps",
         "note_service",
         "storage_path",
+        "asset_downloads",
     )
     assert all(
         parameter.kind is inspect.Parameter.KEYWORD_ONLY for parameter in web_parameters.values()

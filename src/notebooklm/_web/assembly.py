@@ -14,6 +14,7 @@ from .._client_contracts import (
     WebDependencies,
     installed_backend_map,
 )
+from .._request_context import request_policy_scope
 from .._runtime.config import (
     DEFAULT_CONNECT_TIMEOUT,
     DEFAULT_KEEPALIVE_MIN_INTERVAL,
@@ -22,6 +23,7 @@ from .._runtime.config import (
 )
 from .._runtime.init import SharedRuntime
 from .artifacts import WebArtifactsAPI
+from .assets import WebAssetDownloadService
 from .chat import WebChatAPI
 from .collections import WebCollectionsAPI
 from .labels import WebLabelsAPI
@@ -58,6 +60,20 @@ def _http_timeout(options: TimeoutOptions | None) -> httpx.Timeout | None:
 
 
 def assemble_web_backend(
+    *,
+    shared: SharedRuntime,
+    config: WebAssemblyConfig,
+    credentials: WebCredentials,
+    deps: WebDependencies,
+) -> WebAssembly:
+    """Build the selected graph under its captured policy before installation."""
+    with request_policy_scope(config.request_policy):
+        return _assemble_web_backend(
+            shared=shared, config=config, credentials=credentials, deps=deps
+        )
+
+
+def _assemble_web_backend(
     *,
     shared: SharedRuntime,
     config: WebAssemblyConfig,
@@ -130,13 +146,17 @@ def assemble_web_backend(
     )
     note_service = NoteService(web.executor, supervisor=shared.call_supervisor)
     mind_maps = NoteBackedMindMapService(note_service)
+    assets = WebAssetDownloadService(
+        supervisor=shared.call_supervisor,
+        cookies=lambda epoch: web.kernel.get_cookies(expected_epoch=epoch),
+    )
     artifacts = WebArtifactsAPI(
         rpc=web.executor,
         supervisor=shared.call_supervisor,
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
-        storage_path=credentials.storage_path,
+        asset_downloads=assets,
     )
     chat = WebChatAPI(
         rpc=web.executor,
@@ -181,6 +201,28 @@ def assemble_web_backend(
         supervisor=shared.call_supervisor,
     )
 
+    for owner in (
+        web.executor,
+        web.composed.transport,
+        web.source_uploader,
+        web.session_auth,
+        assets,
+        chat,
+        artifacts,
+        artifacts._generation,
+    ):
+        owner.request_policy = config.request_policy
+    if config.request_policy is not None:
+        from .._notebooks import build_share_url
+
+        base_url = config.request_policy.base_url
+
+        def share_url(notebook_id: str, artifact_id: str | None = None) -> str:
+            return build_share_url(base_url, notebook_id, artifact_id)
+
+        notebooks._share_url_builder = share_url
+        sharing._base_url = config.request_policy.base_url
+
     namespaces = FeatureNamespaces(
         notebooks=notebooks,
         sources=sources,
@@ -200,7 +242,7 @@ def assemble_web_backend(
         raw=WebRawAPI(web.executor),
         runtime=web,
         shared=shared,
-        transports=(web.web_transport, web.source_uploader),
+        transports=(web.web_transport, web.source_uploader, assets),
         loop_participants=(shared.call_supervisor, web.reqid, web.auth_coord, chat),
         backends=installed_backend_map("web"),
         seams=seams,

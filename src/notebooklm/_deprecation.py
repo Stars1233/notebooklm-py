@@ -59,6 +59,21 @@ class DeprecationSpec:
 
 DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
     {
+        "mind_map_legacy_terminal_hydration": DeprecationSpec(
+            key="mind_map_legacy_terminal_hydration",
+            message=(
+                "Continuing Web interactive mind-map hydration after failed/removed completion "
+                "is deprecated; pass failure_policy='raise' to reject before hydration. "
+                "The legacy default will change only after this warning's own stable release "
+                "and migration interval. The earliest target is v1.0, conditional on that "
+                "interval having elapsed; v1.0 alone does not authorize the change."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient.mind_maps",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=3,
+        ),
         "auth_tokens_from_storage": DeprecationSpec(
             key="auth_tokens_from_storage",
             message=(
@@ -318,6 +333,37 @@ DEPRECATION_SPECS: Mapping[str, DeprecationSpec] = MappingProxyType(
             since="0.9.0",
             removal="1.0",
             stacklevel=5,
+        ),
+        "artifact_raw_download_prefetch": DeprecationSpec(
+            key="artifact_raw_download_prefetch",
+            message=(
+                "Raw artifact download prefetch parameters are deprecated. Use "
+                "artifacts.prepare_downloads(...) and artifacts.download(selection, path). "
+                "Removal in v1.0 requires this warning's own shipped compatibility interval; "
+                "otherwise they remain supported until a later breaking release."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=4,
+        ),
+        "artifact_ambiguous_absence": DeprecationSpec(
+            key="artifact_ambiguous_absence",
+            message=(
+                "Artifact get()/get_or_none() and Android get_prompt(..., "
+                "require_complete=False) encountered an unavailable aggregate backing and "
+                "are preserving the legacy absence result. Use artifacts.lookup(...) or "
+                "get_prompt(..., require_complete=True) to distinguish MISSING from UNKNOWN. "
+                "The legacy ambiguous-absence projection is scheduled to change in v1.0 only "
+                "after this warning has shipped for the required interval; otherwise it will "
+                "remain until a later breaking release."
+            ),
+            category=DeprecationWarning,
+            replacement="notebooklm.NotebookLMClient",
+            since="0.9.0",
+            removal="1.0",
+            stacklevel=4,
         ),
     }
 )

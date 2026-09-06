@@ -36,6 +36,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from ..options import USE_DEFAULT
 from ..types import Note
 
 if TYPE_CHECKING:
@@ -86,14 +87,15 @@ async def execute_note_create(
     on failure, so this core simply trusts the contract — no RPC-shape
     extraction happens above the facade.
     """
-    nb_id_resolved = await resolve_notebook_id(client, notebook_id)
-    note = await client.notes.create(nb_id_resolved, title, content)
-    return NoteCreateResult(
-        notebook_id=nb_id_resolved,
-        title=title,
-        note_id=note.id,
-        raw=note,
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_notebook_id(client, notebook_id)
+        note = await client.notes.create(nb_id_resolved, title, content)
+        return NoteCreateResult(
+            notebook_id=nb_id_resolved,
+            title=title,
+            note_id=note.id,
+            raw=note,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -128,14 +130,15 @@ async def execute_note_get(
     resolve_note_id: ResolveNoteIdFn,
 ) -> NoteGetResult:
     """Resolve the notebook + note ids and fetch the note content."""
-    nb_id_resolved = await resolve_notebook_id(client, notebook_id)
-    resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
-    note = await client.notes.get_or_none(nb_id_resolved, resolved_id)
-    return NoteGetResult(
-        notebook_id=nb_id_resolved,
-        note_id=resolved_id,
-        note=note if isinstance(note, Note) else None,
-    )
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_notebook_id(client, notebook_id)
+        resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
+        note = await client.notes.get_or_none(nb_id_resolved, resolved_id)
+        return NoteGetResult(
+            notebook_id=nb_id_resolved,
+            note_id=resolved_id,
+            note=note if isinstance(note, Note) else None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -167,19 +170,20 @@ async def execute_note_save(
     early return so it can avoid a network round-trip and render its own no-op
     envelope; this core is only reached once at least one field is supplied.
     """
-    nb_id_resolved = await resolve_notebook_id(client, notebook_id)
-    resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
-    # ``update`` is typed ``content/title: str`` but the RPC + facade accept
-    # ``None`` for "leave unchanged" (the historical CLI relied on this); the
-    # ``--title``/``--content`` early-return guard in the command layer ensures
-    # at least one is supplied. Cast to preserve the exact runtime call.
-    await client.notes.update(
-        nb_id_resolved,
-        resolved_id,
-        content=cast(str, content),
-        title=cast(str, title),
-    )
-    return NoteSaveResult(notebook_id=nb_id_resolved, note_id=resolved_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_notebook_id(client, notebook_id)
+        resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
+        # ``update`` is typed ``content/title: str`` but the RPC + facade accept
+        # ``None`` for "leave unchanged" (the historical CLI relied on this); the
+        # ``--title``/``--content`` early-return guard in the command layer ensures
+        # at least one is supplied. Cast to preserve the exact runtime call.
+        await client.notes.update(
+            nb_id_resolved,
+            resolved_id,
+            content=cast(str, content),
+            title=cast(str, title),
+        )
+        return NoteSaveResult(notebook_id=nb_id_resolved, note_id=resolved_id)
 
 
 # ---------------------------------------------------------------------------
@@ -218,26 +222,27 @@ async def execute_note_rename(
     ``note delete`` won the race), reports ``found=False`` so the CLI emits the
     typed not-found error rather than a misleading success.
     """
-    nb_id_resolved = await resolve_notebook_id(client, notebook_id)
-    resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
-    note = await client.notes.get_or_none(nb_id_resolved, resolved_id)
-    if not isinstance(note, Note):
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_notebook_id(client, notebook_id)
+        resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
+        note = await client.notes.get_or_none(nb_id_resolved, resolved_id)
+        if not isinstance(note, Note):
+            return NoteRenameResult(
+                notebook_id=nb_id_resolved,
+                note_id=resolved_id,
+                new_title=new_title,
+                found=False,
+            )
+
+        await client.notes.update(
+            nb_id_resolved, resolved_id, content=note.content or "", title=new_title
+        )
         return NoteRenameResult(
             notebook_id=nb_id_resolved,
             note_id=resolved_id,
             new_title=new_title,
-            found=False,
+            found=True,
         )
-
-    await client.notes.update(
-        nb_id_resolved, resolved_id, content=note.content or "", title=new_title
-    )
-    return NoteRenameResult(
-        notebook_id=nb_id_resolved,
-        note_id=resolved_id,
-        new_title=new_title,
-        found=True,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -254,9 +259,10 @@ async def resolve_note_for_delete(
     resolve_note_id: ResolveNoteIdFn,
 ) -> tuple[str, str]:
     """Resolve the notebook + note ids for a delete, returning ``(nb_id, note_id)``."""
-    nb_id_resolved = await resolve_notebook_id(client, notebook_id)
-    resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
-    return nb_id_resolved, resolved_id
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await resolve_notebook_id(client, notebook_id)
+        resolved_id = await resolve_note_id(client, nb_id_resolved, note_id)
+        return nb_id_resolved, resolved_id
 
 
 async def execute_note_delete(

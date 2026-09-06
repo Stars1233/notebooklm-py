@@ -31,14 +31,16 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import Enum
-from functools import partial
 from pathlib import Path
 from typing import Any, Literal, Protocol, TypedDict
 
-from ..exceptions import AuthError, ValidationError
-from ..types import Artifact, ArtifactType
+from ..exceptions import AuthError, RPCError, ValidationError
+from ..options import USE_DEFAULT, UseDefault
+from ..outcomes import redact_operation_text
+from ..types import ArtifactDownloadListing, ArtifactDownloadRequest, ArtifactDownloadSelection
 from .download_specs import EXTENSION_MIME_TYPES, DownloadTypeSpec
 from .download_specs import FORMAT_EXTENSIONS as FORMAT_EXTENSIONS
 
@@ -62,7 +64,7 @@ def mime_type_for_extension(extension: str) -> str:
 
 
 class ArtifactDict(TypedDict):
-    """Artifact structure projected from the ``client.artifacts.list`` API."""
+    """Artifact identity projected from a prepared download selection."""
 
     id: str
     title: str
@@ -88,6 +90,14 @@ def resolve_extension(spec: DownloadTypeSpec, output_format: str | None = None) 
     return spec.extension
 
 
+class _DownloadArtifacts(Protocol):
+    async def prepare_downloads(
+        self, request: ArtifactDownloadRequest
+    ) -> ArtifactDownloadListing: ...
+
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str: ...
+
+
 class _DownloadFacade(Protocol):
     """Subset of :class:`~notebooklm.NotebookLMClient` the executor needs.
 
@@ -97,12 +107,16 @@ class _DownloadFacade(Protocol):
     """
 
     @property
-    def artifacts(self) -> Any: ...  # ArtifactsAPI with .list + .download_<x>
+    def artifacts(self) -> _DownloadArtifacts: ...
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
 
 
-# Type alias for the bound download coroutine returned by
-# ``getattr(client.artifacts, attr)``.
-_DownloadFn = Callable[..., Awaitable[str | None]]
+class _DownloadFn(Protocol):
+    async def __call__(self, notebook_id: str, output_path: str, *, artifact_id: str) -> str: ...
+
 
 #: Resolves a (possibly partial) notebook id to its full id. The CLI adapter
 #: supplies its ``cli.resolve.resolve_notebook_id``-backed implementation.
@@ -185,8 +199,8 @@ class DownloadPlan:
       adapter applies the override before calling :func:`build_download_plan`.
     - ``format_choice`` is the literal ``--format`` value the user picked
       (e.g. ``"pptx"``, ``"markdown"``, or ``""`` for leaves without
-      ``--format``). The executor forwards it via the spec's
-      ``format_kwarg`` when applicable.
+      ``--format``). The executor passes it in the typed preparation request;
+      the backend selects the representation before destination naming.
     """
 
     spec: DownloadTypeSpec
@@ -287,6 +301,7 @@ class DownloadResult:
     skipped_count: int = 0
     is_failure: bool = False
     artifacts: tuple[dict[str, Any], ...] = ()
+    failures: tuple[Exception, ...] = field(default=(), repr=False, compare=False)
 
     @property
     def has_error(self) -> bool:
@@ -564,66 +579,39 @@ def build_download_plan(
 # ---------------------------------------------------------------------------
 
 
-async def _fetch_artifacts_once(
-    facade: _DownloadFacade, notebook_id: str, spec: DownloadTypeSpec
-) -> tuple[list[ArtifactDict], dict[str, Any]]:
-    """List artifacts once; return ``(selection_dicts, prefetch_kwargs)`` (issue #1488).
-
-    ``execute_download`` lists a single time to select the target, then threads
-    the raw rows it already fetched into the per-type ``download_<x>`` (as the
-    returned ``prefetch_kwargs``) so that method skips its redundant second list
-    RPC. The prefetch kwarg(s) match the bound method: quiz/flashcards →
-    ``artifacts`` (the matching-kind typed list); mind-map → ``mind_maps``
-    (note-backed rows) + ``artifacts_data`` (raw studio rows, interactive branch);
-    other studio types → ``artifacts_data``.
-
-    The single-pass ``_list_for_download`` facade seam (``list`` + raw rows) is
-    used when present. When it is absent — a narrow test double exposing only
-    ``.list()`` — we list for selection but thread **no** prefetch kwargs, so
-    each ``download_<x>`` self-fetches exactly as before (and an old-style
-    ``download_<x>`` lacking the new kwargs keeps working). The ``isinstance``
-    guard tolerates stub entries lacking ``kind``/``is_completed``.
-    """
-    list_for_download = getattr(facade.artifacts, "_list_for_download", None)
-    if list_for_download is not None:
-        # spec.kind => skip the mind-map sub-fetch for non-mind-map downloads (#1488 review).
-        all_artifacts, raw_studio_rows, mind_map_rows = await list_for_download(
-            notebook_id, spec.kind
-        )
-    else:
-        all_artifacts = await facade.artifacts.list(notebook_id)
-
-    typed = [
-        a
-        for a in all_artifacts
-        if isinstance(a, Artifact) and a.kind == spec.kind and a.is_completed
-    ]
-    dicts: list[ArtifactDict] = [
+def _project_download_candidates(
+    listing: ArtifactDownloadListing,
+) -> list[ArtifactDict]:
+    return [
         {
-            "id": a.id,
-            "title": a.title,
-            "created_at": int(a.created_at.timestamp()) if a.created_at else 0,
+            "id": item.artifact_id,
+            "title": item.title,
+            "created_at": int(item.created_at.timestamp()) if item.created_at else 0,
         }
-        for a in typed
+        for item in listing.selections
     ]
 
-    # No single-pass seam: thread nothing so each download_<x> self-fetches as
-    # before (binding ``...=[]`` would suppress that and break old-style fakes).
-    if list_for_download is None:
-        return dicts, {}
 
-    if spec.kind in (ArtifactType.QUIZ, ArtifactType.FLASHCARDS):
-        prefetch: dict[str, Any] = {"artifacts": typed}
-    elif spec.kind == ArtifactType.MIND_MAP:
-        # ``None`` => note-backed sub-fetch failed: thread None so
-        # download_mind_map self-fetches and raises as the standalone path would.
-        prefetch = {
-            "mind_maps": None if mind_map_rows is None else list(mind_map_rows),
-            "artifacts_data": list(raw_studio_rows),
-        }
-    else:
-        prefetch = {"artifacts_data": list(raw_studio_rows)}
-    return dicts, prefetch
+def _require_selection_evidence(plan: DownloadPlan, listing: ArtifactDownloadListing) -> None:
+    if listing.is_complete:
+        return
+    # Only an exact positive identity can be established without all relevant
+    # backings. A prefix/name/latest/all query might select a different item
+    # if the unavailable component had been read successfully.
+    if (
+        plan.artifact_id
+        and not plan.download_all
+        and any(
+            item.artifact_id.casefold() == plan.artifact_id.casefold()
+            for item in listing.selections
+        )
+    ):
+        return
+    components = ", ".join(sorted({failure.component.value for failure in listing.failures}))
+    raise RPCError(
+        f"Artifact lookup is incomplete; unavailable components: {components or 'unspecified'}",
+        method_id="artifacts.lookup",
+    )
 
 
 def _resolve_conflict(
@@ -649,33 +637,23 @@ def _resolve_conflict(
     return path, None
 
 
-def _bind_download_fn(
-    plan: DownloadPlan,
-    facade: _DownloadFacade,
-    prefetch_kwargs: dict[str, Any] | None = None,
+def _prepared_download_fn(
+    facade: _DownloadFacade, selections: tuple[ArtifactDownloadSelection, ...]
 ) -> _DownloadFn:
-    """Bind ``download_attr``, partialing the format + prefetch kwargs.
+    async def download_one(notebook_id: str, output_path: str, *, artifact_id: str) -> str:
+        selection = next(
+            (
+                item
+                for item in selections
+                if item.artifact_id == artifact_id and item.notebook_id == notebook_id
+            ),
+            None,
+        )
+        if selection is None:
+            raise ValidationError("Artifact was not prepared for this notebook")
+        return await facade.artifacts.download(selection, output_path)
 
-    The format kwarg is forwarded unless absent or it is slide-deck's pdf default
-    (``forward_format_only_if_set`` forwards only the non-default pptx);
-    quiz/flashcards always forward it. ``prefetch_kwargs`` (issue #1488) carries
-    the already-fetched rows so the bound method skips its redundant second list
-    RPC. Both are partial-bound here, so ``_execute_download_*`` stays unchanged.
-    """
-    spec = plan.spec
-    base_fn = getattr(facade.artifacts, spec.download_attr, None)
-    if base_fn is None:
-        raise ValueError(f"Unknown artifact download method: {spec.download_attr}")
-
-    bound_kwargs: dict[str, Any] = dict(prefetch_kwargs or {})
-    if spec.format_kwarg and not (
-        spec.forward_format_only_if_set and plan.format_choice == spec.format_default
-    ):
-        bound_kwargs[spec.format_kwarg] = plan.format_choice
-
-    if not bound_kwargs:
-        return base_fn
-    return partial(base_fn, **bound_kwargs)
+    return download_one
 
 
 async def _execute_download_all(
@@ -748,6 +726,7 @@ async def _execute_download_all(
     failed_count = 0
     skipped_count = 0
     first_auth_error: AuthError | None = None
+    failures: list[Exception] = []
 
     for i, (artifact, item_name) in enumerate(
         zip(type_artifacts, planned_filenames, strict=True), 1
@@ -799,6 +778,7 @@ async def _execute_download_all(
             )
             succeeded_count += 1
         except Exception as e:
+            failures.append(e)
             if isinstance(e, AuthError) and first_auth_error is None:
                 first_auth_error = e
             artifacts_results.append(
@@ -807,7 +787,7 @@ async def _execute_download_all(
                     "title": artifact["title"],
                     "filename": item_name,
                     "status": "failed",
-                    "error": str(e),
+                    "error": redact_operation_text(e),
                 }
             )
             failed_count += 1
@@ -823,6 +803,7 @@ async def _execute_download_all(
         failed_count=failed_count,
         skipped_count=skipped_count,
         is_failure=failed_count > 0,
+        failures=tuple(failures),
         failure=(
             DownloadFailure("authentication", detail=str(first_auth_error))
             if first_auth_error is not None
@@ -934,8 +915,9 @@ async def _execute_download_single(
     except Exception as e:
         return DownloadResult(
             outcome=DownloadOutcome.ERROR,
-            failure=DownloadFailure("download_failed", detail=str(e)),
+            failure=DownloadFailure("download_failed", detail=redact_operation_text(e)),
             artifact=dict(selected),
+            failures=(e,),
         )
 
 
@@ -969,35 +951,46 @@ async def execute_download(
         progress: Optional :class:`DownloadEventSink` for the ``--all`` per-artifact
             progress events. ``None`` skips them.
     """
-    nb_id_resolved = await notebook_resolver(plan.notebook_id)
+    async with facade.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await notebook_resolver(plan.notebook_id)
 
-    # List ONCE; thread the raw rows into the bound download method so it does
-    # not re-issue the same list RPC (issue #1488).
-    type_artifacts, prefetch_kwargs = await _fetch_artifacts_once(facade, nb_id_resolved, plan.spec)
-
-    download_fn = _bind_download_fn(plan, facade, prefetch_kwargs)
-
-    if not type_artifacts:
-        return DownloadResult(
-            outcome=DownloadOutcome.NO_ARTIFACTS,
-            failure=DownloadFailure("no_artifacts", artifact_type=plan.spec.name),
+        prepared = await facade.artifacts.prepare_downloads(
+            ArtifactDownloadRequest(nb_id_resolved, plan.spec.kind, plan.format_choice or None)
         )
+        _require_selection_evidence(plan, prepared)
+        for selection in prepared.selections:
+            if selection.notebook_id != nb_id_resolved or selection.kind != plan.spec.kind:
+                raise ValidationError(
+                    "Prepared download does not match the requested notebook and kind"
+                )
+            if selection.extension != plan.file_extension:
+                raise ValidationError(
+                    "Prepared download representation does not match its file extension"
+                )
+        type_artifacts = _project_download_candidates(prepared)
+        download_fn = _prepared_download_fn(facade, prepared.selections)
 
-    if plan.download_all:
-        return await _execute_download_all(
+        if not type_artifacts:
+            return DownloadResult(
+                outcome=DownloadOutcome.NO_ARTIFACTS,
+                failure=DownloadFailure("no_artifacts", artifact_type=plan.spec.name),
+            )
+
+        if plan.download_all:
+            return await _execute_download_all(
+                plan,
+                facade,
+                type_artifacts,
+                nb_id_resolved,
+                download_fn,
+                progress=progress,
+            )
+
+        return await _execute_download_single(
             plan,
             facade,
             type_artifacts,
             nb_id_resolved,
             download_fn,
-            progress=progress,
+            artifact_resolver,
         )
-
-    return await _execute_download_single(
-        plan,
-        facade,
-        type_artifacts,
-        nb_id_resolved,
-        download_fn,
-        artifact_resolver,
-    )

@@ -8,7 +8,7 @@ Complete reference for the `notebooklm` Python library.
 See also:
 - [Architecture Guide](./architecture.md) for structural overview, capability protocols, and transport design.
 - [Architecture diagrams](./diagrams/README.md) for explorable call flows, lifecycles, and class models.
-- [Operation contracts](./operation-contracts.md) for aggregate deadlines, task/epoch ownership, mutation journals, and safe recovery.
+- [Operation contracts](./architecture.md#operation-lifetime-deadlines-and-evidence) for aggregate deadlines, task/epoch ownership, mutation journals, and safe recovery.
 - [RPC Development Guide](./rpc-development.md) for custom RPC design, protocols, and mock assertions.
 
 ## Quick Start
@@ -131,8 +131,12 @@ children inherit only through the supervisor, while shared polling leaders are
 detached so one waiter's timeout or cancellation cannot stop other waiters.
 Only the operation timer's own cancellation request becomes
 `OperationTimeoutError`; caller, `TaskGroup`, outer-timeout, and stale-epoch
-cancellation remain `CancelledError`. See the
-[operation contracts](./operation-contracts.md) and the
+cancellation remain `CancelledError`. Python 3.10 cannot distinguish an external
+cancellation arriving in the same event-loop turn as the owned deadline; that
+specific race surfaces as `OperationTimeoutError`. When awaiting a cancelled task
+on Python 3.10, metadata stays on the original exception in `__context__` rather
+than the replacement `CancelledError`. See the
+[operation contracts](./architecture.md#operation-lifetime-deadlines-and-evidence) and the
 [deadline sequence](https://teng-lin.github.io/notebooklm-py/diagrams/36-operation-deadline-and-cancellation.html)
 for the exact ownership rules.
 
@@ -661,7 +665,7 @@ are never promoted into a success result. The original exception object and its
 cause chain are preserved wherever the underlying boundary can be propagated.
 For workflow aggregation, ordered attempts, complete batch settlement, and the
 four recovery actions, see [Operation deadlines, ownership, and recovery
-contracts](./operation-contracts.md).
+contracts](./architecture.md#operation-lifetime-deadlines-and-evidence).
 
 **Partial file uploads.** File registration creates the source row before the
 resumable HTTP upload starts. If session setup or the combined upload/finalize
@@ -1328,6 +1332,7 @@ print(url)
 | `refresh(notebook_id, source_id)` | `str, str` | `None` | Refresh URL/Drive source. `None` means the server accepted the call; a rejection raises `RPCError` (v0.9.0, #2290 — previously a server-side `INVALID_ARGUMENT` also returned `None`). |
 | `check_freshness(notebook_id, source_id)` | `str, str` | `bool` | Check if source needs refresh |
 | `delete(notebook_id, source_id)` | `str, str` | `None` | Delete source (idempotent; returns `None` whether or not it existed) |
+| `delete_many_with_outcomes(notebook_id, source_ids)` | `str, Sequence[str]` | `list[SourceDeleteOutcome]` | Supervised per-occurrence cleanup, preserving input order and duplicates, with at most ten active deletions and a pause between groups. Returns confirmed, rejected, unknown, or unattempted evidence per source. |
 | `wait_until_ready(notebook_id, source_id, timeout=120.0, ...)` | `str, str, float, ...` | `Source` | Poll until `status == READY` (fully processed). Raises `SourceTimeoutError`/`SourceProcessingError`/`SourceNotFoundError` — see [Processing failures vs. timeouts](#processing-failures-vs-timeouts). |
 | `add_urls_async(notebook_id, urls)` | `str, list[str]` | `list[Source]` | Queue URL sources with one non-blocking `AddSourcesAsync` call and return the queued stub rows (id, url, type; status still processing). Never replayed on a transport failure — the error is marked unconfirmed for the caller to reconcile against `list()`. |
 | `append_text(notebook_id, source_id, text, *, header="")` | `str, str, str, *, str` | `None` | Append a plain-text block to an existing source in place (`AppendSource`). `text` lands at the very end of the fulltext; `header` is accepted but not shown in the fulltext. |
@@ -1335,6 +1340,16 @@ print(url)
 | `wait_until_registered(notebook_id, source_id, timeout=30.0, ...)` | `str, str, float, ...` | `Source` | Poll until the source is visible server-side (any non-ERROR status). Completes quickly (seconds for typical sources); intended for narrow follow-up RPCs (e.g. `UPDATE_SOURCE`) that only require registration, not full processing. |
 | `wait_for_sources(notebook_id, source_ids, timeout=120.0, **kwargs)` | `str, list[str], float, ...` | `list[Source]` | Wait for multiple sources to become ready **in parallel**. Per-source timeout; `**kwargs` are forwarded to `wait_until_ready`. |
 | `wait_all_until_ready(notebook_id, source_ids, timeout=120.0, initial_interval=1.0, max_interval=10.0, backoff_factor=1.5, transient_error_types=None)` | `str, list[str], float, ...` | `list[SourceWaitResult]` | Wait for many sources with **one notebook snapshot per poll tick** (cheaper than `wait_for_sources`'s per-source polling for large batches). Terminal per-source failures (`SourceNotFoundError` / `SourceProcessingError` / `SourceTimeoutError`) are **returned**, not raised — one result per id, in input order. |
+
+`SourceDeleteOutcome` is imported from `notebooklm.types` or `notebooklm`. It carries
+`source_id`, a canonical `BatchItemOutcome`, and an optional original error.
+Cleanup accepts more than 20 sources. On cancellation or deadline expiry,
+`OperationMetadata.source_delete_outcomes` retains the complete ordered receipt;
+the canonical `batch_outcome` is absent above its 20-item cap. The adapter diagnostic
+projects at most 20 items and reports `total_items` and `omitted_items` when truncated.
+Commit/recovery guidance considers every member, including the omitted tail; the
+diagnostic prefix never authorizes a whole-request retry.
+See [supervised source cleanup](architecture.md#supervised-source-cleanup).
 
 **Example:**
 ```python
@@ -1480,10 +1495,12 @@ field 19.
 
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
-| `list(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `list[Artifact]` | List artifacts |
-| `get(notebook_id, artifact_id)` | `str, str` | `Artifact` | Get artifact details; raises `ArtifactNotFoundError` on a miss |
-| `get_or_none(notebook_id, artifact_id)` | `str, str` | `Artifact \| None` | Optional lookup; returns `None` when absent |
-| `get_prompt(notebook_id, artifact_id)` | `str, str` | `str \| None` | Get the free-text prompt the artifact was generated from (any studio type). Returns `None` if the artifact has no stored prompt (e.g. a note-backed mind map); raises `ArtifactNotFoundError` for an unknown id |
+| `list(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `list[Artifact]` | Compatibility best-effort list. A transient note-backed mind-map outage leaves successfully read Studio artifacts available. Use `list_with_status()` when completeness matters. |
+| `list_with_status(notebook_id, artifact_type=None)` | `str, ArtifactType \| None` | `ArtifactListing` | Aggregate artifacts plus `is_complete` and bounded `failures`. Primary failures and all `DecodingError`s raise directly. |
+| `lookup(notebook_id, artifact_id)` | `str, str` | `ArtifactLookup` | Authoritative exact lookup: `FOUND` for an exact hit, `MISSING` only after all relevant backings succeed, and `UNKNOWN` with bounded component failures after an incomplete no-hit. |
+| `get(notebook_id, artifact_id)` | `str, str` | `Artifact` | Legacy lookup; raises `ArtifactNotFoundError` on a miss. Until its independent migration gate matures, an incomplete no-hit preserves this projection and emits a targeted `DeprecationWarning`; use `lookup()` to distinguish it. |
+| `get_or_none(notebook_id, artifact_id)` | `str, str` | `Artifact \| None` | Legacy optional lookup. Complete misses and positive hits are warning-free; an incomplete no-hit preserves `None` and emits the targeted migration warning. |
+| `get_prompt(notebook_id, artifact_id, *, require_complete=False)` | `str, str, bool` | `str \| None` | Get the free-text generation prompt. `require_complete=True` makes Android use authoritative lookup; first-party consumers select it. The 0.x default stays `False`. Web retains its direct strict prompt decoder without an added preflight. |
 | `delete(notebook_id, artifact_id)` | `str, str` | `None` | Delete artifact (idempotent; returns `None` whether or not it existed) |
 | `rename(notebook_id, artifact_id, new_title, *, return_object=True)` | `str, str, str` | `Artifact \| None` | Rename artifact (re-fetched; raises `ArtifactNotFoundError` if missing). `return_object=False` skips the re-fetch and returns `None`. |
 | `poll_status(notebook_id, task_id)` | `str, str` | `GenerationStatus` | Check generation status |
@@ -1491,6 +1508,16 @@ field 19.
 | `retry_failed(notebook_id, artifact_id)` | `str, str` | `GenerationStatus` | Retry a failed Studio artifact in place (the UI "Retry"). Same `artifact_id` preserved; accepted → `status="pending"` (re-queued; advances to `in_progress` on a later poll); a synchronous refusal (rate limit / quota / not-retryable) **raises** `RateLimitError`/`RPCError`. See below. |
 | `copy(notebook_id, artifact_ids, target_notebook_id)` | `str, list[str], str` | `list[CopiedArtifact]` | Copy Studio artifacts into another notebook (`CopyArtifactsAsync`); each result pairs `original_id` with the full new `artifact` row. Raises `ArtifactNotFoundError` when nothing was copied; a partial result is returned with a warning. |
 | `get_customization_choices(notebook_id=None)` | `str \| None` | `ArtifactCustomizationChoices` | The Studio "Customize" option tables (`GetArtifactCustomizationChoices`): `audio` / `video` / `slide_deck` format choices (tuples; codes use `AudioFormat` / `VideoFormat` / `SlideDeckFormat` values) and `reports` presets with their full generation `directive`. This is an account/UI availability table, not an exhaustive enum manifest; dedicated options such as cinematic video may be omitted. Account-level — the server ignores the notebook id (it only fills the request's `project_id` slot). The server always serves the table, so a missing / re-shaped envelope raises `DecodingError` rather than returning empty families. |
+| `creation_capabilities` | — | `tuple[ArtifactCreationCapability, ...]` | Immutable client implementation metadata for supported creation options and known backend limitations. It is not an account entitlement or upstream availability probe. Web lists interactive mind maps separately because that protocol encodes `instructions` but has no language slot. |
+
+`ArtifactListingComponent` identifies the bounded backing (`studio_artifacts` or
+`note_backed_mind_maps`) named by each `ArtifactListingFailure`. Failure records
+contain a fixed sanitized message and an exception type name; they never retain
+response objects, raw exceptions, signed URLs, or credentials.
+
+`ArtifactLookupStatus` is a string enum with `FOUND`, `MISSING`, and `UNKNOWN`.
+An exact positive result can carry failures from another optional backing while
+remaining `FOUND`; only a no-hit needs complete reads to become `MISSING`.
 
 #### Type-Specific List Methods
 
@@ -1526,6 +1553,10 @@ field 19.
 | `generate_mind_map(...)` | See below | `MindMapResult` | Generate a note-backed mind map and persist it as a note; use attribute access (`result.mind_map`, `result.note_id`) |
 | `revise_slide(notebook_id, artifact_id, slide_index, prompt)` | `str, str, int, str` | `GenerationStatus` | Revise one slide in a completed slide deck |
 | `suggest_reports(notebook_id)` | `str` | `list[ReportSuggestion]` | Return suggested report formats/prompts for a notebook |
+
+Generation uses shared normalization with explicit backend compatibility policies. See the
+[creation contract](architecture.md#artifact-creation-contracts) for source selection, validation,
+and the Web/Android capability matrix.
 
 #### Retrying a Failed Artifact
 
@@ -1626,14 +1657,66 @@ path = await client.artifacts.download_flashcards(nb_id, "cards.md", output_form
 ```
 
 **Notes:**
-- If `artifact_id` is not specified, downloads the first completed artifact of that type
-- Raises `ValueError` if no completed artifact is found
-- Some URLs require browser-based download (handled automatically)
+
+- Omitting `artifact_id` retains each backend's existing per-kind selection order.
+- Missing or unavailable artifacts retain the per-kind method's existing error contract.
+- Authenticated media transfers use the owning client's download service.
 - Report downloads extract the markdown content from the artifact
 - Mind map downloads return a JSON tree structure with `name` and `children` fields
 - Data table downloads parse the complex rich-text format into CSV rows/columns
 - Quiz/flashcard formats: `json` (structured), `markdown` (readable), `html` (raw)
-- Downloads automatically use the storage path from `from_storage(path=...)` or the resolved profile for cookie authentication
+- Web downloads use the owning client's live cookie state; Android downloads use its asset service.
+
+##### Prepared artifact downloads
+
+```python
+from notebooklm.types import ArtifactDownloadRequest, ArtifactType
+
+listing = await client.artifacts.prepare_downloads(
+    ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO)
+)
+selection = next(item for item in listing.selections if item.artifact_id == artifact_id)
+await client.artifacts.download(selection, "overview.m4a")
+```
+
+`ArtifactDownloadListing` carries `selections`, `is_complete`, and bounded,
+sanitized component failures. A positive exact match remains usable when the
+secondary mind-map listing is unavailable. An incomplete listing cannot prove
+absence, the newest item, or that an all-items download is exhaustive. The
+application action rejects these uncertain selections before creating files.
+
+Preparation reads each required listing component once and keeps protocol data
+inside its backend. Download consumes the same selection object under an admitted
+operation scope. Android retains its native ownership verification and necessary
+note hydration; equivalent results do not imply identical Web and Android RPC
+counts. Client close/reopen invalidates earlier selections.
+
+The nine existing per-kind methods retain their signatures and defaults and
+delegate to backend compatibility adapters. First-party application actions use
+the additive preparation and typed download operations. Default mind-map selection
+retains note-backed priority; Android retains its last-modified ordering. Raw
+prefetch keywords remain accepted by compatibility adapters and emit the
+registered `artifact_raw_download_prefetch` warning only when supplied with non-`None`
+values. The new typed path emits no such warning. Retirement requires this warning's own shipped
+compatibility interval; a planned release date does not establish eligibility.
+
+Supported metadata imports are `DOWNLOAD_REGISTRY`, `DOWNLOAD_SPECS_BY_NAME`,
+`DOWNLOAD_FORMAT_NAMES`, `EXTENSION_MIME_TYPES`, `FORMAT_EXTENSIONS`,
+`DownloadFormatSpec`, `DownloadRegistryEntry`, `DownloadTypeSpec`, and
+`resolve_download_format` from `notebooklm.downloads`. They describe implemented
+representations, not account entitlement or a promise of upstream availability.
+Audio uses `.m4a` with `audio/mp4`; choosing another representation changes its
+extension and MIME type together. Unsupported formats raise `ValidationError`.
+
+`ArtifactDownloadRequest` and `ArtifactDownloadSelection` are public frozen
+values imported from `notebooklm.types`. A request identifies the notebook,
+artifact kind, and optional output format. Omitting the format selects the
+existing per-kind default. A prepared selection contains artifact identity,
+title, creation time, representation, extension, and MIME type for application
+selection and naming. Its identity belongs to one backend instance and client
+generation; copying its visible fields does not transfer download authority.
+
+See [download ownership](architecture.md#artifact-download-ownership) for cache lifetime and admission details.
 
 #### Export Methods
 
@@ -2137,7 +2220,7 @@ Each operation dispatches to the correct backend; you work with `MindMap` /
 | `list_note_backed(notebook_id)` | `str` | `list[MindMap]` | **Note-backed** entries only (every `kind` is `NOTE_BACKED`, `tree` populated, deleted rows excluded), via a single `GET_NOTES_AND_MIND_MAPS` RPC — no `LIST_ARTIFACTS`. Use `list()` for the union with interactive maps |
 | `get(notebook_id, mind_map_id)` | `str, str` | `MindMap` | Single mind map by id; raises `MindMapNotFoundError` on a miss |
 | `get_or_none(notebook_id, mind_map_id)` | `str, str` | `MindMap \| None` | Sanctioned `None`-on-miss lookup (silent — no deprecation warning) |
-| `generate(notebook_id, source_ids=None, *, kind, language="en", instructions=None, wait=True)` | … | `MindMap` | Note-backed (sync) or interactive (`CREATE_ARTIFACT` + poll). A null `CREATE_ARTIFACT` raises `ArtifactFeatureUnavailableError` (a subclass of `ArtifactError`) |
+| `generate(notebook_id, source_ids=None, *, kind, language="en", instructions=None, wait=True, failure_policy="legacy")` | … | `MindMap` | Note-backed (sync) or interactive (`CREATE_ARTIFACT` + poll). A null `CREATE_ARTIFACT` raises `ArtifactFeatureUnavailableError` (a subclass of `ArtifactError`) |
 | `rename(notebook_id, mind_map_id, new_title, *, kind=None, return_object=True)` | … | `MindMap \| None` | `UPDATE_NOTE` / `RENAME_ARTIFACT` by kind (re-fetched; raises `MindMapNotFoundError` if missing). `return_object=False` returns `None`. |
 | `delete(notebook_id, mind_map_id, *, kind=None)` | … | `None` | `DELETE_NOTE` / `DELETE_ARTIFACT` by kind (idempotent — deleting an already-absent map returns `None`, for both `kind=None` and a supplied `kind`) |
 | `get_tree(notebook_id, mind_map_id, *, kind=None)` | … | `dict \| None` | The `{"name","children"}` node tree; `None` for a missing or not-yet-populated map (derived read — does not police existence). The explicit `kind=INTERACTIVE` path delegates absence detection to the RPC (a missing id's value is server-dependent — `None` today) |
@@ -2165,6 +2248,30 @@ In the CLI, mind maps are handled as a **type** within the existing groups (matc
 > `notes.delete_mind_map()` remain fully supported for the note-backed kind —
 > they are **not** deprecated. `client.mind_maps.*` is the unified surface that
 > also reaches the interactive kind; use whichever fits.
+
+#### Mind-map failure policy
+
+`mind_maps.generate(..., failure_policy="raise")` is an additive opt-in. For a
+waited interactive map, failed or removed completion raises `ArtifactNotReadyError`
+before fetching the tree. Completed maps hydrate normally; a timeout propagates.
+Non-waited interactive generation and synchronous note-backed generation retain
+their existing behavior. First-party generation orchestration selects `"raise"`.
+
+The Python default remains `"legacy"`. Web emits the registered
+`mind_map_legacy_terminal_hydration` `DeprecationWarning` only when it actually
+continues hydration after failed/removed completion. Android already raises in
+legacy mode and does not emit this warning. The normal deprecation suppression
+gate applies.
+
+Source registration is not a shipped notice. C5A-01 in the
+[release migration gates](deprecations.md#release-migration-gates) records **first shipped
+notice: None**. The v1.0 target is conditional on this warning's own stable release
+and migration interval; otherwise the default survives until a later breaking
+release. It does not borrow another deprecation's notice date.
+
+`tests/unit/test_creation_conformance.py` exercises the real artifact facades,
+normalized hook values, protocol terminals, compatibility differences, both
+concrete mind-map facades, and first-party strict orchestration.
 
 ### NotesAPI (`client.notes`)
 
@@ -2221,7 +2328,7 @@ await client.notes.delete_mind_map(nb_id, mind_map_id)
 
 **Note:** Mind maps are detected by checking if the content contains `'"children":' or `'"nodes":'` keys, which indicate JSON mind map data structure.
 
-**Two mind-map kinds (issue #1256):** NotebookLM has two distinct mind-map objects — the **note-backed** kind above (`list_mind_maps()`), and the newer **interactive** kind the web GUI now creates (a studio artifact, internally `type 4 / variant 4`). Both are first-class: the interactive kind appears in `client.artifacts.list(ArtifactType.MIND_MAP)` (and `Artifact.is_interactive_mind_map` distinguishes the backing), `download_mind_map` exports either kind's JSON tree, and the unified [`client.mind_maps`](#mindmapsapi-clientmind-maps) surface generates/reads/renames/deletes both behind a `MindMapKind` discriminator. The `notes.*_mind_map` helpers here remain fully supported for the note-backed kind.
+**Two mind-map kinds (issue #1256):** NotebookLM has two distinct mind-map objects — the **note-backed** kind above (`list_mind_maps()`), and the newer **interactive** kind the web GUI now creates (a studio artifact, internally `type 4 / variant 4`). Both are first-class: the interactive kind appears in `client.artifacts.list(ArtifactType.MIND_MAP)` (and `Artifact.is_interactive_mind_map` distinguishes the backing), `download_mind_map` exports either kind's JSON tree, and the unified [`client.mind_maps`](#mindmapsapi-clientmind_maps) surface generates/reads/renames/deletes both behind a `MindMapKind` discriminator. The `notes.*_mind_map` helpers here remain fully supported for the note-backed kind.
 
 ---
 

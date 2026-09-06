@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastmcp import Context
 
@@ -34,7 +34,6 @@ from ..._app.generation_requests import UNSET, build_generation_request
 from ..._app.language import is_supported_language
 from ..._app.resolve import FULL_ID_PATTERN
 from ..._app.serialize import to_jsonable
-from ..._types.enums import GrpcStatusCode
 from ...exceptions import (
     ArtifactFeatureUnavailableError,
     AuthError,
@@ -46,6 +45,7 @@ from ...exceptions import (
     ServerError,
     ValidationError,
 )
+from ...types import ArtifactLookupStatus, GrpcStatusCode
 from .._coerce import coerce_list
 from .._confirm import (
     DESTRUCTIVE,
@@ -91,10 +91,8 @@ if TYPE_CHECKING:
 async def _passthrough_sources(
     _client: NotebookLMClient,
     _notebook_id: str,
-    source_ids: Any,
-    *,
-    json_output: bool = False,
-) -> Any:
+    source_ids: tuple[str, ...],
+) -> list[str] | None:
     """Return the supplied (already-full) source ids, or ``None`` when none were
     given so the backend uses *every* source.
 
@@ -106,7 +104,7 @@ async def _passthrough_sources(
     returning a null id surfaced as ``… generation is unavailable``. The tool
     passes ``tuple(source_ids or ())``, so omitting ``source_ids`` arrives here
     as ``()`` and must become ``None``."""
-    return source_ids or None
+    return cast(list[str] | None, source_ids or None)
 
 
 def register(mcp: Any) -> None:
@@ -767,8 +765,22 @@ def register(mcp: Any) -> None:
                     GrpcStatusCode.FAILED_PRECONDITION,
                 ):
                     raise
-                art = await client.artifacts.get_or_none(nb_id, art_id)
-                if art is not None and not art.is_failed:
+                lookup = await client.artifacts.lookup(nb_id, art_id)
+                if lookup.status is ArtifactLookupStatus.UNKNOWN:
+                    components = (
+                        ", ".join(sorted({failure.component.value for failure in lookup.failures}))
+                        or "unspecified"
+                    )
+                    raise RPCError(
+                        f"Artifact lookup is incomplete; unavailable components: {components}",
+                        method_id="artifacts.lookup",
+                    ) from None
+                art = lookup.artifact
+                if (
+                    lookup.status is ArtifactLookupStatus.FOUND
+                    and art is not None
+                    and not art.is_failed
+                ):
                     raise ValidationError(
                         f"artifact is not failed (status: {art.status_str}); retry only "
                         "re-runs a failed artifact — use studio_generate for a new one."

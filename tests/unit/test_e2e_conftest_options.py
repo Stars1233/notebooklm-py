@@ -23,6 +23,7 @@ from notebooklm._android.artifact_creation import CREATE_ARTIFACT_METHOD
 from notebooklm._idempotency import mark_unconfirmed
 from notebooklm.exceptions import ChatError, RateLimitError, RPCError
 from notebooklm.types import GrpcStatusCode
+from tests._helpers.operation import ClientStub
 
 CONFTEST_PATH = Path(__file__).resolve().parents[1] / "e2e" / "conftest.py"
 pytest_plugins = ["pytester"]
@@ -653,7 +654,7 @@ class TestAndroidArtifactOptionReadBack:
                 assert expected_epoch == 7
                 return artifact
 
-        client = SimpleNamespace(
+        client = ClientStub(
             backends={"artifacts": "android"},
             artifacts=FakeArtifacts(),
         )
@@ -810,7 +811,7 @@ class TestGenerationRateLimitSkip:
                     )
                 )
 
-        client = SimpleNamespace(artifacts=FakeArtifacts())
+        client = ClientStub(artifacts=FakeArtifacts())
         conftest._install_generation_rate_limit_skip(client)
 
         with pytest.raises(pytest.skip.Exception, match="Rate limit"):
@@ -870,7 +871,7 @@ class TestGenerationRateLimitSkip:
             return SimpleNamespace(task_id="task-id", is_rate_limited=False)
 
         artifacts = SimpleNamespace(**dict.fromkeys(conftest._JOURNALED_STUDIO_METHODS, harmless))
-        client = SimpleNamespace(artifacts=artifacts)
+        client = ClientStub(artifacts=artifacts)
 
         async def ambiguous(notebook_id):
             raise RuntimeError("rate limit 429 in arbitrary text")
@@ -918,7 +919,7 @@ class TestGenerationRateLimitSkip:
             return SimpleNamespace(task_id="task-id", is_rate_limited=False)
 
         artifacts = SimpleNamespace(**dict.fromkeys(conftest._JOURNALED_STUDIO_METHODS, harmless))
-        client = SimpleNamespace(artifacts=artifacts)
+        client = ClientStub(artifacts=artifacts)
 
         async def generate_report(notebook_id):
             return SimpleNamespace(task_id="shared-task-id", is_rate_limited=False)

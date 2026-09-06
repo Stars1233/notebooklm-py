@@ -38,6 +38,7 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from ..options import USE_DEFAULT
 from ..types import MindMap, MindMapKind, MindMapResult
 from .generate_retry import (
     RETRY_BACKOFF_MULTIPLIER,
@@ -186,68 +187,70 @@ async def execute_generation(
     retry-with-backoff loop, and returns a typed result for the command layer
     to render.
     """
-    nb_id_resolved = await notebook_resolver(client, request.notebook_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        nb_id_resolved = await notebook_resolver(client, request.notebook_id)
 
-    if isinstance(request, ReviseSlideGenerationRequest):
-        sources: list[str] | None = None
-    else:
-        source_ids = request.source_ids
-        if source_ids is UNSET:
-            sources = None
-        elif not source_ids:
-            sources = []
+        if isinstance(request, ReviseSlideGenerationRequest):
+            sources: list[str] | None = None
         else:
-            sources = await source_resolver(client, nb_id_resolved, source_ids)
+            source_ids = request.source_ids
+            if source_ids is UNSET:
+                sources = None
+            elif not source_ids:
+                sources = []
+            else:
+                sources = await source_resolver(client, nb_id_resolved, source_ids)
 
-    method_name = _KIND_TO_METHOD[request.kind]
-    api_method = getattr(client.artifacts, method_name)
-    call_kwargs = _build_call_kwargs(request, sources=sources)
+        method_name = _KIND_TO_METHOD[request.kind]
+        api_method = getattr(client.artifacts, method_name)
+        call_kwargs = _build_call_kwargs(request, sources=sources)
 
-    async def _generate() -> Any:
-        return await api_method(nb_id_resolved, **call_kwargs)
+        async def _generate() -> Any:
+            return await api_method(nb_id_resolved, **call_kwargs)
 
-    if isinstance(request, MindMapGenerationRequest):
-        if request.map_kind is MindMapKind.INTERACTIVE:
-            # The interactive kind is a studio artifact (CREATE_ARTIFACT,
-            # variant 4); route through the unified mind-map API, which polls
-            # the async generation to completion and returns a MindMap whose
-            # tree is populated (converged with the note-backed shape).
-            async def _generate_mind_map() -> Any:
-                return await client.mind_maps.generate(
-                    nb_id_resolved,
-                    kind=MindMapKind.INTERACTIVE,
-                    **call_kwargs,
-                )
-        else:
-            _generate_mind_map = _generate
-        context = mind_map_context or contextlib.nullcontext
-        async with context():
-            result = await _generate_mind_map()
+        if isinstance(request, MindMapGenerationRequest):
+            if request.map_kind is MindMapKind.INTERACTIVE:
+                # The interactive kind is a studio artifact (CREATE_ARTIFACT,
+                # variant 4); route through the unified mind-map API, which polls
+                # the async generation to completion and returns a MindMap whose
+                # tree is populated (converged with the note-backed shape).
+                async def _generate_mind_map() -> Any:
+                    return await client.mind_maps.generate(
+                        nb_id_resolved,
+                        kind=MindMapKind.INTERACTIVE,
+                        failure_policy="raise",
+                        **call_kwargs,
+                    )
+            else:
+                _generate_mind_map = _generate
+            context = mind_map_context or contextlib.nullcontext
+            async with context():
+                result = await _generate_mind_map()
+            return GenerationExecutionResult(
+                kind=request.kind,
+                mind_map=result,
+            )
+
+        result = await generate_with_retry(
+            _generate,
+            request.max_retries,
+            on_retry=retry_sink,
+        )
+        outcome = await handle_generation_result(
+            client,
+            nb_id_resolved,
+            result,
+            request.kind,
+            request.wait,
+            timeout=request.timeout,
+            interval=request.interval,
+            wait_context=wait_context,
+            wait_start_sink=wait_start_sink,
+        )
         return GenerationExecutionResult(
             kind=request.kind,
-            mind_map=result,
+            generation=outcome,
         )
-
-    result = await generate_with_retry(
-        _generate,
-        request.max_retries,
-        on_retry=retry_sink,
-    )
-    outcome = await handle_generation_result(
-        client,
-        nb_id_resolved,
-        result,
-        request.kind,
-        request.wait,
-        timeout=request.timeout,
-        interval=request.interval,
-        wait_context=wait_context,
-        wait_start_sink=wait_start_sink,
-    )
-    return GenerationExecutionResult(
-        kind=request.kind,
-        generation=outcome,
-    )
 
 
 __all__ = [

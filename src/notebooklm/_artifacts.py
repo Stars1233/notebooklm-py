@@ -13,8 +13,27 @@ from typing import TYPE_CHECKING, Any
 from ._artifact import formatters as _artifact_formatters  # noqa: F401
 from ._artifact import polling as _artifact_polling  # noqa: F401
 from ._artifact import validation as _artifact_validation  # noqa: F401
+from ._artifact.creation import (
+    ArtifactCreationRequest,
+    AudioCreationRequest,
+    CinematicVideoCreationRequest,
+    DataTableCreationRequest,
+    FlashcardsCreationRequest,
+    InfographicCreationRequest,
+    QuizCreationRequest,
+    ReportCreationRequest,
+    SlideDeckCreationRequest,
+    VideoCreationRequest,
+)
+from ._artifact.creation_normalized import NormalizedArtifactCreationRequest
+from ._artifact.creation_policy import (
+    WEB_CREATION_POLICY,
+    normalize_creation,
+    normalize_video_prompt,
+)
 from ._artifact.downloads import AssetDownloadService, DownloadResult
 from ._artifact.polling import ArtifactPollingService
+from ._deprecation import warn_registered_deprecation
 from ._env import get_default_language
 from ._notebook_metadata import NotebookSourceIdProvider, reconcile_copy_mapping
 from ._polling_registry import PollRegistry
@@ -35,10 +54,18 @@ from ._types.enums import (
     VideoStyle,
 )
 from ._types.research import MindMapResult
-from .exceptions import ArtifactNotFoundError, ValidationError
+from .exceptions import ArtifactNotFoundError, RPCError, ValidationError
 from .types import (
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+    ArtifactListing,
+    ArtifactListingFailure,
+    ArtifactLookup,
+    ArtifactLookupStatus,
     ArtifactType,
     CopiedArtifact,
     GenerationStatus,
@@ -49,6 +76,24 @@ if TYPE_CHECKING:
     from ._runtime.call_supervisor import CallSupervisor
 
 logger = logging.getLogger(__name__)
+
+
+def _warn_ambiguous_artifact_absence() -> None:
+    """Emit the single registered warning for the legacy absence projection."""
+    warn_registered_deprecation("artifact_ambiguous_absence")
+
+
+def _incomplete_lookup_error(
+    failures: tuple[ArtifactListingFailure, ...],
+) -> RPCError:
+    """Project bounded aggregate-read evidence through the existing RPC error."""
+    components = ", ".join(sorted({failure.component.value for failure in failures}))
+    if not components:
+        components = "unspecified"
+    return RPCError(
+        f"Artifact lookup is incomplete; unavailable components: {components}",
+        method_id="artifacts.lookup",
+    )
 
 
 @dataclass(frozen=True)
@@ -120,6 +165,35 @@ class ArtifactsAPI(ABC):
             poll_registry=self._poll_registry,
         )
 
+    @property
+    def creation_capabilities(self) -> tuple[ArtifactCreationCapability, ...]:
+        """Return immutable backend implementation support metadata.
+
+        It is deliberately not an entitlement probe: an account may still lack
+        an advertised feature or have it temporarily unavailable upstream.
+        """
+        return (
+            ArtifactCreationCapability(
+                "audio", ("language", "instructions", "audio_format", "audio_length")
+            ),
+            ArtifactCreationCapability(
+                "video", ("language", "instructions", "video_format", "video_style", "style_prompt")
+            ),
+            ArtifactCreationCapability("cinematic_video", ("language", "instructions")),
+            ArtifactCreationCapability(
+                "report", ("report_format", "language", "custom_prompt", "extra_instructions")
+            ),
+            ArtifactCreationCapability("quiz", ("instructions", "quantity", "difficulty")),
+            ArtifactCreationCapability("flashcards", ("instructions", "quantity", "difficulty")),
+            ArtifactCreationCapability(
+                "infographic", ("language", "instructions", "orientation", "detail_level", "style")
+            ),
+            ArtifactCreationCapability(
+                "slide_deck", ("language", "instructions", "slide_format", "slide_length")
+            ),
+            ArtifactCreationCapability("data_table", ("language", "instructions")),
+        )
+
     @abstractmethod
     async def _list_studio(
         self,
@@ -141,46 +215,95 @@ class ArtifactsAPI(ABC):
         ``ArtifactType.MIND_MAP`` for mind maps only).
         """
 
+    @abstractmethod
+    async def list_with_status(
+        self, notebook_id: str, artifact_type: ArtifactType | None = None
+    ) -> ArtifactListing:
+        """List artifacts together with aggregate-read completeness evidence.
+
+        Primary Studio failures and all decoding failures raise directly.
+        A transient secondary backing failure returns the successfully decoded
+        items with ``is_complete=False`` and a bounded component diagnostic.
+        """
+
+    async def lookup(self, notebook_id: str, artifact_id: str) -> ArtifactLookup:
+        """Look up one artifact without confusing an incomplete read with absence.
+
+        An exact positive match is ``FOUND`` even if another aggregate backing
+        was unavailable. ``MISSING`` requires a complete aggregate read;
+        otherwise the result is ``UNKNOWN`` with bounded failure evidence.
+        """
+        listing = await self.list_with_status(notebook_id)
+        artifact = next((item for item in listing.items if item.id == artifact_id), None)
+        if artifact is not None:
+            return ArtifactLookup(
+                status=ArtifactLookupStatus.FOUND,
+                artifact=artifact,
+                failures=listing.failures,
+            )
+        if listing.is_complete:
+            return ArtifactLookup(status=ArtifactLookupStatus.MISSING)
+        return ArtifactLookup(
+            status=ArtifactLookupStatus.UNKNOWN,
+            failures=listing.failures,
+        )
+
     async def get(self, notebook_id: str, artifact_id: str) -> Artifact:
-        """Get a specific artifact by ID.
+        """Get a specific artifact using the legacy absence projection.
+
+        Positive hits and complete misses emit no deprecation warning. An
+        incomplete no-hit preserves the legacy exception and emits the registered
+        ``artifact_ambiguous_absence`` warning. Use :meth:`lookup` to distinguish
+        authoritative absence from an unavailable backing.
 
         Raises:
-            ArtifactNotFoundError: If no artifact with ``artifact_id`` exists
-                (matches ``notebooks.get``; issue #1247). Use :meth:`get_or_none`
-                for the sanctioned ``None``-on-miss lookup.
+            ArtifactNotFoundError: On a complete miss or the legacy incomplete
+                no-hit projection. :meth:`get_or_none` returns ``None`` instead.
         """
-        artifact = await self.get_or_none(notebook_id, artifact_id)
-        if artifact is None:
+        result = await self.lookup(notebook_id, artifact_id)
+        if result.is_found:
+            assert result.artifact is not None
+            return result.artifact
+        if result.is_unknown:
+            _warn_ambiguous_artifact_absence()
+        if result.artifact is None:
             raise ArtifactNotFoundError(artifact_id)
-        return artifact
+        raise AssertionError("non-FOUND artifact lookup unexpectedly carried an artifact")
 
     async def get_or_none(self, notebook_id: str, artifact_id: str) -> Artifact | None:
         """Get an artifact by ID, returning ``None`` when it does not exist.
 
-        The sanctioned ``None``-on-miss lookup (ADR-0019): unlike :meth:`get`
-        — which raises ``ArtifactNotFoundError`` on a miss (#1247) — this
-        returns ``None`` for a genuine absence with no deprecation warning. It
-        lists once and id-matches, inheriting :meth:`list`'s behavior. (Per
-        ADR-0019 Rule 3, ``list`` keeps its deliberate *partial-availability*
-        policy: a mind-map sub-fetch transport failure logs a warning and
-        yields the studio artifacts that loaded, so a note-backed mind-map id
-        can read absent while that sub-fetch is down.) Faults from the primary
-        studio-artifact listing propagate unchanged.
+        Positive hits and complete misses are warning-free (ADR-0019). An
+        incomplete no-hit preserves ``None`` during the 0.x compatibility period
+        and emits the registered ``artifact_ambiguous_absence`` warning. Use
+        :meth:`lookup` or :meth:`list_with_status` when completeness matters.
+        Primary listing failures and decoding faults propagate unchanged.
         """
         logger.debug("Getting artifact %s from notebook %s", artifact_id, notebook_id)
-        return next(
-            (artifact for artifact in await self.list(notebook_id) if artifact.id == artifact_id),
-            None,
-        )
+        result = await self.lookup(notebook_id, artifact_id)
+        if result.is_found:
+            return result.artifact
+        if result.is_unknown:
+            _warn_ambiguous_artifact_absence()
+        return None
 
     _get_or_none = get_or_none
 
     @abstractmethod
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        require_complete: bool = False,
+    ) -> str | None:
         """Get the free-text prompt an artifact was generated from (any studio type).
 
         Returns ``None`` when the artifact stores no prompt (e.g. a note-backed
         mind map); raises :class:`ArtifactNotFoundError` for an unknown id.
+        ``require_complete=True`` prevents a failed aggregate backing from
+        being projected as absence. Web's direct prompt read is already strict;
+        Android uses :meth:`lookup` for this explicit path.
 
         .. versionadded:: 0.8.0
         """
@@ -220,12 +343,19 @@ class ArtifactsAPI(ABC):
     @abstractmethod
     async def _send_create_artifact(
         self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str],
-        **options: Any,
+        request: NormalizedArtifactCreationRequest,
     ) -> GenerationStatus:
-        """Send one backend-specific artifact creation request."""
+        """Encode and send one normalized backend creation request."""
+
+    _creation_policy = WEB_CREATION_POLICY
+
+    def _normalize_creation_request(
+        self, request: ArtifactCreationRequest
+    ) -> NormalizedArtifactCreationRequest:
+        return normalize_creation(request, self._creation_policy)
+
+    async def _create_artifact(self, request: ArtifactCreationRequest) -> GenerationStatus:
+        return await self._send_create_artifact(self._normalize_creation_request(request))
 
     async def _resolve_source_ids(
         self, notebook_id: str, source_ids: builtins.list[str] | None
@@ -234,8 +364,7 @@ class ArtifactsAPI(ABC):
             await self._notebooks.get_source_ids(notebook_id) if source_ids is None else source_ids
         )
 
-    @staticmethod
-    def _resolve_language(language: str | None) -> str:
+    def _resolve_language(self, language: str | None) -> str:
         return get_default_language() if language is None else language
 
     async def generate_audio(
@@ -251,14 +380,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_audio"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "audio",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                audio_format=audio_format,
-                audio_length=audio_length,
+            return await self._create_artifact(
+                AudioCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    audio_format,
+                    audio_length,
+                )
             )
 
     async def generate_video(
@@ -273,34 +403,19 @@ class ArtifactsAPI(ABC):
     ) -> GenerationStatus:
         """Generate a Video Overview."""
         language = self._resolve_language(language)
-        if style_prompt is not None and not isinstance(style_prompt, str):
-            raise ValidationError("style_prompt must be a string or None")
-        normalized_style_prompt = style_prompt.strip() if style_prompt is not None else None
-        if video_format == VideoFormat.CINEMATIC and normalized_style_prompt:
-            raise ValidationError("style_prompt is not supported for cinematic videos")
-        if video_format == VideoFormat.SHORT and (
-            (video_style is not None and video_style != VideoStyle.AUTO_SELECT)
-            or normalized_style_prompt
-        ):
-            raise ValidationError(
-                "video_style and style_prompt are not supported for short videos "
-                "(short has a fixed visual style)"
-            )
-        if video_style == VideoStyle.CUSTOM and not normalized_style_prompt:
-            raise ValidationError("style_prompt is required when video_style is CUSTOM")
-        if normalized_style_prompt and video_style != VideoStyle.CUSTOM:
-            raise ValidationError("style_prompt requires video_style=VideoStyle.CUSTOM")
+        normalized_style_prompt = normalize_video_prompt(video_format, video_style, style_prompt)
         async with self._operation_scope("artifacts.generate_video"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "video",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                video_format=video_format,
-                video_style=video_style,
-                style_prompt=normalized_style_prompt,
+            return await self._create_artifact(
+                VideoCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    video_format,
+                    video_style,
+                    normalized_style_prompt,
+                )
             )
 
     async def generate_cinematic_video(
@@ -314,12 +429,10 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_cinematic_video"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "cinematic_video",
-                source_ids,
-                language=language,
-                instructions=instructions,
+            return await self._create_artifact(
+                CinematicVideoCreationRequest(
+                    notebook_id, tuple(source_ids), language, instructions
+                )
             )
 
     async def generate_report(
@@ -336,14 +449,15 @@ class ArtifactsAPI(ABC):
             report_format = _artifact_validation.coerce_report_format(report_format)
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "report",
-                source_ids,
-                report_format=report_format,
-                language=language,
-                custom_prompt=custom_prompt,
-                extra_instructions=extra_instructions,
+            return await self._create_artifact(
+                ReportCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    report_format,
+                    language,
+                    custom_prompt,
+                    extra_instructions,
+                )
             )
 
     async def generate_study_guide(
@@ -357,14 +471,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_study_guide"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "report",
-                source_ids,
-                report_format=ReportFormat.STUDY_GUIDE,
-                language=language,
-                custom_prompt=None,
-                extra_instructions=extra_instructions,
+            return await self._create_artifact(
+                ReportCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    ReportFormat.STUDY_GUIDE,
+                    language,
+                    None,
+                    extra_instructions,
+                )
             )
 
     async def generate_quiz(
@@ -378,13 +493,10 @@ class ArtifactsAPI(ABC):
         """Generate a quiz."""
         async with self._operation_scope("artifacts.generate_quiz"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "quiz",
-                source_ids,
-                instructions=instructions,
-                quantity=quantity,
-                difficulty=difficulty,
+            return await self._create_artifact(
+                QuizCreationRequest(
+                    notebook_id, tuple(source_ids), instructions, quantity, difficulty
+                )
             )
 
     async def generate_flashcards(
@@ -398,13 +510,10 @@ class ArtifactsAPI(ABC):
         """Generate flashcards."""
         async with self._operation_scope("artifacts.generate_flashcards"):
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "flashcards",
-                source_ids,
-                instructions=instructions,
-                quantity=quantity,
-                difficulty=difficulty,
+            return await self._create_artifact(
+                FlashcardsCreationRequest(
+                    notebook_id, tuple(source_ids), instructions, quantity, difficulty
+                )
             )
 
     async def generate_infographic(
@@ -421,15 +530,16 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_infographic"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "infographic",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                orientation=orientation,
-                detail_level=detail_level,
-                style=style,
+            return await self._create_artifact(
+                InfographicCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    orientation,
+                    detail_level,
+                    style,
+                )
             )
 
     async def generate_slide_deck(
@@ -445,14 +555,15 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_slide_deck"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "slide_deck",
-                source_ids,
-                language=language,
-                instructions=instructions,
-                slide_format=slide_format,
-                slide_length=slide_length,
+            return await self._create_artifact(
+                SlideDeckCreationRequest(
+                    notebook_id,
+                    tuple(source_ids),
+                    language,
+                    instructions,
+                    slide_format,
+                    slide_length,
+                )
             )
 
     async def generate_data_table(
@@ -466,12 +577,8 @@ class ArtifactsAPI(ABC):
         async with self._operation_scope("artifacts.generate_data_table"):
             language = self._resolve_language(language)
             source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                "data_table",
-                source_ids,
-                language=language,
-                instructions=instructions,
+            return await self._create_artifact(
+                DataTableCreationRequest(notebook_id, tuple(source_ids), language, instructions)
             )
 
     @abstractmethod
@@ -515,6 +622,61 @@ class ArtifactsAPI(ABC):
         """
 
     @abstractmethod
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare completed candidates without exposing backend caches.
+
+        Validate the representation before I/O. Every returned selection is
+        bound to this backend instance, notebook, and current client generation.
+        Partial results retain typed failure evidence; they do not prove absence.
+        """
+
+    @abstractmethod
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Download an owned prepared identity within its admitted generation."""
+
+    @abstractmethod
+    async def _download_with_legacy_prefetch(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        """Backend-owned compatibility adapter for existing raw-prefetch kwargs."""
+
+    async def _download_per_kind(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        # Legacy methods keep backend-specific selection, lazy-read ordering,
+        # format validation, and exception precedence. The additive typed API
+        # is used by first-party orchestration; routing legacy calls through
+        # its aggregate selection would change these established contracts.
+        try:
+            async with self._operation_scope(f"artifacts.download_{request.kind.value}"):
+                if any(value is not None for value in (artifacts_data, mind_maps, artifacts)):
+                    warn_registered_deprecation("artifact_raw_download_prefetch")
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    artifact_id,
+                    artifacts_data=artifacts_data,
+                    mind_maps=mind_maps,
+                    artifacts=artifacts,
+                )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data, mind_maps, artifacts
+
     async def download_audio(
         self,
         notebook_id: str,
@@ -524,8 +686,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Audio Overview to a file."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.AUDIO, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_video(
         self,
         notebook_id: str,
@@ -535,8 +706,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a Video Overview to a file."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.VIDEO, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_infographic(
         self,
         notebook_id: str,
@@ -546,8 +726,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download an Infographic to a file."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.INFOGRAPHIC, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_slide_deck(
         self,
         notebook_id: str,
@@ -558,8 +747,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a slide deck as PDF or PPTX."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.SLIDE_DECK, output_format),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_report(
         self,
         notebook_id: str,
@@ -569,8 +767,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a report artifact as markdown."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.REPORT, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_mind_map(
         self,
         notebook_id: str,
@@ -581,8 +788,18 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a mind map as JSON."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.MIND_MAP, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+                mind_maps=mind_maps,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data, mind_maps
 
-    @abstractmethod
     async def download_data_table(
         self,
         notebook_id: str,
@@ -592,8 +809,17 @@ class ArtifactsAPI(ABC):
         artifacts_data: builtins.list[Any] | None = None,
     ) -> str:
         """Download a data table as CSV."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.DATA_TABLE, None),
+                output_path,
+                artifact_id,
+                artifacts_data=artifacts_data,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts_data
 
-    @abstractmethod
     async def download_quiz(
         self,
         notebook_id: str,
@@ -604,8 +830,17 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download quiz questions."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.QUIZ, output_format),
+                output_path,
+                artifact_id,
+                artifacts=artifacts,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts
 
-    @abstractmethod
     async def download_flashcards(
         self,
         notebook_id: str,
@@ -616,6 +851,16 @@ class ArtifactsAPI(ABC):
         artifacts: builtins.list[Artifact] | None = None,
     ) -> str:
         """Download flashcard deck."""
+        try:
+            return await self._download_per_kind(
+                ArtifactDownloadRequest(notebook_id, ArtifactType.FLASHCARDS, output_format),
+                output_path,
+                artifact_id,
+                artifacts=artifacts,
+            )
+        finally:
+            # Retained exception frames must not keep the backend or raw capabilities.
+            del self, artifacts
 
     @abstractmethod
     async def delete(self, notebook_id: str, artifact_id: str) -> None:

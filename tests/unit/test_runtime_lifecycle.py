@@ -553,6 +553,7 @@ def test_production_assembly_freezes_exact_root_ownership_graph() -> None:
     assert lifecycle._transports == (
         web.web_transport,
         web.source_uploader,
+        client.artifacts._asset_downloads,
     )
     assert lifecycle._loop_participants == (
         collaborators.call_supervisor,

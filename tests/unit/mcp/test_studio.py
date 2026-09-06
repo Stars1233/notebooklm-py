@@ -42,7 +42,14 @@ from notebooklm.exceptions import (  # noqa: E402 - after importorskip guard
     RateLimitError,
     RPCError,
 )
-from notebooklm.types import Artifact, ArtifactType, GenerationState, Note  # noqa: E402
+from notebooklm.types import (  # noqa: E402
+    Artifact,
+    ArtifactLookup,
+    ArtifactLookupStatus,
+    ArtifactType,
+    GenerationState,
+    Note,
+)
 
 from .conftest import AsyncMock  # noqa: E402 - after importorskip guard
 
@@ -1944,7 +1951,9 @@ async def test_artifact_retry_completed_gives_actionable_error(mcp_call, mock_cl
     mock_client.artifacts.retry_failed = AsyncMock(
         side_effect=ArtifactFeatureUnavailableError("retry")
     )
-    mock_client.artifacts.get_or_none = AsyncMock(return_value=art)
+    mock_client.artifacts.lookup = AsyncMock(
+        return_value=ArtifactLookup(ArtifactLookupStatus.FOUND, artifact=art)
+    )
     with pytest.raises(ToolError) as excinfo:
         await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
     msg = str(excinfo.value)
@@ -1978,7 +1987,9 @@ async def test_artifact_retry_preserves_non_state_refusals(mcp_call, mock_client
         created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     mock_client.artifacts.retry_failed = AsyncMock(side_effect=refusal)
-    mock_client.artifacts.get_or_none = AsyncMock(return_value=art)
+    mock_client.artifacts.lookup = AsyncMock(
+        return_value=ArtifactLookup(ArtifactLookupStatus.FOUND, artifact=art)
+    )
 
     with pytest.raises(ToolError) as excinfo:
         await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
@@ -2004,7 +2015,9 @@ async def test_artifact_retry_state_refusal_with_status_is_enriched(
         created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
     mock_client.artifacts.retry_failed = AsyncMock(side_effect=RPCError("rejected", rpc_code=code))
-    mock_client.artifacts.get_or_none = AsyncMock(return_value=art)
+    mock_client.artifacts.lookup = AsyncMock(
+        return_value=ArtifactLookup(ArtifactLookupStatus.FOUND, artifact=art)
+    )
 
     with pytest.raises(ToolError) as excinfo:
         await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
@@ -2027,7 +2040,9 @@ async def test_artifact_retry_refusal_on_failed_reraises_generic(mcp_call, mock_
     mock_client.artifacts.retry_failed = AsyncMock(
         side_effect=ArtifactFeatureUnavailableError("retry")
     )
-    mock_client.artifacts.get_or_none = AsyncMock(return_value=art)
+    mock_client.artifacts.lookup = AsyncMock(
+        return_value=ArtifactLookup(ArtifactLookupStatus.FOUND, artifact=art)
+    )
     with pytest.raises(ToolError) as excinfo:
         await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
     assert "Retry generation is unavailable" in str(excinfo.value)
@@ -2038,7 +2053,7 @@ async def test_artifact_retry_unconfirmed_error_bypasses_state_enrichment(
 ) -> None:
     error = mark_unconfirmed(ArtifactFeatureUnavailableError("retry"))
     mock_client.artifacts.retry_failed = AsyncMock(side_effect=error)
-    mock_client.artifacts.get_or_none = AsyncMock(side_effect=NetworkError("readback lost"))
+    mock_client.artifacts.lookup = AsyncMock(side_effect=NetworkError("readback lost"))
 
     with pytest.raises(ToolError) as excinfo:
         await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
@@ -2046,18 +2061,18 @@ async def test_artifact_retry_unconfirmed_error_bypasses_state_enrichment(
     message = str(excinfo.value)
     assert "unconfirmed=true" in message
     assert "retriable=false" in message
-    mock_client.artifacts.get_or_none.assert_not_called()
+    mock_client.artifacts.lookup.assert_not_called()
 
 
 async def test_artifact_retry_happy_path_skips_state_check(mcp_call, mock_client) -> None:
-    """F15: the happy path must NOT pay for the extra ``get_or_none`` state read."""
+    """F15: the happy path must not pay for the extra lookup state read."""
     mock_client.artifacts.retry_failed = AsyncMock(
         return_value=FakeStatus(task_id=_ART_FULL, status=GenerationState.IN_PROGRESS, url=None)
     )
-    mock_client.artifacts.get_or_none = AsyncMock()
+    mock_client.artifacts.lookup = AsyncMock()
     result = await mcp_call("studio_retry", {"notebook": NB_ID, "artifact": _ART_FULL})
     assert result.structured_content["status"] == "in_progress"
-    mock_client.artifacts.get_or_none.assert_not_called()
+    mock_client.artifacts.lookup.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

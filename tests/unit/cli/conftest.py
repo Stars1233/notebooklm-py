@@ -22,6 +22,7 @@ from notebooklm.types import (
     ResearchTask,
     SourceGuide,
 )
+from tests._helpers.downloads import configure_prepared_artifact_downloads
 
 
 @pytest.fixture(autouse=True)
@@ -320,6 +321,16 @@ def create_mock_client():
     # the same object) and reminds developers to use the correct namespace
     mock_client.notebooks = MagicMock()
     mock_client.sources = MagicMock()
+
+    # Keep the command's terminal-delete stubs while exercising real supervised batching.
+    async def delete_many_with_outcomes(notebook_id, source_ids):
+        from tests._helpers.source_delete import delete_with_outcomes
+
+        return await delete_with_outcomes(
+            notebook_id, source_ids, delete=mock_client.sources.delete
+        )
+
+    mock_client.sources.delete_many_with_outcomes = AsyncMock(side_effect=delete_many_with_outcomes)
     mock_client.artifacts = MagicMock()
     mock_client.chat = MagicMock()
     mock_client.research = MagicMock()
@@ -408,18 +419,7 @@ def create_mock_client():
     mock_client.artifacts.list = AsyncMock(side_effect=make_artifact_list)
     mock_client.notes.list = AsyncMock(side_effect=make_note_list)
 
-    # The ``_app`` download executor prefers the ``_list_for_download`` seam
-    # (``list`` + raw rows in one RPC pass; issue #1488). On a bare ``MagicMock``
-    # this attribute would auto-spawn a non-awaitable child mock, so wire it to
-    # delegate to the (possibly test-overridden) ``artifacts.list`` and return
-    # the ``(typed, raw_studio_rows, mind_map_rows)`` tuple the executor expects.
-    # Empty raw rows are correct for these doubles: ``download_<x>`` is itself
-    # mocked, so its (now-suppressed) inner re-list never runs.
-    async def _list_for_download(notebook_id, artifact_type=None):
-        typed = await mock_client.artifacts.list(notebook_id)
-        return typed, [], []
-
-    mock_client.artifacts._list_for_download = AsyncMock(side_effect=_list_for_download)
+    configure_prepared_artifact_downloads(mock_client)
 
     return mock_client
 

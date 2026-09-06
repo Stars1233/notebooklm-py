@@ -65,6 +65,7 @@ class WebSharingAPI(SharingAPI):
         Args:
             rpc: RPC dispatch surface (typically the shared client session).
         """
+        self._base_url: str | None = None
         self._rpc = rpc
         self._supervisor = supervisor
 
@@ -84,7 +85,7 @@ class WebSharingAPI(SharingAPI):
             params,
             source_path=f"/notebook/{notebook_id}",
         )
-        return decode_share_status(ShareStatus, result, notebook_id)
+        return decode_share_status(ShareStatus, result, notebook_id, base_url=self._base_url)
 
     async def _share_and_readback(
         self,
@@ -138,7 +139,9 @@ class WebSharingAPI(SharingAPI):
                         [notebook_id, [2]],
                         source_path=f"/notebook/{notebook_id}",
                     )
-                status = decode_share_status(ShareStatus, result, notebook_id)
+                status = decode_share_status(
+                    ShareStatus, result, notebook_id, base_url=self._base_url
+                )
                 readback_entry.record(CommitState.CONFIRMED, "decoded sharing readback")
                 return status
             except asyncio.CancelledError as exc:

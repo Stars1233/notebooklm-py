@@ -53,6 +53,13 @@ class ArtifactType(str, Enum):
     UNKNOWN = "unknown"
 
 
+class ArtifactListingComponent(str, Enum):
+    """A backing read that contributes to the aggregate artifact namespace."""
+
+    STUDIO_ARTIFACTS = "studio_artifacts"
+    NOTE_BACKED_MIND_MAPS = "note_backed_mind_maps"
+
+
 _warned_artifact_types: set[tuple[int, int | None]] = set()
 
 
@@ -411,6 +418,66 @@ class Artifact:
         if self._artifact_type != ArtifactTypeCode.REPORT.value or self.report_kind is None:
             return None
         return _REPORT_KIND_MAP.get(self.report_kind)
+
+
+@dataclass(frozen=True)
+class ArtifactListingFailure:
+    """Bounded diagnostic for one unavailable aggregate-listing component.
+
+    Backend producers retain only the component identifier, exception type,
+    and a fixed sanitized message. Raw exceptions, response bodies, and signed
+    URLs are deliberately excluded from this public result.
+    """
+
+    component: ArtifactListingComponent
+    error_type: str
+    message: str
+
+
+@dataclass(frozen=True)
+class ArtifactListing:
+    """Artifacts returned by an aggregate read plus its completeness evidence."""
+
+    items: tuple[Artifact, ...]
+    is_complete: bool
+    failures: tuple[ArtifactListingFailure, ...] = ()
+
+
+class ArtifactLookupStatus(str, Enum):
+    """Evidence-qualified result state for :meth:`ArtifactsAPI.lookup`."""
+
+    FOUND = "found"
+    MISSING = "missing"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class ArtifactLookup:
+    """Authoritative exact artifact lookup result.
+
+    ``FOUND`` always carries :attr:`artifact`. ``MISSING`` means every relevant
+    backing was read successfully. ``UNKNOWN`` means absence could not be
+    established and carries the bounded component failures that prevented it.
+    """
+
+    status: ArtifactLookupStatus
+    artifact: Artifact | None = None
+    failures: tuple[ArtifactListingFailure, ...] = ()
+
+    @property
+    def is_found(self) -> bool:
+        """Whether an exact artifact was found."""
+        return self.status is ArtifactLookupStatus.FOUND
+
+    @property
+    def is_missing(self) -> bool:
+        """Whether complete reads established absence."""
+        return self.status is ArtifactLookupStatus.MISSING
+
+    @property
+    def is_unknown(self) -> bool:
+        """Whether an unavailable backing prevented an absence decision."""
+        return self.status is ArtifactLookupStatus.UNKNOWN
 
 
 class GenerationState(str, Enum):
@@ -772,3 +839,17 @@ class ArtifactCustomizationChoices:
     video: tuple[CustomizationChoice, ...] = ()
     slide_deck: tuple[CustomizationChoice, ...] = ()
     reports: tuple[ReportPreset, ...] = ()
+
+
+@dataclass(frozen=True)
+class ArtifactCreationCapability:
+    """Read-only implementation support for one artifact creation family.
+
+    This describes client/backend encoding support, never account entitlement or
+    an upstream availability guarantee. ``limitations`` records intentional
+    backend differences without pretending that unsupported options are sent.
+    """
+
+    family: str
+    supported_options: tuple[str, ...] = ()
+    limitations: tuple[str, ...] = ()

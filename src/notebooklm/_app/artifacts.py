@@ -48,8 +48,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from ..exceptions import ArtifactNotFoundError
-from ..types import Artifact, ExportType
+from ..exceptions import ArtifactNotFoundError, RPCError
+from ..options import USE_DEFAULT
+from ..types import Artifact, ArtifactLookupStatus, ExportType
 
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
@@ -68,16 +69,26 @@ async def get_artifact(
 ) -> Artifact:
     """Fetch a single artifact, raising :class:`ArtifactNotFoundError` on a miss.
 
-    Mirrors the v0.8.0 fail-loud contract (issue #1247): ``get_or_none``
-    returning ``None`` — the artifact was deleted between the partial-id resolve
-    and the get, or a canonical UUID points at a since-deleted artifact — is
-    surfaced as a typed not-found error the adapter maps to its own exit policy
-    (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
+    Mirrors the v0.8.0 fail-loud contract (issue #1247): an authoritative
+    ``MISSING`` result is surfaced as a typed not-found error the adapter maps
+    to its own exit policy (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
     """
-    art = await client.artifacts.get_or_none(notebook_id, artifact_id)
-    if art is None:
+    result = await client.artifacts.lookup(notebook_id, artifact_id)
+    if result.status is ArtifactLookupStatus.FOUND:
+        assert result.artifact is not None
+        return result.artifact
+    if result.status is ArtifactLookupStatus.UNKNOWN:
+        components = (
+            ", ".join(sorted({failure.component.value for failure in result.failures}))
+            or "unspecified"
+        )
+        raise RPCError(
+            f"Artifact lookup is incomplete; unavailable components: {components}",
+            method_id="artifacts.lookup",
+        )
+    if result.status is ArtifactLookupStatus.MISSING:
         raise ArtifactNotFoundError(artifact_id)
-    return art
+    raise AssertionError(f"unrecognized artifact lookup status: {result.status!r}")
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +108,11 @@ async def get_artifact_prompt(
     studio artifact matches ``artifact_id`` — the adapter maps that to its own
     not-found policy (the CLI emits a ``NOT_FOUND`` envelope + exit 1).
     """
-    return await client.artifacts.get_prompt(notebook_id, artifact_id)
+    return await client.artifacts.get_prompt(
+        notebook_id,
+        artifact_id,
+        require_complete=True,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -135,19 +150,20 @@ async def rename_artifact(
     pointing at a since-deleted artifact prints a benign no-op "success" — a
     pre-existing condition, not introduced here.
     """
-    mind_maps = await client.mind_maps.list(notebook_id)
-    mind_map = next((m for m in mind_maps if m.id == artifact_id), None)
-    if mind_map is not None:
-        await client.mind_maps.rename(
-            notebook_id, artifact_id, new_title, kind=mind_map.kind, return_object=False
+    async with client.operation(timeout=USE_DEFAULT):
+        mind_maps = await client.mind_maps.list(notebook_id)
+        mind_map = next((m for m in mind_maps if m.id == artifact_id), None)
+        if mind_map is not None:
+            await client.mind_maps.rename(
+                notebook_id, artifact_id, new_title, kind=mind_map.kind, return_object=False
+            )
+        else:
+            await client.artifacts.rename(notebook_id, artifact_id, new_title, return_object=False)
+        return ArtifactRenameResult(
+            artifact_id=artifact_id,
+            new_title=new_title,
+            is_mind_map=mind_map is not None,
         )
-    else:
-        await client.artifacts.rename(notebook_id, artifact_id, new_title, return_object=False)
-    return ArtifactRenameResult(
-        artifact_id=artifact_id,
-        new_title=new_title,
-        is_mind_map=mind_map is not None,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -185,12 +201,13 @@ async def delete_artifact(
     adapter can flag the cleared-not-removed carve-out in its output), ``False``
     for a regular artifact.
     """
-    note_backed = await client.mind_maps.list_note_backed(notebook_id)
-    if any(mm.id == artifact_id for mm in note_backed):
-        await client.notes.delete(notebook_id, artifact_id)
-        return True
-    await client.artifacts.delete(notebook_id, artifact_id)
-    return False
+    async with client.operation(timeout=USE_DEFAULT):
+        note_backed = await client.mind_maps.list_note_backed(notebook_id)
+        if any(mm.id == artifact_id for mm in note_backed):
+            await client.notes.delete(notebook_id, artifact_id)
+            return True
+        await client.artifacts.delete(notebook_id, artifact_id)
+        return False
 
 
 # ---------------------------------------------------------------------------

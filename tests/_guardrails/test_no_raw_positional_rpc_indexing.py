@@ -170,22 +170,10 @@ SINGLE_LEVEL_ALLOWLIST: frozenset[str] = frozenset()
 # set in the same PR for the gate to keep covering it.
 RAW_PAYLOAD_FACADE_METHODS = frozenset({"get_raw", "list_mind_maps", "_list_for_download"})
 
-# Above-facade files exempt from the ingress gate, with their contract:
-#
-# * ``_app/download.py`` -- the #1488 single-list prefetch: it receives the raw
-#   studio/mind-map rows from ``artifacts._list_for_download`` and threads them
-#   straight back into the facade's ``download_<x>(..., artifacts_data=/
-#   mind_maps=)`` kwargs as an OPAQUE PASSTHROUGH. It must never index or
-#   decode those rows -- the moment it needs to look inside them, that decoding
-#   must move below the facade (a typed adapter / facade method), not be done
-#   in ``_app``. The exemption covers the handoff, not payload access.
-# Per-METHOD exemptions: ``file -> {exempted method names}``. ONLY the named
-# seam is exempted in that file -- any OTHER denylisted method reached from the
-# same file still fails the ingress gate (deliberately not a file-level skip,
-# so the exemption cannot widen silently).
-INGRESS_EXEMPTIONS: dict[str, frozenset[str]] = {
-    "_app/download.py": frozenset({"_list_for_download"}),
-}
+# First-party downloads consume typed prepared selections; no above-facade
+# raw-payload ingress exemptions remain. Keep the denylist and self-draining
+# check so future raw paths cannot reintroduce the retired application seam.
+INGRESS_EXEMPTIONS: dict[str, frozenset[str]] = {}
 
 # The packages that sit ABOVE the facade: transport adapters + transport-neutral
 # business logic. They consume typed facade returns only.

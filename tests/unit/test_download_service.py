@@ -21,6 +21,8 @@ from notebooklm.cli.services.download import (
     execute_download,
 )
 from notebooklm.types import Artifact
+from tests._helpers.downloads import configure_prepared_artifact_downloads
+from tests._helpers.operation import ClientStub
 
 
 def _artifact(
@@ -108,7 +110,8 @@ async def test_execute_download_all_dry_run_applies_name_filter_and_duplicate_fi
         ),
         download_audio=AsyncMock(),
     )
-    facade = SimpleNamespace(artifacts=artifacts)
+    facade = ClientStub(artifacts=artifacts)
+    configure_prepared_artifact_downloads(facade)
     plan = build_download_plan(
         spec,
         _args(
@@ -149,7 +152,8 @@ async def test_execute_download_all_reports_partial_failure_and_progress(tmp_pat
             side_effect=[str(tmp_path / "Episode 1.m4a"), RuntimeError("boom")]
         ),
     )
-    facade = SimpleNamespace(artifacts=artifacts)
+    facade = ClientStub(artifacts=artifacts)
+    configure_prepared_artifact_downloads(facade)
     plan = build_download_plan(
         spec,
         _args(output_path=str(tmp_path), download_all=True),
@@ -177,13 +181,10 @@ async def test_execute_download_single_forwards_format_kwarg(tmp_path: Path) -> 
     quiz = _artifact("quiz_1", "Quiz", 4, variant=2)
     artifacts = SimpleNamespace(
         list=AsyncMock(return_value=[quiz]),
-        # Single-pass seam (#1488): the executor lists once via _list_for_download
-        # (typed + raw studio rows + mind-map rows) and threads the typed quiz
-        # list into download_quiz so it skips its own second LIST_ARTIFACTS.
-        _list_for_download=AsyncMock(return_value=([quiz], [], [])),
         download_quiz=AsyncMock(return_value=str(tmp_path / "quiz.md")),
     )
-    facade = SimpleNamespace(artifacts=artifacts)
+    facade = ClientStub(artifacts=artifacts)
+    configure_prepared_artifact_downloads(facade)
     plan = build_download_plan(
         spec,
         _args(output_path=str(tmp_path / "quiz.md"), output_format="markdown"),
@@ -193,13 +194,11 @@ async def test_execute_download_single_forwards_format_kwarg(tmp_path: Path) -> 
     result = await execute_download(plan, facade)
 
     assert result["status"] == "downloaded"
-    # The executor now lists once and threads the already-fetched typed quiz list
-    # into ``download_quiz`` so it skips its own second LIST_ARTIFACTS (#1488);
-    # the format kwarg is still forwarded alongside it.
+    # The typed selection carries the chosen representation to the adapter double.
+    assert artifacts.download.await_args.args[0].representation == "markdown"
     artifacts.download_quiz.assert_awaited_once_with(
         "nb_resolved",
         str(tmp_path / "quiz.md"),
-        artifacts=[quiz],
         artifact_id="quiz_1",
         output_format="markdown",
     )
@@ -208,13 +207,14 @@ async def test_execute_download_single_forwards_format_kwarg(tmp_path: Path) -> 
 def _audio_facade(download_audio: AsyncMock) -> SimpleNamespace:
     """A facade serving one completed audio artifact, downloaded by ``download_audio``."""
     audio = _artifact("a1", "Deep Dive", 1)
-    return SimpleNamespace(
+    facade = ClientStub(
         artifacts=SimpleNamespace(
             list=AsyncMock(return_value=[audio]),
-            _list_for_download=AsyncMock(return_value=([audio], [], [])),
             download_audio=download_audio,
         )
     )
+    configure_prepared_artifact_downloads(facade)
+    return facade
 
 
 @pytest.mark.asyncio

@@ -39,8 +39,17 @@ from notebooklm._app.download import (
     execute_download,
     select_artifact,
 )
-from notebooklm.exceptions import AuthError
-from notebooklm.types import Artifact, ArtifactType
+from notebooklm.downloads import resolve_download_format
+from notebooklm.exceptions import AuthError, RPCError, ValidationError
+from notebooklm.types import (
+    Artifact,
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactType,
+)
 
 # ---------------------------------------------------------------------------
 # Pure artifact-selection logic (Filter → Count → Select).
@@ -368,7 +377,7 @@ class TestIntegrationScenarios:
 _AUDIO_SPEC = DownloadTypeSpec(
     name="audio",
     kind=ArtifactType.AUDIO,
-    extension=".mp3",
+    extension=".m4a",
     default_dir="./audio",
     download_attr="download_audio",
     help_summary="",
@@ -425,16 +434,32 @@ def _passthrough_notebook_resolver() -> AsyncMock:
 
 def _make_facade(*, artifacts: list, download_return: str | None = "/out/path") -> MagicMock:
     facade = MagicMock()
-    facade.artifacts = MagicMock()
-    facade.artifacts.list = AsyncMock(return_value=artifacts)
-    # The executor lists once via ``_list_for_download`` (``list`` + raw rows;
-    # issue #1488). On a bare MagicMock this would auto-spawn a non-awaitable
-    # child; wire it to return the typed list plus empty raw rows (the mocked
-    # ``download_<x>`` never consumes the raw rows here).
-    facade.artifacts._list_for_download = AsyncMock(return_value=(artifacts, [], []))
-    facade.artifacts.download_audio = AsyncMock(return_value=download_return)
-    facade.artifacts.download_slide_deck = AsyncMock(return_value=download_return)
-    facade.artifacts.download_quiz = AsyncMock(return_value=download_return)
+    # The application needs exactly these public methods. Accessing a legacy
+    # per-kind method, raw cache, or private list hook fails this strict double.
+    facade.artifacts = MagicMock(spec_set=["prepare_downloads", "download"])
+
+    async def prepare(request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        representation, output = resolve_download_format(request.kind, request.output_format)
+        return ArtifactDownloadListing(
+            tuple(
+                ArtifactDownloadSelection(
+                    notebook_id=request.notebook_id,
+                    artifact_id=item.id,
+                    kind=item.kind,
+                    title=item.title,
+                    created_at=item.created_at,
+                    representation=representation,
+                    extension=output.extension,
+                    mime_type=output.mime_type,
+                )
+                for item in artifacts
+                if item.kind == request.kind and item.is_completed
+            ),
+            is_complete=True,
+        )
+
+    facade.artifacts.prepare_downloads = AsyncMock(side_effect=prepare)
+    facade.artifacts.download = AsyncMock(return_value=download_return)
     return facade
 
 
@@ -498,7 +523,7 @@ class TestBuildDownloadPlanValidation:
             _AUDIO_SPEC,
             {
                 "notebook_id": "nb_1",
-                "output_path": "out.mp3",
+                "output_path": "out.m4a",
                 "latest": True,
                 "dry_run": True,
                 "name": "chapter",
@@ -507,7 +532,7 @@ class TestBuildDownloadPlanValidation:
         )
         assert isinstance(plan, DownloadPlan)
         assert plan.notebook_id == "nb_1"
-        assert plan.output_path == "out.mp3"
+        assert plan.output_path == "out.m4a"
         assert plan.latest is True
         assert plan.dry_run is True
         assert plan.name == "chapter"
@@ -522,7 +547,7 @@ class TestBuildDownloadPlanValidation:
 class TestFormatExtensionResolution:
     def test_no_format_choices_returns_spec_extension(self):
         ext, warnings = _resolve_format_extension(_AUDIO_SPEC, None, "")
-        assert ext == ".mp3"
+        assert ext == ".m4a"
         assert warnings == ()
 
     def test_slide_deck_pdf_default_extension(self):
@@ -611,14 +636,14 @@ class TestExecuteDownload:
         assert result.outcome is DownloadOutcome.SINGLE_DRY_RUN
         assert not result.has_error
         assert result.artifact["id"] == "a1"
-        assert result.output_path.endswith("Only One.mp3")
-        facade.artifacts.download_audio.assert_not_awaited()
+        assert result.output_path.endswith("Only One.m4a")
+        facade.artifacts.download.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_single_download_succeeds(self, tmp_path):
         facade = _make_facade(
             artifacts=[_make_artifact("a1", "Only One")],
-            download_return=str(tmp_path / "Only One.mp3"),
+            download_return=str(tmp_path / "Only One.m4a"),
         )
         plan = build_download_plan(_AUDIO_SPEC, {"notebook_id": "nb_1"}, cwd=tmp_path)
         result = await execute_download(
@@ -630,11 +655,11 @@ class TestExecuteDownload:
         assert result.outcome is DownloadOutcome.SINGLE_DOWNLOADED
         assert not result.has_error
         assert result.artifact["id"] == "a1"
-        facade.artifacts.download_audio.assert_awaited_once()
+        facade.artifacts.download.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_single_no_clobber_conflict_errors(self, tmp_path):
-        existing = tmp_path / "Only One.mp3"
+        existing = tmp_path / "Only One.m4a"
         existing.write_bytes(b"x")
         facade = _make_facade(artifacts=[_make_artifact("a1", "Only One")])
         plan = build_download_plan(
@@ -653,12 +678,12 @@ class TestExecuteDownload:
         assert result.failure is not None
         assert result.failure.reason == "file_exists"
         assert result.failure.path == str(existing)
-        facade.artifacts.download_audio.assert_not_awaited()
+        facade.artifacts.download.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_single_download_exception_maps_to_error(self, tmp_path):
         facade = _make_facade(artifacts=[_make_artifact("a1", "Only One")])
-        facade.artifacts.download_audio = AsyncMock(side_effect=RuntimeError("boom"))
+        facade.artifacts.download = AsyncMock(side_effect=RuntimeError("boom"))
         plan = build_download_plan(_AUDIO_SPEC, {"notebook_id": "nb_1"}, cwd=tmp_path)
         result = await execute_download(
             plan,
@@ -674,7 +699,7 @@ class TestExecuteDownload:
     @pytest.mark.asyncio
     async def test_single_download_auth_error_is_not_swallowed(self, tmp_path):
         facade = _make_facade(artifacts=[_make_artifact("a1", "Only One")])
-        facade.artifacts.download_audio = AsyncMock(side_effect=AuthError("expired"))
+        facade.artifacts.download = AsyncMock(side_effect=AuthError("expired"))
         plan = build_download_plan(_AUDIO_SPEC, {"notebook_id": "nb_1"}, cwd=tmp_path)
 
         with pytest.raises(AuthError, match="expired"):
@@ -704,7 +729,7 @@ class TestExecuteDownload:
         assert result.outcome is DownloadOutcome.ALL_DRY_RUN
         assert result.count == 2
         assert len(result.artifacts) == 2
-        facade.artifacts.download_audio.assert_not_awaited()
+        facade.artifacts.download.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_all_partial_failure_sets_is_failure(self, tmp_path):
@@ -720,7 +745,7 @@ class TestExecuteDownload:
             Path(output_path).write_bytes(b"x")
             return output_path
 
-        facade.artifacts.download_audio = AsyncMock(side_effect=fake_download)
+        facade.artifacts.download = AsyncMock(side_effect=fake_download)
         plan = build_download_plan(
             _AUDIO_SPEC,
             {"notebook_id": "nb_1", "download_all": True, "output_path": str(tmp_path / "out")},
@@ -749,8 +774,8 @@ class TestExecuteDownload:
         facade = _make_facade(
             artifacts=[_make_artifact("a1", "First"), _make_artifact("a2", "Second")],
         )
-        facade.artifacts.download_audio = AsyncMock(
-            side_effect=[AuthError("expired"), str(tmp_path / "out" / "Second.mp3")]
+        facade.artifacts.download = AsyncMock(
+            side_effect=[AuthError("expired"), str(tmp_path / "out" / "Second.m4a")]
         )
         plan = build_download_plan(
             _AUDIO_SPEC,
@@ -802,12 +827,9 @@ class TestExecuteDownload:
             artifact_resolver=_artifact_resolver_identity,
         )
         resolver.assert_awaited_once_with("nb_partial")
-        # The resolved id flows into the single ``_list_for_download`` call — the
-        # executor lists once and threads the raw rows down (#1488), so it no
-        # longer goes through the plain ``artifacts.list`` seam. Assert awaited
-        # first, then the first positional arg (a ``spec.kind`` arg follows it).
-        facade.artifacts._list_for_download.assert_awaited_once()
-        assert facade.artifacts._list_for_download.call_args[0][0] == "resolved_nb"
+        facade.artifacts.prepare_downloads.assert_awaited_once_with(
+            ArtifactDownloadRequest("resolved_nb", ArtifactType.AUDIO)
+        )
 
     @pytest.mark.asyncio
     async def test_artifact_resolver_used_for_partial_id(self, tmp_path):
@@ -830,27 +852,13 @@ class TestExecuteDownload:
         assert result.outcome is DownloadOutcome.SINGLE_DOWNLOADED
 
     @pytest.mark.asyncio
-    async def test_fallback_without_seam_threads_no_prefetch(self, tmp_path):
-        """A narrow facade exposing only ``.list()`` (no ``_list_for_download``)
-        gets NO prefetch kwargs, so the bound ``download_<x>`` self-fetches as
-        before. Regression for #1488: the seam-absent fallback must not bind
-        ``artifacts_data=[]`` — that would suppress the method's self-fetch (it
-        only fetches on ``is None``) and break an old-style ``download_<x>``
-        whose signature lacks the new keyword-only param.
-        """
-        artifacts = [_make_artifact("audio_1", "Only One")]
-        facade = MagicMock()
-        # ``spec`` restricts the attribute set so
-        # ``getattr(facade.artifacts, "_list_for_download", None)`` is ``None``,
-        # exercising the fallback branch; ``download_audio`` takes no prefetch kwarg.
-        facade.artifacts = MagicMock(spec=["list", "download_audio"])
-        facade.artifacts.list = AsyncMock(return_value=artifacts)
-        facade.artifacts.download_audio = AsyncMock(return_value="/out/audio.mp3")
-
+    async def test_download_receives_the_exact_prepared_identity(self, tmp_path):
+        facade = _make_facade(artifacts=[_make_artifact("audio_1", "Only One")])
+        request = ArtifactDownloadRequest("nb_1", ArtifactType.AUDIO)
+        listing = await facade.artifacts.prepare_downloads(request)
+        facade.artifacts.prepare_downloads = AsyncMock(return_value=listing)
         plan = build_download_plan(
-            _AUDIO_SPEC,
-            {"notebook_id": "nb_1", "artifact_id": "audio_1"},
-            cwd=tmp_path,
+            _AUDIO_SPEC, {"notebook_id": "nb_1", "artifact_id": "audio_1"}, cwd=tmp_path
         )
         result = await execute_download(
             plan,
@@ -858,16 +866,84 @@ class TestExecuteDownload:
             notebook_resolver=_passthrough_notebook_resolver(),
             artifact_resolver=_artifact_resolver_identity,
         )
-
         assert result.outcome is DownloadOutcome.SINGLE_DOWNLOADED
-        # Selection used the plain ``.list()`` seam (the only one available)...
-        facade.artifacts.list.assert_awaited_once_with("nb_1")
-        # ...and the bound download fn received NO prefetch kwarg, so it would
-        # self-fetch (rather than being handed an empty list).
-        _args, kwargs = facade.artifacts.download_audio.call_args
-        assert "artifacts_data" not in kwargs
-        assert "artifacts" not in kwargs
-        assert "mind_maps" not in kwargs
+        args, kwargs = facade.artifacts.download.call_args
+        assert args[0] is listing.selections[0]
+        assert args[1] == str(tmp_path / "Only One.m4a")
+        assert kwargs == {}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "flags",
+        [{}, {"latest": True}, {"name": "One"}, {"artifact_id": "audio"}, {"download_all": True}],
+    )
+    async def test_partial_listing_cannot_authorize_nonexact_selection(self, tmp_path, flags):
+        facade = _make_facade(artifacts=[_make_artifact("audio_1", "Only One")])
+        listing = await facade.artifacts.prepare_downloads(
+            ArtifactDownloadRequest("nb_1", ArtifactType.AUDIO)
+        )
+        failure = ArtifactListingFailure(
+            ArtifactListingComponent.NOTE_BACKED_MIND_MAPS, "RPCError", "unavailable"
+        )
+        facade.artifacts.prepare_downloads = AsyncMock(
+            return_value=ArtifactDownloadListing(listing.selections, False, (failure,))
+        )
+        plan = build_download_plan(_AUDIO_SPEC, {"notebook_id": "nb_1", **flags}, cwd=tmp_path)
+        with pytest.raises(RPCError, match="incomplete"):
+            await execute_download(
+                plan,
+                facade,
+                notebook_resolver=_passthrough_notebook_resolver(),
+                artifact_resolver=_artifact_resolver_identity,
+            )
+        facade.artifacts.download.assert_not_awaited()
+        assert not list(tmp_path.iterdir())
+
+    @pytest.mark.asyncio
+    async def test_exact_positive_identity_remains_usable_when_other_backing_failed(self, tmp_path):
+        facade = _make_facade(artifacts=[_make_artifact("audio_1", "Only One")])
+        listing = await facade.artifacts.prepare_downloads(
+            ArtifactDownloadRequest("nb_1", ArtifactType.AUDIO)
+        )
+        failure = ArtifactListingFailure(
+            ArtifactListingComponent.NOTE_BACKED_MIND_MAPS, "RPCError", "unavailable"
+        )
+        facade.artifacts.prepare_downloads = AsyncMock(
+            return_value=ArtifactDownloadListing(listing.selections, False, (failure,))
+        )
+        plan = build_download_plan(
+            _AUDIO_SPEC, {"notebook_id": "nb_1", "artifact_id": "audio_1"}, cwd=tmp_path
+        )
+        result = await execute_download(
+            plan,
+            facade,
+            notebook_resolver=_passthrough_notebook_resolver(),
+            artifact_resolver=_artifact_resolver_identity,
+        )
+        assert result.outcome is DownloadOutcome.SINGLE_DOWNLOADED
+        assert facade.artifacts.download.call_args.args[0] is listing.selections[0]
+
+    @pytest.mark.asyncio
+    async def test_inconsistent_prepared_extension_fails_before_writing(self, tmp_path):
+        from dataclasses import replace
+
+        facade = _make_facade(artifacts=[_make_artifact("audio_1", "Only One")])
+        listing = await facade.artifacts.prepare_downloads(
+            ArtifactDownloadRequest("nb_1", ArtifactType.AUDIO)
+        )
+        wrong = replace(listing.selections[0], extension=".mp3")
+        facade.artifacts.prepare_downloads = AsyncMock(
+            return_value=ArtifactDownloadListing((wrong,), True)
+        )
+        plan = build_download_plan(_AUDIO_SPEC, {"notebook_id": "nb_1"}, cwd=tmp_path)
+        with pytest.raises(ValidationError, match="file extension"):
+            await execute_download(
+                plan,
+                facade,
+                notebook_resolver=_passthrough_notebook_resolver(),
+                artifact_resolver=_artifact_resolver_identity,
+            )
+        facade.artifacts.download.assert_not_awaited()
 
 
 def test_format_extensions_map_contract():

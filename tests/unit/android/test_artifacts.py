@@ -7,15 +7,21 @@ import inspect
 import json
 import threading
 import traceback
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
-from dataclasses import dataclass
+import warnings
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from google.protobuf import empty_pb2
+from tests._fixtures.android_artifacts import (
+    FakeAssets,
+    FakeMindMaps,
+    FakeNotebooks,
+    _artifact,
+    _graph,
+    _supervisor,
+)
 from tests._helpers.android_supervisor import SupervisedAndroidTransport
 
 from notebooklm._android import artifact_outputs
@@ -44,8 +50,6 @@ from notebooklm._android.proto.google.internal.labs.tailwind.orchestration.v1 im
 from notebooklm._android.proto.notebooklm.internal.android.wire.v1 import artifacts_pb2 as wire_pb2
 from notebooklm._android.session import AndroidSession
 from notebooklm._artifacts import ArtifactsAPI
-from notebooklm._client_metrics import ClientMetrics
-from notebooklm._idempotency import bound_operation_journal_entries
 from notebooklm._notebook_metadata import NotebookSourceIdProvider
 from notebooklm._runtime.call_supervisor import CallSupervisor
 from notebooklm._types.common import UnknownTypeWarning
@@ -79,105 +83,17 @@ from notebooklm.exceptions import (
     ServerError,
     ValidationError,
 )
-from notebooklm.types import Artifact, ArtifactType, MindMap, MindMapKind, Note
+from notebooklm.types import (
+    Artifact,
+    ArtifactListingComponent,
+    ArtifactLookupStatus,
+    ArtifactType,
+    MindMap,
+    MindMapKind,
+    Note,
+)
 
 _PROTO = artifacts_pb2
-
-
-@dataclass(frozen=True)
-class _Lease:
-    epoch: int = 7
-
-
-class FakeSession:
-    def __init__(self, responses: dict[str, Any] | None = None) -> None:
-        self.responses = responses or {}
-        self.calls: list[tuple[str, Any, dict[str, Any]]] = []
-        self.errors: dict[str, BaseException] = {}
-        self.scopes: list[str] = []
-
-    @asynccontextmanager
-    async def operation_scope(self, label: str, **kwargs: Any) -> AsyncIterator[_Lease]:
-        assert not kwargs
-        self.scopes.append(label)
-        yield _Lease()
-
-    async def unary(self, method: str, request: Any, **kwargs: Any) -> Any:
-        for entry in bound_operation_journal_entries():
-            entry.mark_dispatched()
-        self.calls.append((method, request, kwargs))
-        error = self.errors.get(method)
-        if error is not None:
-            raise error
-        response = self.responses[method]
-        if isinstance(response, list):
-            return response.pop(0)
-        return response
-
-
-class FakeNotebooks:
-    def __init__(self, source_ids: list[str] | None = None) -> None:
-        self.source_ids = source_ids or ["source-1", "source-2"]
-        self.calls: list[str] = []
-
-    async def get_source_ids(self, notebook_id: str) -> list[str]:
-        self.calls.append(notebook_id)
-        return list(self.source_ids)
-
-
-class FakeMindMaps:
-    def __init__(self, artifacts: list[Artifact] | None = None) -> None:
-        self.artifacts = artifacts or []
-        self.mind_maps: list[MindMap] = []
-        self.calls: list[str] = []
-        self.error: BaseException | None = None
-
-    async def list_mind_map_artifacts(self, notebook_id: str) -> list[Artifact]:
-        self.calls.append(notebook_id)
-        if self.error is not None:
-            raise self.error
-        return list(self.artifacts)
-
-    async def list_note_backed_mind_maps(self, notebook_id: str) -> list[MindMap]:
-        self.calls.append(notebook_id)
-        if self.error is not None:
-            raise self.error
-        return list(self.mind_maps)
-
-
-class FakeAssets:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-        self.representation_calls: list[tuple[str, str, str]] = []
-        self.error: BaseException | None = None
-
-    async def download_url(self, url: str, output_path: str) -> str:
-        self.calls.append((url, output_path))
-        if self.error is not None:
-            raise self.error
-        return output_path
-
-    async def download_urls_batch(self, urls_and_paths: list[tuple[str, str]]) -> Any:
-        raise AssertionError(f"batch transfer not expected: {urls_and_paths!r}")
-
-    async def download_representation(
-        self,
-        url: str,
-        output_path: str,
-        *,
-        representation: str,
-    ) -> str:
-        self.representation_calls.append((url, output_path, representation))
-        if self.error is not None:
-            raise self.error
-        return output_path
-
-
-def _supervisor() -> CallSupervisor:
-    return CallSupervisor(
-        metrics=ClientMetrics(),
-        max_concurrent_rpcs=2,
-    )
 
 
 async def _activate(supervisor: CallSupervisor, epoch: int = 1) -> None:
@@ -188,33 +104,6 @@ async def _activate(supervisor: CallSupervisor, epoch: int = 1) -> None:
     supervisor.start_accepting(epoch)
 
 
-def _artifact(
-    artifact_id: str,
-    *,
-    title: str = "Artifact",
-    type_code: int = _PROTO.ARTIFACT_TYPE_INFOGRAPHIC,
-    status: int = _PROTO.ARTIFACT_STATUS_READY,
-    variant: int = 0,
-    etag: str = "etag-1",
-    url: str | None = None,
-    source_ids: list[str] | None = None,
-) -> Any:
-    message = _PROTO.Artifact(
-        artifact_id=artifact_id,
-        title=title,
-        type=type_code,
-        status=status,
-        etag=etag,
-    )
-    if type_code == _PROTO.ARTIFACT_TYPE_APP:
-        message.app.generation_options.app_type = variant
-    if type_code == _PROTO.ARTIFACT_TYPE_INFOGRAPHIC and url is not None:
-        message.infographic.infographics.add(title=title).image.url = url
-    for source_id in source_ids or []:
-        message.sources.add().source_id.id = source_id
-    return message
-
-
 def _mind_map(artifact_id: str = "note-map") -> Artifact:
     return Artifact(
         id=artifact_id,
@@ -222,38 +111,6 @@ def _mind_map(artifact_id: str = "note-map") -> Artifact:
         _artifact_type=ArtifactTypeCode.MIND_MAP.value,
         status=_PROTO.ARTIFACT_STATUS_READY,
     )
-
-
-def _graph(
-    studio: list[Any] | None = None,
-) -> tuple[FakeSession, FakeNotebooks, FakeMindMaps, FakeAssets, AndroidArtifactsAPI]:
-    studio_rows = studio or []
-    get_response = _PROTO.GetArtifactResponse()
-    if studio_rows:
-        get_response.artifact.CopyFrom(studio_rows[-1])
-    session = FakeSession(
-        {
-            LIST_ARTIFACTS_METHOD: _PROTO.ListArtifactsResponse(artifacts=studio_rows),
-            GET_ARTIFACT_METHOD: get_response,
-            DELETE_ARTIFACT_METHOD: empty_pb2.Empty(),
-            DERIVE_ARTIFACT_METHOD: _PROTO.DeriveArtifactResponse(),
-            GENERATE_ARTIFACT_METHOD: _PROTO.GenerateArtifactResponse(),
-            EXPORT_TO_DRIVE_METHOD: _PROTO.ExportToDriveResponse(),
-            GENERATE_REPORT_SUGGESTIONS_METHOD: _PROTO.GenerateReportSuggestionsResponse(),
-        }
-    )
-    notebooks = FakeNotebooks()
-    mind_maps = FakeMindMaps()
-    assets = FakeAssets()
-
-    api = AndroidArtifactsAPI(
-        session=cast(AndroidSession, session),
-        supervisor=_supervisor(),
-        notebooks=cast(NotebookSourceIdProvider, notebooks),
-        mind_maps=mind_maps,
-        asset_downloads=cast(AndroidAssetDownloadService, assets),
-    )
-    return session, notebooks, mind_maps, assets, api
 
 
 def _supervised_graph(
@@ -361,6 +218,94 @@ async def test_transient_note_failure_returns_partial_studio_and_unknown_sentine
     assert note_state is None
     assert type(error).__name__ in caplog.text
     assert str(error) not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_list_status_and_lookup_preserve_partial_read_evidence() -> None:
+    _, _, mind_maps, _, api = _graph([_artifact("studio")])
+    mind_maps.error = RPCError("secret cookie: SID=do-not-retain", method_id="notes")
+
+    listing = await api.list_with_status("notebook-1")
+    found = await api.lookup("notebook-1", "studio")
+    unknown = await api.lookup("notebook-1", "absent")
+
+    assert [item.id for item in listing.items] == ["studio"]
+    assert not listing.is_complete
+    assert len(listing.failures) == 1
+    failure = listing.failures[0]
+    assert failure.component is ArtifactListingComponent.NOTE_BACKED_MIND_MAPS
+    assert failure.error_type == "RPCError"
+    assert "secret" not in failure.message.lower()
+    assert found.status is ArtifactLookupStatus.FOUND
+    assert found.artifact is not None and found.artifact.id == "studio"
+    assert found.failures == listing.failures
+    assert unknown.status is ArtifactLookupStatus.UNKNOWN
+    assert unknown.artifact is None
+
+
+@pytest.mark.asyncio
+async def test_complete_empty_lookup_is_missing_without_warning() -> None:
+    _, _, _, _, api = _graph()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        lookup = await api.lookup("notebook-1", "absent")
+        assert await api.get_or_none("notebook-1", "absent") is None
+
+    assert lookup.status is ArtifactLookupStatus.MISSING
+    assert not [item for item in caught if item.category is DeprecationWarning]
+
+
+@pytest.mark.asyncio
+async def test_primary_failure_and_primary_schema_drift_raise_directly() -> None:
+    session, _, _, _, api = _graph()
+    primary = RPCError("primary unavailable", method_id=LIST_ARTIFACTS_METHOD)
+    session.errors[LIST_ARTIFACTS_METHOD] = primary
+    with pytest.raises(RPCError) as raised:
+        await api.list_with_status("notebook-1")
+    assert raised.value is primary
+
+    _, _, _, _, malformed_api = _graph([_artifact("")])
+    with pytest.raises(DecodingError, match="required artifact id"):
+        await malformed_api.list_with_status("notebook-1")
+
+
+@pytest.mark.asyncio
+async def test_android_strict_prompt_projects_unknown_as_rpc_error() -> None:
+    _, _, mind_maps, _, api = _graph()
+    mind_maps.error = RPCError("token=https://secret.invalid", method_id="notes")
+
+    with pytest.raises(RPCError, match="note_backed_mind_maps") as raised:
+        await api.get_prompt("notebook-1", "absent", require_complete=True)
+
+    assert raised.value.method_id == "artifacts.lookup"
+    assert "secret.invalid" not in str(raised.value)
+
+
+@pytest.mark.asyncio
+async def test_android_strict_prompt_returns_studio_hit_despite_note_outage() -> None:
+    _, _, mind_maps, _, api = _graph(
+        [_artifact("studio", type_code=_PROTO.ARTIFACT_TYPE_APP, variant=2)]
+    )
+    mind_maps.error = RPCError("temporary", method_id="notes")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert await api.get_prompt("notebook-1", "studio", require_complete=True) is None
+
+    assert not [item for item in caught if item.category is DeprecationWarning]
+
+
+@pytest.mark.asyncio
+async def test_android_legacy_prompt_warns_only_when_absence_is_ambiguous() -> None:
+    _, _, mind_maps, _, api = _graph()
+    mind_maps.error = RPCError("temporary", method_id="notes")
+
+    with (
+        pytest.warns(DeprecationWarning, match="require_complete=True"),
+        pytest.raises(ArtifactNotFoundError),
+    ):
+        await api.get_prompt("notebook-1", "absent")
 
 
 @pytest.mark.asyncio
@@ -2569,6 +2514,11 @@ class _SupervisedMindMapLister:
             replay_safe=True,
             response_type=list,
         )
+
+    async def list_mind_map_artifacts_with_content(
+        self, notebook_id: str
+    ) -> tuple[list[Artifact], list[MindMap]]:
+        return await self.list_mind_map_artifacts(notebook_id), []
 
 
 @pytest.mark.asyncio

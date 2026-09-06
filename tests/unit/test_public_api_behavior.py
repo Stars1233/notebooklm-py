@@ -67,6 +67,7 @@ from notebooklm.exceptions import (
     NoteNotFoundError,
     SourceNotFoundError,
 )
+from notebooklm.types import ArtifactListing
 from tests._fixtures.fake_core import make_fake_core
 
 # This behavioural table is the executable companion of the static
@@ -189,6 +190,10 @@ def _arrange_list_miss(api: object) -> None:
     internal path.
     """
     api.list = AsyncMock(return_value=[])  # type: ignore[attr-defined]
+    if isinstance(api, ArtifactsAPI):
+        api.list_with_status = AsyncMock(  # type: ignore[method-assign]
+            return_value=ArtifactListing((), is_complete=True)
+        )
 
 
 def _arrange_notebooks_miss(api: object) -> None:

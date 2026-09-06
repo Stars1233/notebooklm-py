@@ -42,6 +42,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+from ..options import USE_DEFAULT
+
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
     from ..types import Notebook
@@ -89,9 +91,10 @@ async def verify_and_set_notebook(
     error, plus :class:`NotebookNotFoundError` / :class:`AuthError` / any other
     exception, all propagate to the adapter's body-error handler.
     """
-    resolved_id = await resolve_notebook_id(client, partial_id)
-    notebook = await client.notebooks.get(resolved_id)
-    return UseNotebookResult(notebook=notebook, resolved_id=resolved_id)
+    async with client.operation(timeout=USE_DEFAULT):
+        resolved_id = await resolve_notebook_id(client, partial_id)
+        notebook = await client.notebooks.get(resolved_id)
+        return UseNotebookResult(notebook=notebook, resolved_id=resolved_id)
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,7 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("module", 0, "typing", "ClassVar", None),
     ("module", 0, "typing", "cast", None),
     ("module", 0, "httpx", "", None),
+    ("module", 2, "_request_context", "policy_key", None),
     ("module", 1, "", "single_flight", "_single_flight"),
     ("module", 1, "cookie_types", "CookieJar", None),
     ("module", 1, "paths", "canonical_storage_key", None),
@@ -146,7 +147,7 @@ _EXPECTED_IMPORTS: tuple[ImportRecord, ...] = (
     ("_try_master_token_reauth_result", 1, "cookies", "_LoadedCookiePair", None),
     ("try_master_token_reauth", 1, "cookies", "_replace_cookie_jar", None),
 )
-_CLASS_HASH = "ebc51a5732119e65bc53999db2749985464ee2a587127c6f32db08a414455c19"
+_CLASS_HASH = "441063d197b3703e7c4bc4351c7de99f4f4164ac64c83689abbcc98541249060"
 _ADAPTER_HASH = "53737bcc7a75cd7c388108b0f5180df1defdbf2f48fedf2cb5eefc6260aafdb2"
 
 

@@ -17,6 +17,7 @@ from typing import Any, Protocol
 import httpx
 
 from .._env import get_base_url
+from .._request_context import has_bound_policy, policy_child_environment, policy_env, policy_key
 from ..paths import get_storage_path, resolve_profile
 from . import cookies as _auth_cookies
 from . import extraction as _auth_extraction
@@ -26,6 +27,7 @@ from . import recovery as _auth_recovery
 from . import single_flight as _single_flight
 from . import storage as _auth_storage
 from .account import authuser_query
+from .bound_refresh import run_bound_refresh
 from .cookie_types import CookieJar
 from .paths import resolve_auth_json_env
 from .profile_store import ProfileStore
@@ -102,8 +104,7 @@ _REFRESH_ATTEMPTED_CONTEXT: ContextVar[bool] = ContextVar(
 # ``_REFRESH_GENERATIONS`` / ``_REFRESH_LOCKS_BY_LOOP`` / ``_get_refresh_lock``)
 # were deleted in the same PR that introduced the shared core; there is no
 # revert-hazard split. A single refresh-cmd "rung policy" discriminator keys the
-# flight; the success epoch is keyed per canonical PATH only (see
-# ``single_flight.py``).
+# flight and its success epoch both include the bound policy identity.
 _REFRESH_FLIGHT_POLICY = "refresh-cmd"
 
 # Cap on how many times a single caller FOLLOWS a failing refresh-cmd leader
@@ -189,23 +190,22 @@ async def _refresh_cmd_leader_body(
     *,
     deps: RefreshCmdDeps = _PRODUCTION_REFRESH_CMD_DEPS,
 ) -> None:
-    """Leader-only body: run ``_run_refresh_cmd`` under a cross-process flock.
+    """Execute one command under the profile lock, bumping only its policy epoch.
 
-    Runs as the single-flight leader's ``asyncio.Task``. In-process coalescing
-    already guarantees one subprocess per process; the per-path flock adds the
-    CROSS-process exclusion that closes the refresh-cmd stampede ([refresh-2]),
-    mirroring the keepalive rotation flock. Re-mint rungs deliberately take NO
-    such flock (each cross-process re-mint owns its own browser — §c.5/§c.7).
-
-    On a genuine cross-process contention (another process holds the flock and
-    is refreshing) the subprocess is skipped and — rather than reload the STALE
-    file immediately (the holder has not finished writing yet) — the loser WAITS
-    (bounded) for the holder to release, then the caller reloads the fresh
-    cookies it wrote (:func:`_wait_for_refresh_holder`). The success epoch is
-    bumped ONLY after our OWN subprocess actually exits zero, so a skipped
-    (wait-then-reload) or failed attempt leaves waiters retrying (single_flight
-    guarantee 2).
+    Legacy flock losers wait and reload. Bound policies wait and run their own
+    command because incompatible execution policies cannot substitute for it.
     """
+    if has_bound_policy():
+        await run_bound_refresh(
+            resolved_storage_path,
+            profile,
+            runner=deps.runner(),
+            lock_path=deps.lock_path()(resolved_storage_path),
+            flock=deps.flock(),
+            wait_for_holder=_wait_for_refresh_holder,
+        )
+        _single_flight.note_success(path_key)
+        return
     lock_path = deps.lock_path()(resolved_storage_path)
     if lock_path is None:
         await deps.runner()(resolved_storage_path, profile)
@@ -268,7 +268,7 @@ async def _coalesced_run_refresh_cmd(
     # ``refresh_key`` is already the canonical ``str(resolved_storage_path)``
     # computed by the caller; reuse it as the per-path success-epoch key rather
     # than recomputing.
-    path_key = refresh_key
+    path_key = policy_key(refresh_key)
     flight_key = (path_key, _REFRESH_FLIGHT_POLICY)
     # Capture the epoch BEFORE any wait (guarantee 1). A concurrent flight that
     # SUCCEEDS while we wait bumps past this baseline, letting us skip.
@@ -330,9 +330,9 @@ def _midsession_refresh_cmd_enabled() -> bool:
     """
     if _REFRESH_ATTEMPTED_CONTEXT.get() or os.environ.get(_REFRESH_ATTEMPTED_ENV) == "1":
         return False
-    if not os.environ.get(NOTEBOOKLM_REFRESH_CMD_ENV):
+    if not policy_env(NOTEBOOKLM_REFRESH_CMD_ENV):
         return False
-    return os.environ.get(NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV) == "1"
+    return policy_env(NOTEBOOKLM_REFRESH_CMD_MIDSESSION_ENV) == "1"
 
 
 async def try_refresh_cmd_reauth(
@@ -412,7 +412,7 @@ def _should_try_refresh(err: Exception) -> bool:
     """True when an auth failure should trigger NOTEBOOKLM_REFRESH_CMD."""
     if _REFRESH_ATTEMPTED_CONTEXT.get() or os.environ.get(_REFRESH_ATTEMPTED_ENV) == "1":
         return False
-    if not os.environ.get(NOTEBOOKLM_REFRESH_CMD_ENV):
+    if not policy_env(NOTEBOOKLM_REFRESH_CMD_ENV):
         return False
     msg = str(err).lower()
     return any(sig in msg for sig in _AUTH_ERROR_SIGNALS)
@@ -515,14 +515,14 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
             argv, is malformed (unterminated quote), times out, or exits
             non-zero.
     """
-    cmd = os.environ.get(NOTEBOOKLM_REFRESH_CMD_ENV)
+    cmd = policy_env(NOTEBOOKLM_REFRESH_CMD_ENV)
     if not cmd:
         raise RuntimeError(f"{NOTEBOOKLM_REFRESH_CMD_ENV} is not set; cannot refresh cookies.")
     # Forward the full parent env (PATH/HOME/proxy/etc. the command needs),
     # minus the one credential-equivalent var below. See the "Environment
     # forwarding" section of this function's docstring for the SECURITY note
     # on why a hard allowlist is deliberately avoided (issue #1274).
-    refresh_env = os.environ.copy()
+    refresh_env = policy_child_environment()
     # Scrub the first-party secret / credential-equivalent env vars before
     # spawn (audit refresh-6). ``NOTEBOOKLM_AUTH_JSON`` carries the full
     # Playwright storage_state; ``NOTEBOOKLM_SERVER_TOKEN`` /
@@ -547,7 +547,7 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
         storage_path or get_storage_path(profile=profile)
     )
 
-    use_shell = os.environ.get(NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV) == "1"
+    use_shell = policy_env(NOTEBOOKLM_REFRESH_CMD_USE_SHELL_ENV) == "1"
     run_target: str | list[str]
     run_shell: bool
     if use_shell:
@@ -572,7 +572,10 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
             raise RuntimeError(f"{NOTEBOOKLM_REFRESH_CMD_ENV} parsed to empty argv")
         # Log basename only — full argv may carry tokens and absolute paths
         # can leak secrets-directory layouts.
-        logger.info("Running refresh command: %s ...", os.path.basename(argv[0]))
+        logger.info(
+            "Running refresh command: %s ...",
+            "configured" if has_bound_policy() else os.path.basename(argv[0]),
+        )
         run_target = argv
         run_shell = False
 
@@ -587,6 +590,10 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
             env=refresh_env,
         )
     except (subprocess.TimeoutExpired, OSError) as refresh_err:
+        if has_bound_policy():
+            raise RuntimeError(
+                f"{NOTEBOOKLM_REFRESH_CMD_ENV} failed to execute ({type(refresh_err).__name__})"
+            ) from None
         raise RuntimeError(
             f"{NOTEBOOKLM_REFRESH_CMD_ENV} failed to execute: {refresh_err}"
         ) from refresh_err
@@ -597,26 +604,17 @@ async def _run_refresh_cmd(storage_path: Path | None = None, profile: str | None
         # up through ``cli.error_handler`` and lands on stderr (or a JSON
         # envelope), which is the wrong audience for that material.
         #
-        # Two-channel disclosure: the user sees only exit code + executable
-        # basename; developers running with ``-vv`` get the full output
-        # through the package's redacting DEBUG logger.
-        # In shell-mode ``run_target`` is the raw command STRING, not a
-        # list. Extract the basename of its first token
-        # so users still see a useful script name (the string is user-supplied
-        # and not a secret — its argv[0] equivalent is safe to surface).
-        if isinstance(run_target, list) and run_target:
+        # Bound policies never expose any portion of the captured command.
+        if has_bound_policy():
+            executable_basename = "configured recovery command"
+        elif isinstance(run_target, list) and run_target:
             executable_basename = os.path.basename(run_target[0])
         elif isinstance(run_target, str) and run_target.strip():
             executable_basename = os.path.basename(run_target.split()[0])
         else:
             executable_basename = "shell"
-        # Default DEBUG line is metadata-only (audit refresh-8): basename +
-        # exit code + byte counts, never the raw captured output. A refresh
-        # command commonly prints bearer tokens / cookies / credentials-dir
-        # paths, and the redaction filter only collapses KNOWN credential
-        # shapes — so dumping raw ``%r`` here would surface anything the filter
-        # doesn't recognise. This matters more now the rung can fire
-        # mid-session in a long-lived server whose DEBUG log is retained.
+        # Metadata-only by default: captured output may contain secrets the
+        # redactor cannot recognize. Full output requires explicit debug opt-in.
         stdout_bytes = len((result.stdout or "").encode("utf-8", "replace"))
         stderr_bytes = len((result.stderr or "").encode("utf-8", "replace"))
         logger.debug(

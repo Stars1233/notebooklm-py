@@ -262,7 +262,75 @@ re-exports only the supported endpoint/language helpers:
 from `notebooklm.config` remain supported; internal-only `_env` names should
 not be imported by downstream code.
 
+### Bound Web request policy (additive preview)
+
+Python clients retain dynamic environment resolution in 0.x when
+`WebBackendConfig.request` is omitted or `None`. To bind request and recovery
+policy to one client, supply `WebRequestOptions`:
+
+```python
+from notebooklm import NotebookLMClient
+from notebooklm.options import ClientConfig, WebBackendConfig, WebRequestOptions
+
+config = ClientConfig(
+    backend=WebBackendConfig(
+        request=WebRequestOptions(
+            base_url="https://notebook.google.com",
+            language="en",
+            # build_label, transport, and impersonate may also be supplied explicitly.
+        )
+    )
+)
+pending = NotebookLMClient.from_storage(profile="work", config=config)
+# Defaults were captured at the call above, before deferred authentication I/O.
+async with pending as client:
+    notebooks = await client.notebooks.list()
+```
+
+Direct `NotebookLMClient(auth, config=config)` captures at construction. Creating
+an options object alone does not capture environment defaults. Explicit option
+fields win; omitted fields resolve from the environment and built-in defaults
+once. The same policy survives deferred loading, authentication refresh, and
+close/reopen. First-party CLI, MCP, and REST default factories explicitly select
+this bound preview; injected factories retain control of their configuration.
+
+The captured settings are `NOTEBOOKLM_BASE_URL`, `NOTEBOOKLM_HL`, `NOTEBOOKLM_BL`,
+`NOTEBOOKLM_TRANSPORT`, `NOTEBOOKLM_IMPERSONATE`, `NOTEBOOKLM_REFRESH_CMD`,
+`NOTEBOOKLM_REFRESH_CMD_USE_SHELL`, `NOTEBOOKLM_REFRESH_CMD_MIDSESSION`,
+`NOTEBOOKLM_HEADLESS_REAUTH`, and `NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL`.
+The existing HTTPS host allowlist still applies. Request routing, output language
+defaults, Web notebook/share links, homepage acquisition, refresh, RPC, chat,
+uploads, and asset transfers use the client's policy. Operation-specific language
+arguments retain precedence. Drive import's guarded streaming download continues
+to use its fixed httpx implementation and redirect/byte-limit checks; it has no
+ambient transport selector.
+
+Cookies, CSRF/session tokens, and account routing remain live. Concurrent clients
+with different policies may share profile storage but cannot share incompatible
+recovery execution or successful-recovery markers. Recovery child processes get
+only selected policy overrides (including Web backend selection) over their
+current environment, plus the resolved storage/profile destination and recursion
+guard. Inline auth and serving secrets are scrubbed. Recovery commands stay in
+private redacted state, outside public option reprs and diagnostic keys.
+
+Operational controls remain dynamic: RPC-ID overrides, logging/deprecation
+controls, explicit refresh-output logging, the refresh recursion guard, keepalive
+poke disabling, and unrelated process settings such as `PATH` and proxies. This
+is not a snapshot of all process environment. Standalone config/URL helpers remain
+dynamic outside a bound client operation. Android configuration is independent;
+its display links and 0.x Web compatibility sidecar retain legacy dynamic policy.
+
+The eventual change to the omitted/default Web policy is a separate migration,
+C4-01, with **no shipped notice yet**. This additive preview does not switch the
+Python default or borrow another deprecation's release date. A stable preview or
+warning release and its own interval must precede that change; legacy behavior
+must survive a major release if its gate has not matured.
+
 ### Env vars and precedence
+
+The timing below describes standalone helpers and legacy dynamic Web clients.
+For explicitly bound Web clients, the settings listed above resolve at client
+construction instead of at request/spawn time.
 
 Every `NOTEBOOKLM_*` variable read by the library and CLI, in one place. CLI
 flags always win over env vars; env vars win over persisted profile config /

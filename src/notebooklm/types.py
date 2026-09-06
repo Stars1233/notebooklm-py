@@ -22,9 +22,20 @@ from ._types.artifact_content import (
     FlashcardArtifactUserState,
     UnknownArtifactUserState,
 )
+from ._types.artifact_download import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+)
 from ._types.artifacts import (
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactLookup,
+    ArtifactLookupStatus,
     ArtifactType,
     CopiedArtifact,
     CustomizationChoice,
@@ -133,6 +144,7 @@ from ._types.research import (
     SourceGuide,
 )
 from ._types.sharing import SharedUser, ShareStatus
+from ._types.source_delete import SourceDeleteOutcome
 from ._types.sources import (
     CopiedSource,
     ExpertIntelligenceSourceMetadata,
@@ -219,6 +231,10 @@ _CITED_SOURCE_SELECTION_TYPE_HINT_GLOBALS = (ResearchSourceInput,)
 
 
 __all__ = [
+    "ArtifactDownloadListing",
+    "ArtifactDownloadRequest",
+    "ArtifactDownloadSelection",
+    "SourceDeleteOutcome",
     # Dataclasses
     "AccountLimits",
     "UserSettings",
@@ -244,6 +260,11 @@ __all__ = [
     "ExpertIntelligenceSourceMetadata",
     "SourceSummary",
     "Artifact",
+    "ArtifactListing",
+    "ArtifactListingComponent",
+    "ArtifactListingFailure",
+    "ArtifactLookup",
+    "ArtifactLookupStatus",
     "ArtifactInfographic",
     "ArtifactMedia",
     "ArtifactMediaType",
@@ -259,6 +280,7 @@ __all__ = [
     "CustomizationChoice",
     "ReportPreset",
     "ArtifactCustomizationChoices",
+    "ArtifactCreationCapability",
     "Note",
     "Label",
     "Collection",
@@ -374,8 +396,17 @@ del _public_common_type
 
 
 for _public_moved_type in (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
     Artifact,
+    ArtifactCreationCapability,
     ArtifactCustomizationChoices,
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactLookup,
+    ArtifactLookupStatus,
     ArtifactInfographic,
     ArtifactMedia,
     ArtifactMediaType,

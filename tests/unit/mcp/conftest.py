@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from tests._helpers.downloads import configure_prepared_artifact_downloads
+
 
 # The canonical contributor install (`uv sync --frozen --extra browser --extra dev
 # --extra markdown`) omits the `mcp` extra, so `fastmcp` may be absent. A bare
@@ -101,12 +103,7 @@ def mock_client() -> MagicMock:
 
     client.sources.add_urls_batch = AsyncMock(side_effect=_batch_add)
     client.sources._add_urls_batch = client.sources.add_urls_batch
-    # `_app.download.execute_download` probes `client.artifacts._list_for_download`
-    # (the #1488 raw-rows fast path). A bare MagicMock auto-vivifies it as a
-    # truthy, non-awaitable attr; pin it to None so download tests exercise the
-    # public `.list` fallback they mock (the fast path is covered by the _app
-    # download tests, which use the real client).
-    client.artifacts._list_for_download = None
+    configure_prepared_artifact_downloads(client)
     # Identity accessors used by ``server_info(include_account=True)`` — both are
     # top-level client methods (not namespace attrs), so pin them explicitly:
     # ``get_account_email`` is awaited, ``get_account_authuser`` is sync.

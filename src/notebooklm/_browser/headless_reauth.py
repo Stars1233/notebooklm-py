@@ -65,7 +65,6 @@ importing this module without the ``browser`` extra never fails.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -75,6 +74,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn, Protocol
 
 from .._auth.recovery_rungs import HeadlessRungOutcome, HeadlessRungStatus
+from .._request_context import policy_child_environment, policy_key
 from ..exceptions import HeadlessLoginRequiredError
 from ..paths import get_browser_profile_dir
 from .browser_capture import (
@@ -305,6 +305,9 @@ class HeadlessReauthState:
         repr=False,
         compare=False,
     )
+    _drive_locks: dict[str, threading.Lock] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
     _active_reservations: int = field(default=0, init=False, repr=False, compare=False)
 
     @classmethod
@@ -314,15 +317,17 @@ class HeadlessReauthState:
 
     def drive_record(self, storage_path: Path, *, source: str) -> _DriveRecord:
         """Return the per-(resolved-storage-path, source) drive record."""
-        key = f"{storage_path.expanduser().resolve()}\x00{source}"
+        execution_key = f"{storage_path.expanduser().resolve()}\x00{source}"
         with self._registry_lock:
-            return self._drive_record_locked(key)
+            return self._drive_record_locked(policy_key(execution_key), execution_key)
 
-    def _drive_record_locked(self, key: str) -> _DriveRecord:
+    def _drive_record_locked(self, key: str, execution_key: str) -> _DriveRecord:
         """Get or create ``key`` while the caller holds ``_registry_lock``."""
         record = self._records_by_key.get(key)
         if record is None:
             record = self._record_factory()
+            # Policy outcomes are distinct; the physical browser still serializes.
+            record.drive_lock = self._drive_locks.setdefault(execution_key, record.drive_lock)
             self._records_by_key[key] = record
         return record
 
@@ -339,9 +344,9 @@ class HeadlessReauthState:
         ``drive_lock``: lifecycle reset must reject both active drivers and
         callers that have obtained a record and are about to wait on it.
         """
-        key = f"{storage_path.expanduser().resolve()}\x00{source}"
+        execution_key = f"{storage_path.expanduser().resolve()}\x00{source}"
         with self._registry_lock:
-            record = self._drive_record_locked(key)
+            record = self._drive_record_locked(policy_key(execution_key), execution_key)
             self._active_reservations += 1
         try:
             yield record
@@ -361,6 +366,7 @@ class HeadlessReauthState:
             ):
                 raise RuntimeError("cannot reset headless re-auth state while a drive is active")
             self._records_by_key.clear()
+            self._drive_locks.clear()
 
 
 _PROCESS_DEFAULT_STATE = HeadlessReauthState()
@@ -440,7 +446,7 @@ def headless_reauth_env_enabled(env: dict[str, str] | None = None) -> bool:
     Only the exact value ``"1"`` enables it, mirroring the strict opt-in
     convention used by ``_REFRESH_ATTEMPTED_ENV`` and the keepalive env gates.
     """
-    source = os.environ if env is None else env
+    source = policy_child_environment() if env is None else env
     return source.get(NOTEBOOKLM_HEADLESS_REAUTH_ENV) == "1"
 
 
@@ -497,7 +503,7 @@ def resolve_cdp_url(
     declined), so the boundary is observable without leaking the operator's
     address. This keeps L3 a local-unattended-only credential path.
     """
-    source = os.environ if env is None else env
+    source = policy_child_environment() if env is None else env
     candidate = (
         cdp_url if cdp_url is not None else source.get(NOTEBOOKLM_HEADLESS_REAUTH_CDP_URL_ENV)
     )

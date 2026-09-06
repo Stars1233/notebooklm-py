@@ -14,7 +14,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = REPO_ROOT / "src" / "notebooklm"
 AUTH_ROOT = SRC_ROOT / "_auth"
 BROWSER_ROOT = SRC_ROOT / "_browser"
-_ALLOWED_ROOTS = {"_auth", "_browser", "_env", "_url_utils", "config", "exceptions", "paths"}
+_ALLOWED_ROOTS = {
+    "_request_context",
+    "_auth",
+    "_browser",
+    "_env",
+    "_url_utils",
+    "config",
+    "exceptions",
+    "paths",
+}
 
 
 def _resolved_module(path: Path, node: ast.ImportFrom) -> str:
@@ -107,6 +116,7 @@ def test_browser_import_projection_records_exact_cross_package_edges() -> None:
         ("browser_capture", "exceptions", "module"),
         ("browser_capture", "navigation_errors", "module"),
         ("headless_reauth", "_auth.recovery_rungs", "module"),
+        ("headless_reauth", "_request_context", "module"),
         ("headless_reauth", "browser_capture", "module"),
         ("headless_reauth", "exceptions", "module"),
         ("headless_reauth", "paths", "function"),

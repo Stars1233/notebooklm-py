@@ -15,6 +15,7 @@ from .._idempotency import (
     JournalEntry,
     OperationJournal,
     attach_operation_journal,
+    attach_operation_metadata,
     collect_operation_journal_entries,
     detached_operation_journal_context,
 )
@@ -61,7 +62,9 @@ class OperationContext:
     def metadata_for(self, error: BaseException) -> OperationMetadata | None:
         """Attach the complete workflow snapshot without erasing richer evidence."""
 
-        existing = getattr(error, "operation_metadata", None)
+        existing = getattr(error, "operation_metadata", None) or getattr(
+            error, "_operation_metadata", None
+        )
         if self.entries:
             attach_operation_journal(
                 error,
@@ -70,7 +73,7 @@ class OperationContext:
             )
         elif existing is None:
             attach_operation_journal(error, self.journal)
-        return getattr(error, "operation_metadata", None)
+        return getattr(error, "_operation_metadata", None)
 
 
 _OPERATION_CONTEXTS: ContextVar[tuple[OperationContext, ...]] = ContextVar(
@@ -219,10 +222,15 @@ def create_operation_context(
     )
 
 
-def operation_timeout_error(context: OperationContext) -> OperationTimeoutError:
+def operation_timeout_error(
+    context: OperationContext, cause: BaseException | None = None
+) -> OperationTimeoutError:
     """Build the public timeout and attach all evidence captured so far."""
 
     error = OperationTimeoutError(f"{context.label} exceeded its operation deadline")
+    metadata = getattr(cause, "_operation_metadata", None)
+    if metadata is not None:
+        attach_operation_metadata(error, metadata)
     context.metadata_for(error)
     return error
 
@@ -270,7 +278,7 @@ def activate_operation_context(context: OperationContext) -> Iterator[OperationC
                     remaining_cancels = uncancel()
                     owned_cancel_removed = True
                 if remaining_cancels == 0:
-                    raise operation_timeout_error(context) from None
+                    raise operation_timeout_error(context, exc) from None
             if context.entries or fired:
                 context.metadata_for(exc)
             raise

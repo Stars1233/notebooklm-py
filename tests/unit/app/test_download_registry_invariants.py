@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from notebooklm._app import download_specs
+from notebooklm import downloads as download_specs
 from notebooklm._app.download_specs import (
     DOWNLOAD_REGISTRY,
     DownloadFormatSpec,

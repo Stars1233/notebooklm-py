@@ -6,7 +6,7 @@ import asyncio
 import builtins
 import logging
 from collections.abc import Awaitable, Callable, Coroutine
-from typing import Any
+from typing import Any, Protocol, TypeVar
 
 from .._deadline import RuntimeDeadline
 from .._types.enums import SourceStatus
@@ -93,10 +93,17 @@ def _expiry_error(
 GetSource = Callable[[str, str], Awaitable[Source | None]]
 ListSources = Callable[[str], Awaitable[builtins.list[Source]]]
 WaitUntilReady = Callable[..., Coroutine[Any, Any, Source]]
-SpawnSourceChild = Callable[
-    [str, Callable[[], Awaitable[Source]]],
-    Awaitable[asyncio.Task[Source]],
-]
+_ChildResult = TypeVar("_ChildResult")
+
+
+class SpawnSourceChild(Protocol):
+    """Admit an exclusive child with the parent's deadline and evidence journal."""
+
+    async def __call__(
+        self, label: str, factory: Callable[[], Awaitable[_ChildResult]]
+    ) -> asyncio.Task[_ChildResult]: ...
+
+
 Sleep = Callable[[float], Awaitable[Any]]
 Monotonic = Callable[[], float]
 

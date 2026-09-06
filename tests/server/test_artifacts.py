@@ -24,6 +24,7 @@ from notebooklm._types.artifacts import GenerationState
 from notebooklm.server._pending import PendingRegistry
 from notebooklm.server.routes import artifacts as artifacts_route
 from notebooklm.server.routes.artifacts import DOWNLOAD_SPECS, GENERATE_TYPES
+from notebooklm.types import ArtifactDownloadRequest, ArtifactType
 
 from .fakes import FakeClient, make_artifact
 
@@ -218,6 +219,8 @@ def test_download_completed_artifact_streams_bytes(
     resp = authed_client.post("/v1/notebooks/nb-1/artifacts/download", json={"type": "audio"})
     assert resp.status_code == 200
     assert resp.content == fake_client.download_bytes
+    assert fake_client.last_download_request == ArtifactDownloadRequest("nb-1", ArtifactType.AUDIO)
+    assert fake_client.downloaded_selections == list(fake_client.prepared_downloads)
 
 
 def test_download_audio_advertises_m4a_and_audio_mp4(
@@ -372,6 +375,10 @@ def test_download_pptx_is_not_served_as_pdf(
         resp.headers["content-type"]
         == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     )
+    assert fake_client.last_download_request == ArtifactDownloadRequest(
+        "nb-1", ArtifactType.SLIDE_DECK, "pptx"
+    )
+    assert fake_client.downloaded_selections[0].representation == "pptx"
 
 
 def test_download_unexpected_output_path_is_rejected(
@@ -694,6 +701,7 @@ def test_get_prompt_returns_stored_prompt(
         "artifact_id": "a1",
         "prompt": "Summarize the sources",
     }
+    assert fake_client.last_prompt_require_complete is True
 
 
 def test_get_prompt_null_is_200_not_404(authed_client: TestClient, fake_client: FakeClient) -> None:

@@ -92,14 +92,21 @@ def test_adapters_use_the_shared_support_leaf_for_repeated_infrastructure() -> N
     assert support_consumers == EXPECTED_SUPPORT_CONSUMERS
 
 
-def test_adapter_specific_atomic_io_dependency_stays_explicit() -> None:
+def test_adapter_specific_atomic_io_dependency_uses_public_io_facade() -> None:
     consumers = {
         path.relative_to(SRC_ROOT).as_posix()
         for root in ADAPTER_ROOTS
         for path in root.rglob("*.py")
-        if "notebooklm._atomic_io" in _resolved_imports(path)
+        if _resolved_imports(path).intersection({"notebooklm._atomic_io"})
     }
-    assert consumers == {"mcp/_oauth.py"}
+    assert consumers == set()
+    io_consumers = {
+        path.relative_to(SRC_ROOT).as_posix()
+        for root in ADAPTER_ROOTS
+        for path in root.rglob("*.py")
+        if _resolved_imports(path).intersection({"notebooklm.io"})
+    }
+    assert io_consumers == {"mcp/_oauth.py"}
 
 
 def test_support_leaf_preserves_canonical_identities() -> None:
@@ -119,6 +126,7 @@ def test_support_leaf_preserves_canonical_identities() -> None:
 def test_support_leaf_exports_only_adapter_hosting_primitives() -> None:
     assert support.__all__ == [
         "DEFAULT_SERVER_KEEPALIVE_INTERVAL",
+        "AdapterRuntimeClient",
         "LOOPBACK_HOSTNAMES",
         "LoopBoundPrimitive",
         "addr_is_loopback",
@@ -128,3 +136,69 @@ def test_support_leaf_exports_only_adapter_hosting_primitives() -> None:
         "is_loopback",
         "redact",
     ]
+
+
+def test_real_client_satisfies_detached_adapter_typing_and_rejects_untyped_clients(tmp_path):
+    """Compile the real SDK crossing; Any must not hide an incompatible protocol."""
+    import os
+    import subprocess
+    import sys
+    import textwrap
+
+    positive = tmp_path / "valid_client.py"
+    positive.write_text(
+        textwrap.dedent("""\
+        from collections.abc import Awaitable, Callable
+        from typing import Any
+        from notebooklm import NotebookLMClient
+        from notebooklm._adapter_support import AdapterRuntimeClient, client_generation_epoch, _client_operation
+        from notebooklm.mcp._chattasks import ChatTaskRegistry
+
+        async def check(client: NotebookLMClient, registry: ChatTaskRegistry,
+                        produce: Callable[[], Awaitable[dict[str, Any]]]) -> None:
+            typed: AdapterRuntimeClient = client
+            epoch = client_generation_epoch(client)
+            async with _client_operation(typed, None, expected_epoch=epoch):
+                registry.start("key", produce, client=client)
+    """)
+    )
+    negative = tmp_path / "invalid_client.py"
+    negative.write_text(
+        textwrap.dedent("""\
+        from collections.abc import Awaitable, Callable
+        from typing import Any
+        from notebooklm.mcp._chattasks import ChatTaskRegistry
+
+        def check(registry: ChatTaskRegistry,
+                  produce: Callable[[], Awaitable[dict[str, Any]]]) -> None:
+            registry.start("key", produce, client=object())
+    """)
+    )
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "mypy",
+            "--cache-dir",
+            str(tmp_path / "mypy-cache"),
+            str(positive),
+            str(negative),
+        ],
+        cwd=SRC_ROOT.parents[1],
+        env={**os.environ, "MYPYPATH": str(SRC_ROOT.parent)},
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    errors = [
+        line.replace("\\", "/").rsplit("/", 1)[-1]
+        for line in result.stdout.splitlines()
+        if ": error:" in line
+    ]
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert not any(line.startswith(f"{positive.name}:") for line in errors), (
+        result.stdout + result.stderr
+    )
+    assert any(
+        line.startswith(f"{negative.name}:") and "AdapterRuntimeClient" in line for line in errors
+    ), result.stdout + result.stderr

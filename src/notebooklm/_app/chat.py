@@ -42,14 +42,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from contextlib import AbstractAsyncContextManager
+from dataclasses import dataclass, field
+from typing import Literal, Protocol, runtime_checkable
 
 from ..exceptions import ValidationError
-from ..types import ChatGoal, ChatMode, ChatResponseLength
-
-if TYPE_CHECKING:
-    from ..types import AskResult
+from ..options import USE_DEFAULT, UseDefault
+from ..outcomes import redact_operation_text
+from ..types import AskResult, ChatGoal, ChatMode, ChatResponseLength, ChatSettings, Note
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +81,52 @@ class ChatEventSink(Protocol):
     """Consumer for semantic chat events."""
 
     def emit(self, event: ChatEvent) -> None: ...
+
+
+class _ChatNamespace(Protocol):
+    async def get_conversation_id(self, notebook_id: str) -> str | None: ...
+
+    async def save_answer_as_note(
+        self, notebook_id: str, result: AskResult, *, title: str | None = None
+    ) -> Note: ...
+
+    async def set_mode(self, notebook_id: str, mode: ChatMode) -> None: ...
+
+    async def get_settings(self, notebook_id: str) -> ChatSettings: ...
+
+    async def configure(
+        self,
+        notebook_id: str,
+        goal: ChatGoal | None = None,
+        response_length: ChatResponseLength | None = None,
+        custom_prompt: str | None = None,
+    ) -> None: ...
+
+    async def get_history(
+        self, notebook_id: str, limit: int = 100, conversation_id: str | None = None
+    ) -> list[tuple[str, str]]: ...
+
+    def cache_size(self) -> int: ...
+
+    def clear_cache(self, conversation_id: str | None = None) -> bool: ...
+
+
+class _NotesNamespace(Protocol):
+    async def create(self, notebook_id: str, title: str, content: str) -> Note: ...
+
+
+class ChatClient(Protocol):
+    """Public client capabilities consumed by chat application workflows."""
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
+
+    @property
+    def chat(self) -> _ChatNamespace: ...
+
+    @property
+    def notes(self) -> _NotesNamespace: ...
 
 
 def _emit(events: ChatEventSink | None, event: ChatEvent) -> None:
@@ -160,7 +206,7 @@ def determine_conversation_id(
 
 
 async def get_latest_conversation_from_server(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     *,
     progress: ChatEventSink | None = None,
@@ -205,10 +251,11 @@ class SaveNoteOutcome:
     note: dict[str, str] | None = None
     error: str | None = None
     plain_text_fallback: bool = False
+    failure: Exception | None = field(default=None, repr=False, compare=False)
 
 
 async def save_answer_as_note(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     result: AskResult,
     *,
@@ -231,33 +278,36 @@ async def save_answer_as_note(
 
     Semantic events are emitted into the optional sink.
     """
-    if not result.answer:
-        _emit(progress, ChatEvent("NOTE_NO_ANSWER"))
-        return SaveNoteOutcome(error="No answer to save as note")
-
     try:
-        title = note_title or f"Chat: {question[:50].strip().replace(chr(10), ' ')}"
-        plain_text_fallback = False
-        if result.references:
-            # Citation-rich path: server stores [N] markers as hover-anchored
-            # references (issue #660).
-            note = await client.chat.save_answer_as_note(notebook_id, result, title=title)
-        else:
-            # No citations to preserve -- fall back to the plain-text path so the
-            # save still succeeds.
-            _emit(progress, ChatEvent("NOTE_PLAIN_TEXT_FALLBACK"))
-            note = await client.notes.create(notebook_id, title, result.answer)
-            plain_text_fallback = True
-        _emit(progress, ChatEvent("NOTE_SAVED", note_id=note.id, note_title=note.title))
-        return SaveNoteOutcome(
-            note={"id": note.id, "title": note.title},
-            plain_text_fallback=plain_text_fallback,
-        )
+        async with client.operation(timeout=USE_DEFAULT):
+            if not result.answer:
+                _emit(progress, ChatEvent("NOTE_NO_ANSWER"))
+                return SaveNoteOutcome(error="No answer to save as note")
+
+            title = note_title or f"Chat: {question[:50].strip().replace(chr(10), ' ')}"
+            plain_text_fallback = False
+            if result.references:
+                # Citation-rich path: server stores [N] markers as hover-anchored
+                # references (issue #660).
+                note = await client.chat.save_answer_as_note(notebook_id, result, title=title)
+            else:
+                # No citations to preserve -- fall back to the plain-text path so the
+                # save still succeeds.
+                _emit(progress, ChatEvent("NOTE_PLAIN_TEXT_FALLBACK"))
+                note = await client.notes.create(notebook_id, title, result.answer)
+                plain_text_fallback = True
+            _emit(progress, ChatEvent("NOTE_SAVED", note_id=note.id, note_title=note.title))
+            return SaveNoteOutcome(
+                note={"id": note.id, "title": note.title},
+                plain_text_fallback=plain_text_fallback,
+            )
     except Exception as e:
-        # Non-fatal: the chat response payload must still print, so the error is
-        # returned (not raised) for the adapter to render as a warning.
-        _emit(progress, ChatEvent("NOTE_SAVE_FAILED", detail=str(e)))
-        return SaveNoteOutcome(error=str(e))
+        # Catch scope-exit failures too: an owned deadline becomes a timeout only
+        # after operation settlement has attached the complete mutation evidence.
+        # External cancellation still propagates, since it is not an Exception.
+        detail = redact_operation_text(e)
+        _emit(progress, ChatEvent("NOTE_SAVE_FAILED", detail=detail))
+        return SaveNoteOutcome(error=detail, failure=e)
 
 
 # ---------------------------------------------------------------------------
@@ -303,7 +353,7 @@ class ConfigureResult:
 
 
 async def execute_configure(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     *,
     chat_mode: ChatModeChoice | None,
@@ -342,90 +392,91 @@ async def execute_configure(
     explicit ``response_length`` (incl. ``"default"``) is a real setting and does.
     This guard is transport-neutral, so both the CLI and the MCP tool inherit it.
     """
-    if chat_mode and (persona or response_length is not None):
-        raise ValidationError(
-            "A chat_mode preset cannot be combined with a custom persona/goal or "
-            "response_length; pass one style or the other."
-        )
-
-    if chat_mode:
-        try:
-            mode = _MODE_MAP[chat_mode]
-        except KeyError as exc:
+    async with client.operation(timeout=USE_DEFAULT):
+        if chat_mode and (persona or response_length is not None):
             raise ValidationError(
-                f"Unknown chat mode {chat_mode!r}; expected one of {sorted(_MODE_MAP)}"
-            ) from exc
-        await client.chat.set_mode(notebook_id, mode)
+                "A chat_mode preset cannot be combined with a custom persona/goal or "
+                "response_length; pass one style or the other."
+            )
+
+        if chat_mode:
+            try:
+                mode = _MODE_MAP[chat_mode]
+            except KeyError as exc:
+                raise ValidationError(
+                    f"Unknown chat mode {chat_mode!r}; expected one of {sorted(_MODE_MAP)}"
+                ) from exc
+            await client.chat.set_mode(notebook_id, mode)
+            return ConfigureResult(
+                notebook_id=notebook_id,
+                mode=chat_mode,
+                goal_name=None,
+                persona=None,
+                response_length=None,
+            )
+
+        # "Supplied" gates the persona slot on ``persona.strip()`` (repo convention:
+        # an empty OR whitespace-only prompt is a no-op, never sent to the server),
+        # so only a non-blank persona selects CUSTOM. Any explicit response_length
+        # (incl. "default") is a real setting.
+        persona_supplied = bool(persona and persona.strip())
+        length_supplied = response_length is not None
+
+        mapped_length: ChatResponseLength | None = None
+        if response_length is not None:  # same predicate as length_supplied
+            try:
+                mapped_length = _RESPONSE_LENGTH_MAP[response_length]
+            except KeyError as exc:
+                raise ValidationError(
+                    f"Unknown response length {response_length!r}; "
+                    f"expected one of {sorted(_RESPONSE_LENGTH_MAP)}"
+                ) from exc
+
+        write_goal: ChatGoal | None
+        write_length: ChatResponseLength | None
+        write_prompt: str | None
+        if not persona_supplied and not length_supplied:
+            # Bare `configure` — the documented reset-to-defaults affordance. No read
+            # (client.chat.configure maps None → DEFAULT for both fields).
+            write_goal, write_length, write_prompt = None, None, None
+        elif persona_supplied and length_supplied:
+            # Both fields given — a complete block, nothing to preserve, single write.
+            write_goal, write_length, write_prompt = ChatGoal.CUSTOM, mapped_length, persona
+        else:
+            # True partial — read current settings and preserve the omitted field, so
+            # setting one custom field no longer clobbers the other (#1751). A read
+            # failure/drift raises (fails loud) rather than silently clobbering.
+            current = await client.chat.get_settings(notebook_id)
+            if persona_supplied:
+                write_goal, write_length, write_prompt = (
+                    ChatGoal.CUSTOM,
+                    current.response_length,
+                    persona,
+                )
+            else:
+                write_goal, write_length, write_prompt = (
+                    current.goal,
+                    mapped_length,
+                    current.custom_prompt,
+                )
+
+        await client.chat.configure(
+            notebook_id,
+            goal=write_goal,
+            response_length=write_length,
+            custom_prompt=write_prompt,
+        )
+        # ConfigureResult reports the DELTA (what THIS call set), not the merged
+        # effective state — `goal_name`/`persona`/`response_length` stay in the
+        # "what you changed" vocabulary the CLI prose + `--json` envelope have always
+        # used, so a partial merge doesn't silently widen the JSON contract.
         return ConfigureResult(
             notebook_id=notebook_id,
-            mode=chat_mode,
-            goal_name=None,
-            persona=None,
-            response_length=None,
+            mode=None,
+            goal_name=ChatGoal.CUSTOM.name.lower() if persona_supplied else None,
+            persona=persona,
+            response_length=response_length,
         )
-
-    # "Supplied" gates the persona slot on ``persona.strip()`` (repo convention:
-    # an empty OR whitespace-only prompt is a no-op, never sent to the server),
-    # so only a non-blank persona selects CUSTOM. Any explicit response_length
-    # (incl. "default") is a real setting.
-    persona_supplied = bool(persona and persona.strip())
-    length_supplied = response_length is not None
-
-    mapped_length: ChatResponseLength | None = None
-    if response_length is not None:  # same predicate as length_supplied
-        try:
-            mapped_length = _RESPONSE_LENGTH_MAP[response_length]
-        except KeyError as exc:
-            raise ValidationError(
-                f"Unknown response length {response_length!r}; "
-                f"expected one of {sorted(_RESPONSE_LENGTH_MAP)}"
-            ) from exc
-
-    write_goal: ChatGoal | None
-    write_length: ChatResponseLength | None
-    write_prompt: str | None
-    if not persona_supplied and not length_supplied:
-        # Bare `configure` — the documented reset-to-defaults affordance. No read
-        # (client.chat.configure maps None → DEFAULT for both fields).
-        write_goal, write_length, write_prompt = None, None, None
-    elif persona_supplied and length_supplied:
-        # Both fields given — a complete block, nothing to preserve, single write.
-        write_goal, write_length, write_prompt = ChatGoal.CUSTOM, mapped_length, persona
-    else:
-        # True partial — read current settings and preserve the omitted field, so
-        # setting one custom field no longer clobbers the other (#1751). A read
-        # failure/drift raises (fails loud) rather than silently clobbering.
-        current = await client.chat.get_settings(notebook_id)
-        if persona_supplied:
-            write_goal, write_length, write_prompt = (
-                ChatGoal.CUSTOM,
-                current.response_length,
-                persona,
-            )
-        else:
-            write_goal, write_length, write_prompt = (
-                current.goal,
-                mapped_length,
-                current.custom_prompt,
-            )
-
-    await client.chat.configure(
-        notebook_id,
-        goal=write_goal,
-        response_length=write_length,
-        custom_prompt=write_prompt,
-    )
-    # ConfigureResult reports the DELTA (what THIS call set), not the merged
-    # effective state — `goal_name`/`persona`/`response_length` stay in the
-    # "what you changed" vocabulary the CLI prose + `--json` envelope have always
-    # used, so a partial merge doesn't silently widen the JSON contract.
-    return ConfigureResult(
-        notebook_id=notebook_id,
-        mode=None,
-        goal_name=ChatGoal.CUSTOM.name.lower() if persona_supplied else None,
-        persona=persona,
-        response_length=response_length,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -459,17 +510,18 @@ class HistoryFetch:
     qa_pairs: list[tuple[str, str]]
 
 
-async def fetch_history(client: Any, notebook_id: str, *, limit: int) -> HistoryFetch:
+async def fetch_history(client: ChatClient, notebook_id: str, *, limit: int) -> HistoryFetch:
     """Fetch the last conversation's id and its Q&A turns.
 
     Preserves the historical RPC order: ``get_conversation_id``
     (GET_LAST_CONVERSATION_ID) then ``get_history`` (GET_CONVERSATION_TURNS).
     """
-    conversation_id = await client.chat.get_conversation_id(notebook_id)
-    qa_pairs = await client.chat.get_history(
-        notebook_id, limit=limit, conversation_id=conversation_id
-    )
-    return HistoryFetch(conversation_id=conversation_id, qa_pairs=qa_pairs)
+    async with client.operation(timeout=USE_DEFAULT):
+        conversation_id = await client.chat.get_conversation_id(notebook_id)
+        qa_pairs = await client.chat.get_history(
+            notebook_id, limit=limit, conversation_id=conversation_id
+        )
+        return HistoryFetch(conversation_id=conversation_id, qa_pairs=qa_pairs)
 
 
 @dataclass(frozen=True)
@@ -484,7 +536,7 @@ class ClearCacheResult:
     count: int
 
 
-def execute_clear_cache(client: Any) -> ClearCacheResult:
+def execute_clear_cache(client: ChatClient) -> ClearCacheResult:
     """Clear the local conversation cache, capturing the pre-clear count.
 
     The pre-clear size is captured BEFORE the clear because ``clear_cache``
@@ -500,6 +552,7 @@ __all__ = [
     "ChatEvent",
     "ChatEventKind",
     "ChatEventSink",
+    "ChatClient",
     "ChatValidationError",
     "ChatModeChoice",
     "ClearCacheResult",

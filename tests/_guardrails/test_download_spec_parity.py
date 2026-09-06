@@ -1,6 +1,6 @@
 """All download surfaces derive from one neutral registry.
 
-``_app.download_specs.DOWNLOAD_REGISTRY`` is the only table that states an
+``downloads.DOWNLOAD_REGISTRY`` is the only table that states an
 artifact representation's extension, MIME, download binding, and format axis.
 MCP and REST consume its immutable runtime projection directly; CLI copies the
 projection only to add Click help and the legacy ``slide_format`` parameter.
@@ -16,8 +16,8 @@ from typing import Any
 
 import pytest
 
+from notebooklm import downloads as download_specs_core
 from notebooklm._app import download as download_core
-from notebooklm._app import download_specs as download_specs_core
 from notebooklm.cli._download_specs import DOWNLOAD_SPECS_BY_NAME
 from notebooklm.cli.download_cmd import download as download_group
 

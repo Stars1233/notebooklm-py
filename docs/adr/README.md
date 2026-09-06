@@ -73,11 +73,13 @@ The ADR Index table utilizes five eras of Status notation to reflect the lifecyc
 | [0036](0036-browser-acquisition-package.md) | Browser acquisition package and neutral login orchestration | Accepted |
 | [0037](0037-live-usage-and-quota-api.md) | Live usage and quota API | Accepted |
 | [0038](0038-local-fault-injection-harness.md) | Local fault-injection services and concurrent resilience scenarios | Accepted |
+| [0039](0039-backend-specific-credential-surfaces.md) | Backend-specific credential surfaces | Accepted; C9b implementation remains release-gated |
 
 ADR-0007 ships alongside its enforcement substrate: the concrete fixtures (`tests/_fixtures/`) and meta-lint (`tests/_guardrails/test_no_forbidden_monkeypatches.py`) are added in the same PR (`arch-d1-fixtures-scaffolding`) so the record is grounded in working code rather than an empty placeholder.
 
 ## Related references
 
 - [Architecture](../architecture.md) — Canonical overview of the layered architecture.
+- [Release migration ledger](../deprecations.md#release-migration-gates) — Shipped-warning evidence and earliest eligible transition releases.
 - `docs/development.md` — contributor-facing process notes (testing, releasing, environment setup).
 - `CLAUDE.md` — onboarding map for AI assistants. Architectural rationale belongs here in `docs/adr/`, not in `CLAUDE.md`.

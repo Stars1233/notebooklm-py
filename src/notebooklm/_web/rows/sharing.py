@@ -129,7 +129,9 @@ class ShareStatusRow:
             self._raw, pos, method_id=_SHARE_METHOD_ID, source="ShareStatus.from_api_response"
         )
 
-    def decode(self, cls: type[ShareStatus], notebook_id: str) -> ShareStatus:
+    def decode(
+        self, cls: type[ShareStatus], notebook_id: str, *, base_url: str | None = None
+    ) -> ShareStatus:
         from ..._types.sharing import SharedUser
 
         users = []
@@ -183,7 +185,9 @@ class ShareStatusRow:
 
         access = ShareAccess.ANYONE_WITH_LINK if is_public else ShareAccess.RESTRICTED
         share_url = (
-            f"{get_base_url()}/notebook/{quote(notebook_id, safe='')}" if is_public else None
+            f"{base_url if base_url is not None else get_base_url()}/notebook/{quote(notebook_id, safe='')}"
+            if is_public
+            else None
         )
         return cls(
             notebook_id=notebook_id,
@@ -220,9 +224,11 @@ def decode_shared_user(cls: type[SharedUser], data: list[Any]) -> SharedUser:
     return SharedUserRow(data).decode(cls)
 
 
-def decode_share_status(cls: type[ShareStatus], data: list[Any], notebook_id: str) -> ShareStatus:
+def decode_share_status(
+    cls: type[ShareStatus], data: list[Any], notebook_id: str, *, base_url: str | None = None
+) -> ShareStatus:
     """Decode a web share-status row into the requested public model class."""
-    return ShareStatusRow(data).decode(cls, notebook_id)
+    return ShareStatusRow(data).decode(cls, notebook_id, base_url=base_url)
 
 
 __all__ = [

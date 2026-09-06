@@ -40,6 +40,7 @@ from notebooklm.rpc import (
 from notebooklm.types import (
     ArtifactDownloadError,
     ArtifactFeatureUnavailableError,
+    ArtifactListing,
     ArtifactNotReadyError,
     ArtifactParseError,
     ArtifactType,
@@ -533,8 +534,8 @@ class TestArtifactsAPI:
         list_mind_maps.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_get_uses_public_list_callback(self):
-        """get() delegates through the public list callback."""
+    async def test_get_uses_authoritative_listing_callback(self):
+        """get() projects its result from the completeness-aware listing."""
         core = MagicMock()
         api = WebArtifactsAPI(
             rpc=core,
@@ -549,7 +550,9 @@ class TestArtifactsAPI:
         found.id = "art_found"
 
         with patch.object(
-            api, "list", new=AsyncMock(return_value=[other, found])
+            api,
+            "list_with_status",
+            new=AsyncMock(return_value=ArtifactListing((other, found), is_complete=True)),
         ) as list_artifacts:
             result = await api.get("nb_123", "art_found")
             # v0.8.0: a miss now raises ArtifactNotFoundError (issue #1247).
@@ -1278,8 +1281,9 @@ class TestArtifactErrorPaths:
                 "nb_123", output, output_format="pptx"
             )
         assert result == output
-        # Bite-check: the patched seam was actually exercised on the download path.
-        fake_loader.assert_called_once()
+        # C1's injected live-transfer owner supplies cookies for the request;
+        # the retired storage-loader compatibility seam is no longer exercised.
+        fake_loader.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_poll_status_in_progress(

@@ -68,6 +68,11 @@
     {
       "scope": "module",
       "source": "headless_reauth",
+      "target": "_request_context"
+    },
+    {
+      "scope": "module",
+      "source": "headless_reauth",
       "target": "browser_capture"
     },
     {
@@ -113,7 +118,7 @@
       "path": "src/notebooklm/_browser/browser_launch_errors.py"
     },
     {
-      "lines": 1086,
+      "lines": 1092,
       "name": "headless_reauth",
       "path": "src/notebooklm/_browser/headless_reauth.py"
     },
@@ -134,10 +139,10 @@
   },
   "summary": {
     "function_local_edges": 1,
-    "module_edges": 18,
+    "module_edges": 19,
     "modules": 6,
-    "total_lines": 2957,
-    "unique_edges": 19
+    "total_lines": 2963,
+    "unique_edges": 20
   },
   "version": 1
 }

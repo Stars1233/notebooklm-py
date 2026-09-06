@@ -8,11 +8,16 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from typing import Any, cast
 
 import httpx
 
-from .._artifacts import ArtifactsAPI
+from .._artifact.creation import InteractiveMindMapCreationRequest
+from .._artifact.creation_normalized import NormalizedArtifactCreationRequest, NormalizedAudio
+from .._artifact.creation_policy import ANDROID_CREATION_POLICY
+from .._artifact.download_selection import PreparedDownloadCache
+from .._artifacts import ArtifactsAPI, _incomplete_lookup_error
 from .._idempotency import (
     attach_journal_entry,
     bind_operation_journal_entries,
@@ -22,12 +27,15 @@ from .._idempotency import (
 )
 from .._notebook_metadata import NotebookSourceIdProvider
 from .._runtime.call_supervisor import CallSupervisor, OperationLease
-from .._types.artifacts import _status_from_code
+from .._types.artifact_download import (
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
+)
+from .._types.artifacts import ArtifactCreationCapability, _status_from_code
 from .._types.enums import (
     ArtifactStatus,
     ArtifactTypeCode,
-    AudioFormat,
-    AudioLength,
     ExportType,
 )
 from .._types.research import MindMapResult
@@ -42,13 +50,22 @@ from ..exceptions import (
     ValidationError,
 )
 from ..outcomes import CommitState
-from ..types import Artifact, ArtifactType, GenerationStatus, ReportSuggestion
+from ..types import (
+    Artifact,
+    ArtifactListing,
+    ArtifactListingComponent,
+    ArtifactListingFailure,
+    ArtifactLookupStatus,
+    ArtifactType,
+    GenerationStatus,
+    MindMap,
+    ReportSuggestion,
+)
 from .artifact_collaborators import NoteBackedMindMapLister
 from .artifact_creation import (
     CREATE_ARTIFACT_METHOD,
-    build_create_artifact_plan,
+    build_normalized_create_artifact_plan,
     create_artifact_once,
-    normalize_creation_options,
 )
 from .artifact_mutations import (
     DELETE_ARTIFACT_METHOD,
@@ -96,6 +113,22 @@ from .session import AndroidSession
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class _PreparedAndroidDownload:
+    """Backend-local typed state for one prepared Android selection."""
+
+    artifact: Artifact
+    mind_map: MindMap | None
+
+
+@dataclass(frozen=True)
+class _NoteBackedMindMapState:
+    """One aggregate note read in both artifact and hydrated mind-map forms."""
+
+    artifacts: builtins.list[Artifact]
+    mind_maps: builtins.list[MindMap]
+
+
 def android_request_context() -> Any:
     from .upload import android_request_context as build_request_context
 
@@ -106,22 +139,6 @@ _SERVICE = "google.internal.labs.tailwind.orchestration.v1.LabsTailwindOrchestra
 DERIVE_ARTIFACT_METHOD = f"/{_SERVICE}/DeriveArtifact"
 UPDATE_ARTIFACT_METHOD = f"/{_SERVICE}/UpdateArtifact"
 GENERATE_REPORT_SUGGESTIONS_METHOD = f"/{_SERVICE}/GenerateReportSuggestions"
-
-
-def _audio_format_code(value: Any) -> int:
-    if value is None:
-        return AudioFormat.DEEP_DIVE.value
-    if not isinstance(value, AudioFormat):
-        raise ValidationError("audio_format must be an AudioFormat value")
-    return int(value.value)
-
-
-def _audio_length_code(value: Any) -> int:
-    if value is None:
-        return AudioLength.DEFAULT.value
-    if not isinstance(value, AudioLength):
-        raise ValidationError("audio_length must be an AudioLength value")
-    return int(value.value)
 
 
 class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin, ArtifactsAPI):
@@ -153,6 +170,9 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             supervisor=supervisor,
             notebooks=notebooks,
             asset_downloads=asset_downloads,
+        )
+        self._prepared_downloads: PreparedDownloadCache[_PreparedAndroidDownload] = (
+            PreparedDownloadCache()
         )
 
     async def _list_all_studio(
@@ -187,6 +207,22 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
     ) -> tuple[builtins.list[Artifact], builtins.list[Artifact] | None]:
         """Return the aggregate plus ``None`` when note availability is unknown."""
 
+        listing, note_state = await self._list_with_status_and_note_state(
+            notebook_id,
+            artifact_type,
+            expected_epoch=expected_epoch,
+        )
+        return list(listing.items), None if note_state is None else note_state.artifacts
+
+    async def _list_with_status_and_note_state(
+        self,
+        notebook_id: str,
+        artifact_type: ArtifactType | None,
+        *,
+        expected_epoch: int | None = None,
+    ) -> tuple[ArtifactListing, _NoteBackedMindMapState | None]:
+        """Build the aggregate result before secondary failure evidence is lost."""
+
         studio = [
             artifact
             for artifact in await self._list_all_studio(
@@ -196,9 +232,11 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             if matches_artifact_type(artifact, artifact_type)
         ]
         if artifact_type is not None and artifact_type != ArtifactType.MIND_MAP:
-            return studio, []
+            return ArtifactListing(tuple(studio), is_complete=True), _NoteBackedMindMapState([], [])
         try:
-            note_backed = await self._mind_maps.list_mind_map_artifacts(notebook_id)
+            note_backed, mind_maps = await self._mind_maps.list_mind_map_artifacts_with_content(
+                notebook_id
+            )
         except DecodingError:
             raise
         except (RPCError, httpx.HTTPError) as error:
@@ -206,11 +244,26 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 "Note-backed mind-map listing is temporarily unavailable (%s).",
                 type(error).__name__,
             )
-            return studio, None
+            failure = ArtifactListingFailure(
+                component=ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+                error_type=type(error).__name__[:80],
+                message="The note-backed mind-map listing is unavailable.",
+            )
+            return (
+                ArtifactListing(
+                    tuple(studio),
+                    is_complete=False,
+                    failures=(failure,),
+                ),
+                None,
+            )
         filtered = [
             item for item in note_backed if matches_artifact_type(item, ArtifactType.MIND_MAP)
         ]
-        return [*studio, *filtered], filtered
+        return (
+            ArtifactListing((*studio, *filtered), is_complete=True),
+            _NoteBackedMindMapState(filtered, mind_maps),
+        )
 
     async def list(
         self,
@@ -219,13 +272,22 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
     ) -> builtins.list[Artifact]:
         """Merge ordered Studio artifacts with the required notes-owned mind maps."""
 
+        listing = await self.list_with_status(notebook_id, artifact_type)
+        return list(listing.items)
+
+    async def list_with_status(
+        self,
+        notebook_id: str,
+        artifact_type: ArtifactType | None = None,
+    ) -> ArtifactListing:
+        """Merge artifacts while retaining bounded secondary-read evidence."""
         async with self._transport.operation_scope("artifacts.list") as lease:
-            artifacts, _note_state = await self._list_with_note_state(
+            listing, _note_state = await self._list_with_status_and_note_state(
                 notebook_id,
                 artifact_type,
                 expected_epoch=lease.epoch,
             )
-            return artifacts
+            return listing
 
     async def _list_studio(
         self,
@@ -283,42 +345,54 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         assert result is not None
         return result
 
-    async def get_prompt(self, notebook_id: str, artifact_id: str) -> str | None:
+    async def get_prompt(
+        self,
+        notebook_id: str,
+        artifact_id: str,
+        *,
+        require_complete: bool = False,
+    ) -> str | None:
         """Return the decoded Studio prompt or ``None`` for a note-backed mind map."""
+
+        if require_complete:
+            result = await self.lookup(notebook_id, artifact_id)
+            if result.status is ArtifactLookupStatus.UNKNOWN:
+                raise _incomplete_lookup_error(result.failures)
+            if result.status is ArtifactLookupStatus.MISSING:
+                raise ArtifactNotFoundError(artifact_id, method_id=LIST_ARTIFACTS_METHOD)
+            assert result.artifact is not None
+            return result.artifact.generation_prompt
 
         artifact = await self.get_or_none(notebook_id, artifact_id)
         if artifact is None:
             raise ArtifactNotFoundError(artifact_id, method_id=LIST_ARTIFACTS_METHOD)
         return artifact.generation_prompt
 
+    _creation_policy = ANDROID_CREATION_POLICY
+
+    @property
+    def creation_capabilities(self) -> tuple[ArtifactCreationCapability, ...]:
+        return super().creation_capabilities + (
+            ArtifactCreationCapability("interactive_mind_map", ("language", "instructions")),
+        )
+
     async def _send_create_artifact(
         self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str],
-        **options: Any,
+        creation: NormalizedArtifactCreationRequest,
     ) -> GenerationStatus:
-        if family == "audio" and not source_ids:
-            label = family.replace("_", " ").title()
-            raise ValidationError(f"{label} generation requires at least one source id")
-        if family == "audio":
-            language_code = _validate_audio_language(options.get("language"))
-            instructions = options.get("instructions")
-            if instructions is not None and not isinstance(instructions, str):
-                raise ValidationError("instructions must be a string or None")
-            format_code = _audio_format_code(options.get("audio_format"))
-            episode_length = _audio_length_code(options.get("audio_length"))
-
+        notebook_id = creation.notebook_id
+        source_ids = list(creation.source_ids)
+        if isinstance(creation, NormalizedAudio):
             # evidence: docs/android/proto-evidence-ledger.md#artifact-audio-overview-request
             generation_options = _PROTO.AudioOverviewGenerationOptions(
-                episode_focus=instructions or "",
-                episode_length=episode_length,
+                episode_focus=creation.instructions or "",
+                episode_length=creation.length_code,
                 source_ids=[_READ_PROTO.SourceId(id=source_id) for source_id in source_ids],
-                language_code=language_code,
+                language_code=creation.language,
             )
             generation_options.MergeFromString(
                 _WIRE_PROTO.WireAudioOverviewGenerationOptionsProjection(
-                    format=format_code
+                    format=creation.format_code
                 ).SerializeToString()
             )
             request = _PROTO.CreateArtifactRequest(
@@ -337,29 +411,12 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             expected_type = ArtifactTypeCode.AUDIO.value
             expected_variant = None
             family_label = "audio"
-        elif family in {
-            "video",
-            "cinematic_video",
-            "report",
-            "quiz",
-            "flashcards",
-            "interactive_mind_map",
-            "infographic",
-            "slide_deck",
-            "data_table",
-        }:
-            plan = build_create_artifact_plan(
-                notebook_id,
-                family,
-                source_ids,
-                **options,
-            )
+        else:
+            plan = build_normalized_create_artifact_plan(creation)
             request = plan.request
             expected_type = plan.expected_type
             expected_variant = plan.expected_variant
             family_label = plan.family_label
-        else:
-            raise AssertionError(f"unreachable artifact family: {family}")
 
         fingerprint = hashlib.sha256(
             b"\0".join(
@@ -398,25 +455,6 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             status=_status_from_code(artifact.status),
             url=artifact.url,
         )
-
-    async def _generate_supported_family(
-        self,
-        notebook_id: str,
-        family: str,
-        source_ids: builtins.list[str] | None,
-        **options: Any,
-    ) -> GenerationStatus:
-        if source_ids == []:
-            label = family.replace("_", " ").title()
-            raise ValidationError(f"{label} generation requires at least one source id")
-        async with self._operation_scope(f"artifacts.generate_{family}"):
-            resolved_source_ids = await self._resolve_source_ids(notebook_id, source_ids)
-            return await self._send_create_artifact(
-                notebook_id,
-                family,
-                resolved_source_ids,
-                **options,
-            )
 
     async def revise_slide(
         self,
@@ -523,19 +561,16 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         language: str | None,
         instructions: str | None,
     ) -> GenerationStatus:
-        language_code = _validate_audio_language(self._resolve_language(language))
-        normalize_creation_options(
-            "interactive_mind_map",
-            language=language_code,
-            instructions=instructions,
-        )
-        return await self._generate_supported_family(
-            notebook_id,
-            "interactive_mind_map",
-            source_ids,
-            language=language_code,
-            instructions=instructions,
-        )
+        async with self._operation_scope("artifacts.generate_interactive_mind_map"):
+            selected = await self._resolve_source_ids(notebook_id, source_ids)
+            return await self._create_artifact(
+                InteractiveMindMapCreationRequest(
+                    notebook_id,
+                    tuple(selected),
+                    self._resolve_language(language),
+                    instructions,
+                )
+            )
 
     async def _get_interactive_mind_map_tree(
         self,
@@ -564,7 +599,150 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             return None
         return decode_interactive_mind_map_tree(content, artifact_id=artifact_id)
 
-    async def download_audio(
+    async def prepare_downloads(self, request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Prepare completed candidates without exposing backend caches.
+
+        Validate the representation before I/O. Every returned selection is
+        bound to this backend instance, notebook, and current client generation.
+        Partial results retain typed failure evidence; they do not prove absence.
+        """
+        # Do this before either aggregate read.  The cache also resolves the
+        # format, but an empty list must still reject unsupported formats.
+        self._prepared_downloads.validate_request(request)
+        async with self._operation_scope("artifacts.prepare_downloads") as lease:
+            listing, note_state = await self._list_with_status_and_note_state(
+                request.notebook_id,
+                request.kind,
+                expected_epoch=lease.epoch,
+            )
+            mind_maps_by_id = {
+                mind_map.id: mind_map for mind_map in (note_state.mind_maps if note_state else ())
+            }
+            selections: list[ArtifactDownloadSelection] = []
+            for artifact in listing.items:
+                if artifact.kind is not request.kind or not artifact.is_completed:
+                    continue
+                selections.append(
+                    self._prepared_downloads.prepare(
+                        request,
+                        artifact,
+                        _PreparedAndroidDownload(
+                            artifact=artifact,
+                            mind_map=mind_maps_by_id.get(artifact.id),
+                        ),
+                        epoch=lease.epoch,
+                    )
+                )
+            return ArtifactDownloadListing(
+                selections=tuple(selections),
+                is_complete=listing.is_complete,
+                failures=listing.failures,
+            )
+
+    async def download(self, selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Download an owned prepared identity within its admitted generation."""
+        snapshot: _PreparedAndroidDownload | None = None
+        request: ArtifactDownloadRequest | None = None
+        try:
+            async with self._operation_scope("artifacts.download") as lease:
+                snapshot = self._prepared_downloads.require(selection, epoch=lease.epoch)
+                request = ArtifactDownloadRequest(
+                    selection.notebook_id,
+                    selection.kind,
+                    selection.representation,
+                )
+                if snapshot.mind_map is not None:
+                    # The aggregate read already hydrated the note-backed tree;
+                    # preserve that exact snapshot rather than issuing another
+                    # notes read between selection and publication.
+                    return await self._download_with_legacy_prefetch(
+                        request,
+                        output_path,
+                        selection.artifact_id,
+                        mind_maps=[snapshot.mind_map],
+                    )
+                return await self._download_with_legacy_prefetch(
+                    request,
+                    output_path,
+                    selection.artifact_id,
+                    artifacts_data=[snapshot.artifact],
+                    # A prepared Studio interactive mind map must not retry a
+                    # failed notes aggregate merely to prove its already-known id.
+                    mind_maps=[] if selection.kind is ArtifactType.MIND_MAP else None,
+                    artifacts=[snapshot.artifact],
+                )
+        finally:
+            del self, snapshot, request
+
+    async def _download_with_legacy_prefetch(
+        self,
+        request: ArtifactDownloadRequest,
+        output_path: str,
+        artifact_id: str | None,
+        *,
+        artifacts_data: builtins.list[Any] | None = None,
+        mind_maps: builtins.list[Any] | None = None,
+        artifacts: builtins.list[Artifact] | None = None,
+    ) -> str:
+        """Use explicit per-kind dispatch for old raw-prefetch callers."""
+        try:
+            if request.kind is ArtifactType.AUDIO:
+                return await self._download_audio_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.VIDEO:
+                return await self._download_video_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.INFOGRAPHIC:
+                return await self._download_infographic_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.SLIDE_DECK:
+                return await self._download_slide_deck_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "pdf" if request.output_format is None else request.output_format,
+                    artifacts_data=artifacts_data,
+                )
+            if request.kind is ArtifactType.REPORT:
+                return await self._download_report_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.MIND_MAP:
+                return await self._download_mind_map_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    mind_maps=mind_maps,
+                    artifacts_data=artifacts_data,
+                )
+            if request.kind is ArtifactType.DATA_TABLE:
+                return await self._download_data_table_legacy(
+                    request.notebook_id, output_path, artifact_id, artifacts_data=artifacts_data
+                )
+            if request.kind is ArtifactType.QUIZ:
+                return await self._download_quiz_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "json" if request.output_format is None else request.output_format,
+                    artifacts=artifacts,
+                )
+            if request.kind is ArtifactType.FLASHCARDS:
+                return await self._download_flashcards_legacy(
+                    request.notebook_id,
+                    output_path,
+                    artifact_id,
+                    "json" if request.output_format is None else request.output_format,
+                    artifacts=artifacts,
+                )
+            raise AssertionError(f"unsupported prepared artifact kind: {request.kind!r}")
+        finally:
+            del self, request, artifacts_data, mind_maps, artifacts
+
+    async def _download_audio_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -596,7 +774,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_video(
+    async def _download_video_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -628,7 +806,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_infographic(
+    async def _download_infographic_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -713,7 +891,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
         assert result is not None
         return result
 
-    async def download_slide_deck(
+    async def _download_slide_deck_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -761,7 +939,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_report(
+    async def _download_report_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -800,7 +978,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_mind_map(
+    async def _download_mind_map_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -847,7 +1025,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_data_table(
+    async def _download_data_table_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -966,7 +1144,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
                 artifact_id=selected.id,
             )
 
-    async def download_quiz(
+    async def _download_quiz_legacy(
         self,
         notebook_id: str,
         output_path: str,
@@ -985,7 +1163,7 @@ class AndroidArtifactsAPI(AndroidArtifactTransferMixin, AndroidArtifactReadMixin
             prefetched=artifacts,
         )
 
-    async def download_flashcards(
+    async def _download_flashcards_legacy(
         self,
         notebook_id: str,
         output_path: str,

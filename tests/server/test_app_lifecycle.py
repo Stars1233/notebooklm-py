@@ -14,6 +14,12 @@ from fastapi.testclient import TestClient
 
 from notebooklm import paths
 from notebooklm.client import NotebookLMClient
+from notebooklm.options import (  # noqa: E402
+    AndroidBackendConfig,
+    ClientConfig,
+    WebBackendConfig,
+    WebRequestOptions,
+)
 from notebooklm.server import app as app_module
 from notebooklm.server.app import create_app
 
@@ -318,7 +324,13 @@ def test_create_app_default_factory_threads_profile(monkeypatch) -> None:  # typ
     app = create_app(profile="work")  # no client_factory → exercises the default factory
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
-    assert seen == {"profile": "work", "keepalive": 600.0}
+    assert seen["profile"] == "work"
+    config = seen["config"]
+    assert isinstance(config, ClientConfig)
+    assert isinstance(config.backend, WebBackendConfig)
+    assert isinstance(config.backend.request, WebRequestOptions)
+    assert config.backend.session.keepalive_interval == 600.0
+    assert set(seen) == {"profile", "config"}
 
 
 def test_create_app_default_factory_threads_backend(monkeypatch) -> None:  # type: ignore[no-untyped-def]
@@ -336,7 +348,11 @@ def test_create_app_default_factory_threads_backend(monkeypatch) -> None:  # typ
     app = create_app(profile="work", backend="android")
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
-    assert seen == {"profile": "work", "keepalive": 600.0, "backend": "android"}
+    assert seen["profile"] == "work"
+    config = seen["config"]
+    assert isinstance(config, ClientConfig)
+    assert isinstance(config.backend, AndroidBackendConfig)
+    assert set(seen) == {"profile", "config"}
 
 
 def test_backend_does_not_reparameterize_injected_factory() -> None:

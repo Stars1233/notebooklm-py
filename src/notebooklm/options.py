@@ -46,6 +46,18 @@ ReadWindow: TypeAlias = float | None | AutoReadWindow
 RpcEventCallback: TypeAlias = Callable[[RpcTelemetryEvent], object]
 
 
+class UseDefault(Enum):
+    """Request the enclosing operation's budget or the client's configured default."""
+
+    USE_DEFAULT = "use_default"
+
+    def __repr__(self) -> str:
+        return "USE_DEFAULT"
+
+
+USE_DEFAULT = UseDefault.USE_DEFAULT
+
+
 @dataclass(frozen=True)
 class RuntimeOptions:
     """Shared runtime capacity and optional whole-operation budget."""
@@ -115,6 +127,29 @@ class WebSessionHooks:
 
 
 @dataclass(frozen=True)
+class WebRequestOptions:
+    """Opt into request policy captured when client construction is called.
+
+    Omitted fields resolve from the environment then. Recovery command, shell,
+    and headless settings are captured privately, outside diagnostic config.
+    """
+
+    base_url: str | None = None
+    language: str | None = None
+    build_label: str | None = None
+    transport: Literal["httpx", "curl_cffi"] | None = None
+    impersonate: str | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("base_url", "language", "build_label", "impersonate"):
+            value = getattr(self, name)
+            if value is not None and (not isinstance(value, str) or not value.strip()):
+                raise ValueError(f"{name} must be a nonempty string or None")
+        if self.transport not in (None, "httpx", "curl_cffi"):
+            raise ValueError("transport must be 'httpx', 'curl_cffi', or None")
+
+
+@dataclass(frozen=True)
 class WebBackendConfig:
     """Construction specification for the Web backend."""
 
@@ -122,12 +157,15 @@ class WebBackendConfig:
     transport: WebTransportOptions = field(default_factory=WebTransportOptions)
     session: WebSessionOptions = field(default_factory=WebSessionOptions)
     hooks: WebSessionHooks | None = None
+    request: WebRequestOptions | None = None
 
     def __post_init__(self) -> None:
         if self.kind != "web":
             raise ValueError("WebBackendConfig.kind must be 'web'")
         _instance(self.transport, WebTransportOptions, name="transport")
         _instance(self.session, WebSessionOptions, name="session")
+        if self.request is not None:
+            _instance(self.request, WebRequestOptions, name="request")
         if self.hooks is not None:
             _instance(self.hooks, WebSessionHooks, name="hooks")
 
@@ -245,7 +283,10 @@ __all__ = [
     "RuntimeOptions",
     "TimeoutOptions",
     "TransferOptions",
+    "USE_DEFAULT",
+    "UseDefault",
     "WebBackendConfig",
+    "WebRequestOptions",
     "WebSessionHooks",
     "WebSessionOptions",
     "WebTransportOptions",

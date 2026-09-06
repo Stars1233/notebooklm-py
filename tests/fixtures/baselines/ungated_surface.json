@@ -1,5 +1,7 @@
 {
   "notebooklm": [
+    "SourceDeleteOutcome",
+    "ArtifactCreationCapability",
     "__version__",
     "NotebookLMClient",
     "AuthTokens",
@@ -28,6 +30,11 @@
     "SourceGuide",
     "SourceSummary",
     "Artifact",
+    "ArtifactListing",
+    "ArtifactListingComponent",
+    "ArtifactListingFailure",
+    "ArtifactLookup",
+    "ArtifactLookupStatus",
     "ArtifactInfographic",
     "ArtifactMedia",
     "ArtifactMediaType",
@@ -180,6 +187,17 @@
     "get_default_language",
     "PERSONAL_BASE_HOST"
   ],
+  "notebooklm.downloads": [
+    "DOWNLOAD_FORMAT_NAMES",
+    "DOWNLOAD_REGISTRY",
+    "DOWNLOAD_SPECS_BY_NAME",
+    "EXTENSION_MIME_TYPES",
+    "FORMAT_EXTENSIONS",
+    "DownloadFormatSpec",
+    "DownloadRegistryEntry",
+    "DownloadTypeSpec",
+    "resolve_download_format"
+  ],
   "notebooklm.exceptions": [
     "NotebookLMError",
     "NotFoundError",
@@ -275,7 +293,10 @@
     "RuntimeOptions",
     "TimeoutOptions",
     "TransferOptions",
+    "USE_DEFAULT",
+    "UseDefault",
     "WebBackendConfig",
+    "WebRequestOptions",
     "WebSessionHooks",
     "WebSessionOptions",
     "WebTransportOptions"

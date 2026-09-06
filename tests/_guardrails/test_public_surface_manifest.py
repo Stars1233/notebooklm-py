@@ -284,6 +284,11 @@ _NEUTRAL_DOMAIN_ENUMS = [*_REEXPORTED_RPC_ENUMS, "ArtifactTypeCode", "GrpcStatus
 _TOP_LEVEL_TYPE_EXPORTS = [
     "AccountLimits",
     "Artifact",
+    "ArtifactListing",
+    "ArtifactListingComponent",
+    "ArtifactListingFailure",
+    "ArtifactLookup",
+    "ArtifactLookupStatus",
     "ArtifactType",
     "AskResult",
     "AudioFormat",

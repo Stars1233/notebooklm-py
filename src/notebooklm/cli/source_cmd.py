@@ -1059,7 +1059,7 @@ def source_clean(ctx, notebook_id, dry_run, yes, json_output, client_auth):
                     )
                 result = await execute_source_clean(
                     preview,
-                    delete_source=client.sources.delete,
+                    client=client,
                 )
 
             _dispatch_source_clean_result(result, json_output=json_output, yes=yes, ctx=ctx)

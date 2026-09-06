@@ -10,6 +10,7 @@ import notebooklm.client as client_module
 from notebooklm.cli.auth_runtime import resolve_client_factory
 from notebooklm.cli.completion import CompletionProvider
 from notebooklm.notebooklm_cli import cli
+from notebooklm.options import AndroidBackendConfig, ClientConfig
 
 
 def _ctx(obj: dict[str, Any]) -> click.Context:
@@ -28,7 +29,10 @@ def test_explicit_backend_is_merged_into_real_factory_kwargs() -> None:
 
     resolved = resolve_client_factory(_ctx({"backend": "android"}), default=factory)
     resolved("auth", timeout=12)
-    assert seen == {"auth": "auth", "timeout": 12, "backend": "android"}
+    assert seen == {
+        "auth": "auth",
+        "config": ClientConfig(backend=AndroidBackendConfig(rpc_timeout=12)),
+    }
 
 
 def test_explicit_backend_does_not_reparameterize_injected_factory() -> None:
@@ -69,7 +73,7 @@ def test_shell_completion_threads_backend_only_to_default_factory(
     monkeypatch.setattr(client_module, "NotebookLMClient", default_factory)
     ctx = _ctx({"backend": "android"})
     CompletionProvider()._make_client("auth", ctx)
-    assert seen == [("auth", {"backend": "android"})]
+    assert seen == [("auth", {"config": ClientConfig(backend=AndroidBackendConfig())})]
 
     injected_calls: list[object] = []
     provider = CompletionProvider(

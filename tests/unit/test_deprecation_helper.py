@@ -59,6 +59,7 @@ def _auth_tokens() -> AuthTokens:
 
 def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None:
     assert tuple(DEPRECATION_SPECS) == (
+        "mind_map_legacy_terminal_hydration",
         "auth_tokens_from_storage",
         "auth_tokens_sync_storage_construction",
         "auth_tokens_flat_cookies",
@@ -79,6 +80,8 @@ def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None
         "mcp_confirmed_name_references",
         "artifact_poll_follower_options",
         "artifact_poll_follower_callback",
+        "artifact_raw_download_prefetch",
+        "artifact_ambiguous_absence",
     )
     assert [field.name for field in fields(DeprecationSpec)] == [
         "key",
@@ -233,7 +236,38 @@ def test_registered_deprecation_registry_is_exact_frozen_and_immutable() -> None
             "0.9.0",
             5,
         ),
+        "artifact_raw_download_prefetch": (
+            "Raw artifact download prefetch parameters are deprecated. Use "
+            "artifacts.prepare_downloads(...) and artifacts.download(selection, path). "
+            "Removal in v1.0 requires this warning's own shipped compatibility interval; "
+            "otherwise they remain supported until a later breaking release.",
+            "notebooklm.NotebookLMClient",
+            "0.9.0",
+            4,
+        ),
+        "artifact_ambiguous_absence": (
+            "Artifact get()/get_or_none() and Android get_prompt(..., "
+            "require_complete=False) encountered an unavailable aggregate backing and "
+            "are preserving the legacy absence result. Use artifacts.lookup(...) or "
+            "get_prompt(..., require_complete=True) to distinguish MISSING from UNKNOWN. "
+            "The legacy ambiguous-absence projection is scheduled to change in v1.0 only "
+            "after this warning has shipped for the required interval; otherwise it will "
+            "remain until a later breaking release.",
+            "notebooklm.NotebookLMClient",
+            "0.9.0",
+            4,
+        ),
     }
+    expected["mind_map_legacy_terminal_hydration"] = (
+        "Continuing Web interactive mind-map hydration after failed/removed completion "
+        "is deprecated; pass failure_policy='raise' to reject before hydration. "
+        "The legacy default will change only after this warning's own stable release "
+        "and migration interval. The earliest target is v1.0, conditional on that "
+        "interval having elapsed; v1.0 alone does not authorize the change.",
+        "notebooklm.NotebookLMClient.mind_maps",
+        "0.9.0",
+        3,
+    )
     for key, spec in DEPRECATION_SPECS.items():
         message, replacement, since, stacklevel = expected[key]
         assert spec == DeprecationSpec(
