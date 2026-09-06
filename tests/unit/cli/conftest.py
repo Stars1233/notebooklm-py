@@ -14,7 +14,12 @@ import notebooklm.cli.context as context_module
 import notebooklm.cli.helpers as helpers_module
 import notebooklm.cli.resolve as resolve_module
 import notebooklm.cli.services.session_context as session_context_module
+from notebooklm.downloads import DOWNLOAD_REGISTRY, resolve_download_format
 from notebooklm.types import (
+    Artifact,
+    ArtifactDownloadListing,
+    ArtifactDownloadRequest,
+    ArtifactDownloadSelection,
     MindMapResult,
     ResearchSource,
     ResearchStart,
@@ -292,6 +297,45 @@ class MockNote:
         self.title = title
 
 
+def configure_prepared_artifact_downloads(mock_client: MagicMock) -> None:
+    """Install the typed download contract on a client double's artifacts namespace."""
+
+    async def prepare_downloads(request: ArtifactDownloadRequest) -> ArtifactDownloadListing:
+        """Project the overridden typed list into public prepared identities."""
+        representation, output = resolve_download_format(request.kind, request.output_format)
+        artifacts = await mock_client.artifacts.list(request.notebook_id)
+        selections = tuple(
+            ArtifactDownloadSelection(
+                notebook_id=request.notebook_id,
+                artifact_id=artifact.id,
+                kind=artifact.kind,
+                title=artifact.title,
+                created_at=artifact.created_at,
+                last_modified_at=artifact.last_modified_at,
+                representation=representation,
+                extension=output.extension,
+                mime_type=output.mime_type,
+            )
+            for artifact in artifacts
+            if isinstance(artifact, Artifact)
+            and artifact.kind is request.kind
+            and artifact.is_completed
+        )
+        return ArtifactDownloadListing(selections, is_complete=True)
+
+    async def download(selection: ArtifactDownloadSelection, output_path: str) -> str:
+        """Bridge typed execution to a test's established per-kind callback."""
+        entry = next(item for item in DOWNLOAD_REGISTRY if item.kind is selection.kind)
+        legacy = getattr(mock_client.artifacts, entry.download_attr)
+        kwargs: dict[str, str] = {"artifact_id": selection.artifact_id}
+        if entry.format_kwarg:
+            kwargs[entry.format_kwarg] = selection.representation
+        return await legacy(selection.notebook_id, output_path, **kwargs)
+
+    mock_client.artifacts.prepare_downloads = AsyncMock(side_effect=prepare_downloads)
+    mock_client.artifacts.download = AsyncMock(side_effect=download)
+
+
 def create_mock_client():
     """Helper to create a properly configured mock client.
 
@@ -418,18 +462,7 @@ def create_mock_client():
     mock_client.artifacts.list = AsyncMock(side_effect=make_artifact_list)
     mock_client.notes.list = AsyncMock(side_effect=make_note_list)
 
-    # The ``_app`` download executor prefers the ``_list_for_download`` seam
-    # (``list`` + raw rows in one RPC pass; issue #1488). On a bare ``MagicMock``
-    # this attribute would auto-spawn a non-awaitable child mock, so wire it to
-    # delegate to the (possibly test-overridden) ``artifacts.list`` and return
-    # the ``(typed, raw_studio_rows, mind_map_rows)`` tuple the executor expects.
-    # Empty raw rows are correct for these doubles: ``download_<x>`` is itself
-    # mocked, so its (now-suppressed) inner re-list never runs.
-    async def _list_for_download(notebook_id, artifact_type=None):
-        typed = await mock_client.artifacts.list(notebook_id)
-        return typed, [], []
-
-    mock_client.artifacts._list_for_download = AsyncMock(side_effect=_list_for_download)
+    configure_prepared_artifact_downloads(mock_client)
 
     return mock_client
 

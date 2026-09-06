@@ -42,7 +42,11 @@ from notebooklm.mcp.tools.studio import _passthrough_sources  # noqa: E402
 from notebooklm.notebooklm_cli import cli  # noqa: E402
 from notebooklm.types import Artifact, GenerationState  # noqa: E402
 
-from .conftest import create_mock_client, inject_client  # noqa: E402
+from .conftest import (  # noqa: E402
+    configure_prepared_artifact_downloads,
+    create_mock_client,
+    inject_client,
+)
 
 # UUID-shaped ids so BOTH adapters treat them as already-full (the MCP
 # resolve_notebook skips the name lookup; the CLI resolve_source_ids skips the
@@ -155,7 +159,13 @@ def _drive_mcp(
     client = MagicMock()
     for ns in _NAMESPACES:
         setattr(client, ns, MagicMock())
-    client.artifacts._list_for_download = None
+    configure_prepared_artifact_downloads(client)
+
+    @contextlib.asynccontextmanager
+    async def operation(*_args: Any, **_kwargs: Any) -> Any:
+        yield object()
+
+    client.operation = operation
     if setup is not None:
         setup(client)
 
@@ -184,7 +194,6 @@ def _drive_cli(argv: list[str], setup: Any = None) -> tuple[Any, Any]:
     sentinel abort surfaces as a non-zero exit rather than propagating).
     """
     client = create_mock_client()
-    client.artifacts._list_for_download = None
     if setup is not None:
         setup(client)
     with (
@@ -548,7 +557,6 @@ def test_download_audio_parity(tmp_path: Any) -> None:
     out = str(tmp_path / "out.mp3")
 
     def setup(client: Any) -> None:
-        client.artifacts._list_for_download = None
         client.artifacts.list = AsyncMock(return_value=[_AUDIO_ARTIFACT])
 
     mcp = _mcp_capture(
