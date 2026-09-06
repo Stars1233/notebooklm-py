@@ -655,6 +655,7 @@ class FakeMindMaps:
         language: str | None = "en",
         instructions: str | None = None,
         wait: bool = True,
+        failure_policy: str = "legacy",
     ) -> Any:
         # Record the forwarded kwargs so a test can assert instructions reach here.
         self._s.last_mind_map_generate = {

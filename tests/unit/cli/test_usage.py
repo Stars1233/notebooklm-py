@@ -309,5 +309,5 @@ def test_selected_profile_storage_and_backend_reach_runtime(
     ctx = auth.call_args.args[0]
     assert ctx.obj["profile"] == "work"
     assert ctx.obj["storage_path"] == storage
-    assert factory.call_args.kwargs["backend"] == backend
+    assert factory.call_args.kwargs["config"].backend.kind == backend
     usage_client.settings.get_usage.assert_awaited_once_with()

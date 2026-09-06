@@ -1727,6 +1727,7 @@ class TestLoginLanguageSync:
     def test_sync_uses_explicit_storage_and_profile(self, tmp_path):
         """Language sync should use the freshly written login target."""
         from notebooklm.cli.session_cmd import _sync_server_language_to_config
+        from notebooklm.options import ClientConfig, WebBackendConfig, WebRequestOptions
 
         config_path = tmp_path / "config.json"
         storage_path = tmp_path / "profiles" / "work" / "storage_state.json"
@@ -1748,6 +1749,7 @@ class TestLoginLanguageSync:
         mock_client_cls.from_storage.assert_called_once_with(
             path=str(storage_path),
             profile="work",
+            config=ClientConfig(backend=WebBackendConfig(request=WebRequestOptions())),
         )
         config = json.loads(config_path.read_text())
         assert config["language"] == "fr"

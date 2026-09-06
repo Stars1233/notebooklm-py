@@ -1492,6 +1492,9 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 ```text
 src/notebooklm/
 ├── __init__.py                  # Public exports
+├── _request_context.py          # Task-local immutable Web request-policy context
+├── _request_policy.py           # Bound request/recovery settings and redacted policy identity
+├── downloads.py                 # Public representation registry and format/extension/MIME resolution
 ├── __main__.py                  # `python -m notebooklm` entry point
 ├── client.py                    # NotebookLMClient
 ├── auth.py                      # Authentication facade — eager auth aliases + narrow lazy browser capabilities (see file table above)
@@ -1541,6 +1544,7 @@ src/notebooklm/
 ├── _redact.py                   # Transport-neutral secret/home-path/file-link scrubber (redact(msg, max_length)); shared chokepoint under both mcp/_errors.py and server/_errors.py
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
+│   ├── client_config.py         # Explicit bound request-policy configuration for first-party client factories
 │   ├── artifacts.py             # Click-free artifact core: get/rename/delete/export + poll/wait/retry; kind-aware mind-map dispatch (mind_maps.list for rename, notes.list_mind_maps for delete), get_artifact raises ArtifactNotFoundError, typed Rename/Export results + ArtifactStatusView/status_view neutral status DTO (CLI builds every --json envelope from the typed fields)
 │   ├── auth_check.py            # Click-free `auth check` diagnostics core: run_auth_check(plan, read_env_auth_json=…) -> AuthCheckResult (storage-exists/json-valid/cookies-present/SID + optional token-fetch); AuthCheckPlan carries pre-resolved values + the auth_source display label; inline-auth read injected (CLI owns the AuthSource plan-build + Rich table + exit code)
 │   ├── chat.py                  # Click-free chat core: conversation-id selection ladder + configure mode/goal/length dispatch + history fetch/format-as-data + ask save-as-note workflow (raises public ValidationError; status emitted into injected ProgressSink)
@@ -1701,6 +1705,7 @@ src/notebooklm/
 │               └── sharing_pb2_grpc.py    # Exact two-method generated sharing stub
 ├── _web/                        # Private batchexecute web-backend implementation package
 │   ├── __init__.py              # Package boundary
+│   ├── assets.py                # Web asset lifecycle, live per-hop credentials, and generation fences
 │   ├── assembly.py              # Web-only branch-local runtime and namespace assembler
 │   ├── contracts.py             # Web-only Kernel and RpcCaller Protocols
 │   ├── raw.py                   # Thin raw-RPC adapter over the shared Web executor
@@ -1714,6 +1719,7 @@ src/notebooklm/
 │   │   └── table.py             # Positional data-table decoding
 │   ├── params/                  # Web batchexecute request builders
 │       ├── __init__.py
+│   │   ├── creation.py          # Exhaustive wire encoder for normalized Web creation requests
 │       ├── artifacts.py         # Artifact request payloads
 │       └── notebooks.py         # Notebook request payloads
 │   └── transport/               # Web HTTP transport core
@@ -1760,12 +1766,19 @@ src/notebooklm/
 │   └── lifecycle.py             # Root lifecycle waves + phased transport orchestration
 ├── _source/                     # Neutral source services + lazy compatibility exports
 │   ├── __init__.py              # Lazy package-level shims for moved web service names
+│   ├── delete_batch.py          # Supervised source deletion with complete per-item outcomes
 │   ├── batch.py                 # Backend-neutral per-URL batch result record
 │   ├── drive.py                 # Drive file-id/resource-key parsing and safe display labels
 │   ├── markdown.py              # Source fulltext HTML-to-Markdown conversion policy
 │   └── polling.py               # Source polling coordinator
 ├── _artifact/                   # Artifact-feature subpackage (promoted from flat _artifact_*.py, #1328)
 │   ├── __init__.py              # Re-exports the cluster's public service classes/builders
+│   ├── _publication.py          # Settled staged writers and epoch-fenced atomic publication
+│   ├── creation.py              # Closed per-family artifact creation inputs
+│   ├── creation_normalized.py   # Frozen per-family normalized creation union
+│   ├── creation_policy.py       # Shared creation defaults and explicit backend compatibility policy
+│   ├── creation_reports.py      # Shared report presets and prompt normalization
+│   ├── download_selection.py    # Weak per-backend prepared download ownership and generation validation
 │   ├── _download_client.py      # Download trusted-host allowlist + transport-aware client factory with per-hop credentials
 │   ├── _guarded_transfer.py     # Neutral bounded representation transfer + redirect loop
 │   ├── _redirect_guard.py       # Per-redirect-hop host/scheme and credential-policy enforcement (#1521)
@@ -1796,6 +1809,7 @@ src/notebooklm/
 ├── _chat.py                     # Abstract ChatAPI + shared ask/configure/settings/turn-count orchestration over typed hooks
 ├── _auth/                       # Auth subpackage (forwarded through auth.py facade)
 │   ├── __init__.py
+│   ├── bound_refresh.py         # Request-policy scope for bound Web auth refresh
 │   ├── paths.py                 # Storage paths and filesystem helpers
 │   ├── extraction.py            # Cookie/token extraction from browser sessions
 │   ├── cookies.py               # Storage loaders/converters + recovery adapters
@@ -1836,6 +1850,8 @@ src/notebooklm/
 │   └── oauth_token.py           # Visible EmbeddedSetup OAuth-cookie capture
 ├── _types/                      # Dataclass implementation package re-exported by types.py
 │   ├── __init__.py
+│   ├── artifact_download.py     # Public typed download requests, selections, and listing evidence
+│   ├── source_delete.py         # Typed per-source deletion outcomes
 │   ├── artifact_content.py       # Typed artifact media, slide/infographic content, and per-user state records (#2135, #2136)
 │   ├── artifacts.py
 │   ├── chat.py

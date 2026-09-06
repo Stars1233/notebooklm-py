@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import warnings
 from dataclasses import replace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from notebooklm._client_metrics import ClientMetrics
+from notebooklm._runtime.call_supervisor import CallSupervisor
+from notebooklm._runtime.lifecycle import ClientLifecycle
 from notebooklm._types.artifact_download import ArtifactDownloadRequest
 from notebooklm._web.artifacts import WebArtifactsAPI
 from notebooklm._web.mind_maps import NoteBackedMindMapService
@@ -268,3 +272,53 @@ async def test_android_legacy_prefetch_keeps_an_explicit_empty_representation(
     )
 
     assert legacy.await_args.args[3] == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("backend", ["web", "android"])
+async def test_prepared_download_uses_real_admission_epoch_across_close(backend: str) -> None:
+    """An admitted transfer drains; its old identity cannot survive reopen."""
+    supervisor = CallSupervisor(metrics=ClientMetrics(), max_concurrent_rpcs=None)
+    lifecycle = ClientLifecycle(
+        supervisor=supervisor, transports=(), loop_participants=(supervisor,)
+    )
+    if backend == "web":
+        api = _web_api([["report", "Report", 2, None, 3]], note_result=[])
+        api._supervisor = supervisor
+    else:
+        raw = _artifact("report", type_code=_PROTO.ARTIFACT_TYPE_TAILORED_REPORT)
+        _, _, _, _, api = _graph([raw])
+        api._supervisor = supervisor
+        api._transport.operation_scope = supervisor.operation_scope
+
+    started = asyncio.Event()
+    settle = asyncio.Event()
+
+    async def transfer(*args, **kwargs):
+        started.set()
+        await settle.wait()
+        return "report.md"
+
+    dispatch = AsyncMock(side_effect=transfer)
+    api._download_with_legacy_prefetch = dispatch
+    await lifecycle.open()
+    try:
+        selection = (
+            await api.prepare_downloads(ArtifactDownloadRequest("notebook-1", ArtifactType.REPORT))
+        ).selections[0]
+        downloading = asyncio.create_task(api.download(selection, "report.md"))
+        await asyncio.wait_for(started.wait(), 1)
+        closing = asyncio.create_task(lifecycle.close())
+        await asyncio.sleep(0)
+        assert not closing.done(), "close must drain an admitted typed download"
+        settle.set()
+        assert await downloading == "report.md"
+        await closing
+        await lifecycle.open()
+        dispatch.reset_mock()
+        with pytest.raises(ValidationError, match="client and generation"):
+            await api.download(selection, "stale.md")
+        dispatch.assert_not_awaited()
+    finally:
+        settle.set()
+        await lifecycle.close()

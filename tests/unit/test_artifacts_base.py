@@ -127,7 +127,11 @@ def test_creation_capabilities_are_immutable_implementation_metadata() -> None:
     capabilities = _ConcreteArtifacts().creation_capabilities
     assert isinstance(capabilities, tuple)
     assert next(item for item in capabilities if item.family == "video").supported_options == (
-        "language", "instructions", "video_format", "video_style", "style_prompt"
+        "language",
+        "instructions",
+        "video_format",
+        "video_style",
+        "style_prompt",
     )
 
 

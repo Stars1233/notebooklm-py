@@ -48,6 +48,7 @@ from notebooklm.types import (
     SourceGuide,
     SourceTimeoutError,
 )
+from tests._helpers.operation import ClientStub
 
 
 def _wait_task(spec: dict) -> ResearchTask:
@@ -86,7 +87,7 @@ def _start(spec: dict) -> ResearchStart:
 
 @pytest.mark.asyncio
 async def test_source_delete_executes_exact_prepared_target() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             list=AsyncMock(return_value=[Source(id="src_abcdef", title="Paper")]),
             delete=AsyncMock(),
@@ -106,7 +107,7 @@ async def test_source_delete_executes_exact_prepared_target() -> None:
 
 @pytest.mark.asyncio
 async def test_source_delete_noninteractive_without_approval_uses_cli_confirmation_error() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             list=AsyncMock(return_value=[Source(id="src_abcdef", title="Paper")]),
             delete=AsyncMock(),
@@ -136,7 +137,7 @@ async def test_source_delete_noninteractive_without_approval_uses_cli_confirmati
 
 @pytest.mark.asyncio
 async def test_source_delete_declined_confirmation_preserves_resolved_target() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             list=AsyncMock(return_value=[Source(id="src_abcdef", title="Paper")]),
             delete=AsyncMock(),
@@ -160,7 +161,7 @@ async def test_source_delete_declined_confirmation_preserves_resolved_target() -
 
 @pytest.mark.asyncio
 async def test_source_delete_by_title_confirms_then_executes_same_resolved_target() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             list=AsyncMock(return_value=[Source(id="src_1", title="Paper")]),
             delete=AsyncMock(),
@@ -190,7 +191,7 @@ async def test_source_rename_returns_payload(monkeypatch: pytest.MonkeyPatch) ->
         "resolve_source_id",
         AsyncMock(return_value="src_full"),
     )
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(rename=AsyncMock(return_value=Source(id="src_full", title="New")))
     )
 
@@ -221,7 +222,7 @@ async def test_source_rename_returns_payload(monkeypatch: pytest.MonkeyPatch) ->
 
 @pytest.mark.asyncio
 async def test_source_fulltext_service_returns_fetched_content() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             get_fulltext=AsyncMock(
                 return_value=SourceFulltext(
@@ -254,7 +255,7 @@ async def test_source_guide_service_normalizes_untrusted_backend_payload() -> No
     # The typed ``SourceGuide`` return carries the (still possibly untrusted)
     # backend values; the service strips/normalizes the keywords and blanks a
     # non-str summary.
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(
             get_guide=AsyncMock(
                 return_value=SourceGuide(
@@ -277,9 +278,7 @@ async def test_source_guide_service_normalizes_untrusted_backend_payload() -> No
 
 @pytest.mark.asyncio
 async def test_source_guide_service_treats_empty_guide_as_empty() -> None:
-    client = SimpleNamespace(
-        sources=SimpleNamespace(get_guide=AsyncMock(return_value=SourceGuide()))
-    )
+    client = ClientStub(sources=SimpleNamespace(get_guide=AsyncMock(return_value=SourceGuide())))
 
     result = await execute_source_guide(
         client,
@@ -297,7 +296,7 @@ async def test_source_add_research_waits_with_started_task_id_and_imports(
     imported = SimpleNamespace(imported=["src_1"], cited_selection=None, sources=[])
     import_research_sources = AsyncMock(return_value=imported)
     monkeypatch.setattr(source_research, "import_research_sources", import_research_sources)
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(
@@ -357,7 +356,7 @@ async def test_source_add_research_json_import_stays_silent(
     imported = SimpleNamespace(imported=["src_1"], cited_selection=None, sources=[])
     import_research_sources = AsyncMock(return_value=imported)
     monkeypatch.setattr(source_research, "import_research_sources", import_research_sources)
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(
@@ -525,7 +524,7 @@ async def test_source_add_research_failed_returns_terminal_outcome() -> None:
     # status maps to the ``failed`` terminal outcome. (The ``timeout`` outcome
     # is reached only via the ``TimeoutError`` branch, not a returned status —
     # the typed return can never carry a "timeout" status string.)
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(
@@ -556,7 +555,7 @@ async def test_source_add_research_failed_returns_terminal_outcome() -> None:
 @pytest.mark.asyncio
 async def test_source_add_research_start_failed_returns_outcome() -> None:
     """``research.start`` returning falsy maps to ``outcome='start_failed'``."""
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=None),
             wait_for_completion=AsyncMock(),
@@ -585,7 +584,7 @@ async def test_source_add_research_start_failed_returns_outcome() -> None:
 @pytest.mark.asyncio
 async def test_source_add_research_timeout_error_maps_to_timeout_outcome() -> None:
     """``wait_for_completion`` raising :class:`TimeoutError` maps to ``timeout``."""
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(side_effect=TimeoutError("budget exhausted")),
@@ -615,7 +614,7 @@ async def test_source_add_research_unknown_status_returns_unknown_outcome() -> N
     # ``wait_for_completion`` should only ever return a terminal status, but the
     # service keeps a defensive fallback for any non-terminal status it sees
     # (here ``IN_PROGRESS``) -> ``unknown_status``.
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(
@@ -645,7 +644,7 @@ async def test_source_add_research_unknown_status_returns_unknown_outcome() -> N
 @pytest.mark.asyncio
 async def test_source_add_research_no_wait_returns_early_outcome() -> None:
     """``--no-wait`` skips the wait loop and returns ``started_no_wait``."""
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(),
@@ -673,7 +672,7 @@ async def test_source_add_research_no_wait_returns_early_outcome() -> None:
 
 @pytest.mark.asyncio
 async def test_source_add_research_delegates_timeout_budget_to_research_api() -> None:
-    client = SimpleNamespace(
+    client = ClientStub(
         research=SimpleNamespace(
             start=AsyncMock(return_value=_start({"task_id": "task_123"})),
             wait_for_completion=AsyncMock(
@@ -719,7 +718,7 @@ async def test_source_wait_timeout_returns_typed_outcome() -> None:
         yield
 
     timeout_exc = SourceTimeoutError("src_1", 10.0, 2)
-    client = SimpleNamespace(
+    client = ClientStub(
         sources=SimpleNamespace(wait_until_ready=AsyncMock(side_effect=timeout_exc))
     )
 

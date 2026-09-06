@@ -272,11 +272,15 @@ policy to one client, supply `WebRequestOptions`:
 from notebooklm import NotebookLMClient
 from notebooklm.options import ClientConfig, WebBackendConfig, WebRequestOptions
 
-config = ClientConfig(backend=WebBackendConfig(request=WebRequestOptions(
-    base_url="https://notebook.google.com",
-    language="en",
-    # build_label, transport, and impersonate may also be supplied explicitly.
-)))
+config = ClientConfig(
+    backend=WebBackendConfig(
+        request=WebRequestOptions(
+            base_url="https://notebook.google.com",
+            language="en",
+            # build_label, transport, and impersonate may also be supplied explicitly.
+        )
+    )
+)
 pending = NotebookLMClient.from_storage(profile="work", config=config)
 # Defaults were captured at the call above, before deferred authentication I/O.
 async with pending as client:

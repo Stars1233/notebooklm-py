@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from tests._helpers.android_notes import StatefulAndroidNotesTransport
+from tests._helpers.operation import ClientStub
 
 from notebooklm._android.codecs.notes import (
     decode_note,
@@ -144,7 +144,7 @@ async def test_app_note_save_runtime_none_preserves_omitted_android_field_and_re
     expected_content: str,
 ) -> None:
     transport = StatefulAndroidNotesTransport(notebook_id=NOTEBOOK_ID, note_id=NOTE_ID)
-    client = SimpleNamespace(notes=_api(transport))
+    client = ClientStub(notes=_api(transport))
 
     result = await execute_note_save(
         client,

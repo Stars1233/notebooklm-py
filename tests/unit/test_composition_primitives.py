@@ -136,7 +136,7 @@ def test_backend_assembly_is_complete_frozen_discriminated_graph() -> None:
 def test_backend_config_carriers_keep_runtime_options_on_the_shared_owner() -> None:
     expected = ("backend", "retry", "transfers", "features", "shared_config")
 
-    assert tuple(field.name for field in fields(WebAssemblyConfig)) == expected
+    assert tuple(field.name for field in fields(WebAssemblyConfig)) == (*expected, "request_policy")
     assert tuple(field.name for field in fields(AndroidAssemblyConfig)) == expected
 
 

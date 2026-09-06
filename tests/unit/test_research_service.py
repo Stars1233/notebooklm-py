@@ -26,6 +26,7 @@ from notebooklm.cli.services.research import (
     ResearchWaitResult,
     execute_research_wait,
 )
+from tests._helpers.operation import ClientStub
 
 # ---------------------------------------------------------------------------
 # Fixtures: a fake notebook client with only the surface the service touches
@@ -90,7 +91,7 @@ class _FakeResearchAPI:
         self.wait_for_completion = AsyncMock(side_effect=adapted)
 
 
-class _FakeClient:
+class _FakeClient(ClientStub):
     def __init__(self, *, wait_side_effect: Any) -> None:
         self.research = _FakeResearchAPI(side_effect=wait_side_effect)
 
