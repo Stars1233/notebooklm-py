@@ -10,6 +10,7 @@ import tempfile
 import threading
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -31,6 +32,7 @@ from ._guarded_transfer import (
     TransferPolicy,
     guarded_transfer,
 )
+from ._publication import AssetPublication, write_staging
 from ._redirect_guard import redirect_revalidation_hooks
 
 logger = logging.getLogger(__name__)
@@ -148,7 +150,7 @@ def _scrubbed_http_status_error(status_code: int) -> httpx.HTTPStatusError:
     )
 
 
-class AssetDownloadService:
+class AssetDownloadService(AssetPublication):
     """Shared streaming, rejection, staging, and atomic-replace asset plane."""
 
     def __init__(
@@ -168,6 +170,9 @@ class AssetDownloadService:
         self._chain = chain
         self._on_auth_error = on_auth_error
 
+    async def _load_cookies(self) -> Any:
+        return await asyncio.to_thread(self._cookie_loader, self._storage_path)
+
     async def download_urls_batch(
         self,
         urls_and_paths: list[tuple[str, str]],
@@ -180,7 +185,8 @@ class AssetDownloadService:
         policy_factory = credential_policy_factory or self._credential_policy_factory
         auth_error_hook = on_auth_error or self._on_auth_error
 
-        cookies = await asyncio.to_thread(self._cookie_loader, self._storage_path)
+        cookies = await self._load_cookies()
+        self._assert_active()
         credential_for: CredentialPolicy | None = None
 
         async def selected_credential_for(url: str) -> HopCredentials | None:
@@ -194,9 +200,9 @@ class AssetDownloadService:
             trusted_host=self._trusted_host,
         )
         first_auth_error: AuthError | None = None
-        async with client:
+        async with self._client_scope(client):
             for url, output_path in urls_and_paths:
-                credential_for = policy_factory(cookies)
+                credential_for = self._guard_credentials(policy_factory(cookies))
                 display_host = ""
                 parsed_path = ""
                 try:
@@ -230,9 +236,10 @@ class AssetDownloadService:
                             "media", details="Received HTML instead of media file"
                         )
 
-                    output_file = Path(output_path)
-                    output_file.parent.mkdir(parents=True, exist_ok=True)
-                    await asyncio.to_thread(output_file.write_bytes, response.content)
+                    await self.write_file(
+                        output_path,
+                        partial(Path.write_bytes, data=response.content),
+                    )
                     result.succeeded.append(output_path)
                     logger.debug(
                         "Downloaded %s%s (%d bytes)",
@@ -351,8 +358,9 @@ class AssetDownloadService:
         temp_file = Path(temp_path_str)
 
         try:
-            cookies = await asyncio.to_thread(self._cookie_loader, self._storage_path)
-            credential_for = self._credential_policy_factory(cookies)
+            cookies = await self._load_cookies()
+            self._assert_active()
+            credential_for = self._guard_credentials(self._credential_policy_factory(cookies))
             timeout = httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=30.0)
             auth_failure_status: int | None = None
 
@@ -368,8 +376,8 @@ class AssetDownloadService:
                     # (same trusted-host allowlist, re-checked per hop). It buffers
                     # rather than streams — acceptable for the opt-in transport,
                     # which already buffers RPC and upload bodies.
-                    async with factory(
-                        cookies=None, follow_redirects=False, timeout=timeout
+                    async with self._client_scope(  # noqa: SIM117
+                        factory(cookies=None, follow_redirects=False, timeout=timeout)
                     ) as client:
                         response = await client.get_guarded(
                             url,
@@ -380,7 +388,10 @@ class AssetDownloadService:
                         response.raise_for_status()
                         _reject_html_download(response)
                         _reject_empty_download(len(response.content))
-                        await asyncio.to_thread(temp_file.write_bytes, response.content)
+                        await write_staging(
+                            temp_file, lambda path: path.write_bytes(response.content)
+                        )
+                    self._assert_active()
                     os.replace(temp_file, output_file)
                     logger.debug(
                         "Downloaded %s%s (%d bytes)",
@@ -389,14 +400,16 @@ class AssetDownloadService:
                         len(response.content),
                     )
                     return output_path
-                async with httpx.AsyncClient(  # noqa: SIM117
-                    cookies=cookies,
-                    follow_redirects=True,
-                    max_redirects=MAX_DOWNLOAD_REDIRECTS,
-                    timeout=timeout,
-                    event_hooks=redirect_revalidation_hooks(
-                        self._trusted_host, credential_for
-                    ),  # #1521 + per-hop credentials
+                async with self._client_scope(  # noqa: SIM117
+                    httpx.AsyncClient(
+                        cookies=cookies,
+                        follow_redirects=True,
+                        max_redirects=MAX_DOWNLOAD_REDIRECTS,
+                        timeout=timeout,
+                        event_hooks=redirect_revalidation_hooks(
+                            self._trusted_host, credential_for
+                        ),  # #1521 + per-hop credentials
+                    )
                 ) as client:
                     async with client.stream("GET", url) as response:
                         response.raise_for_status()
@@ -459,6 +472,7 @@ class AssetDownloadService:
                         total_bytes = 0
                         try:
                             async for chunk in response.aiter_bytes(chunk_size=65536):
+                                self._assert_active()
                                 if writer_failed.is_set():
                                     # Writer raised mid-stream: stop reading (further
                                     # bytes would just be drained); error re-raised
@@ -510,6 +524,7 @@ class AssetDownloadService:
 
                         _reject_empty_download(total_bytes)
 
+                        self._assert_active()
                         os.replace(temp_file, output_file)
                         logger.debug(
                             "Downloaded %s%s (%d bytes)",

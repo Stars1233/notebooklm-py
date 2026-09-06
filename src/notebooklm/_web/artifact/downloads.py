@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import csv
 import json
 import logging
@@ -52,6 +51,7 @@ class ArtifactDownloadService:
         rpc: RpcCaller,
         listing: ArtifactListingService,
         mind_maps: NoteBackedMindMapService,
+        asset_downloads: AssetDownloadService | None = None,
         storage_path: Path | None = None,
         cookie_loader: Callable[[Any], Any] | None = None,
         download_to_path: Callable[[str, str], Awaitable[str]] | None = None,
@@ -65,7 +65,7 @@ class ArtifactDownloadService:
         asset_kwargs: dict[str, Any] = {"storage_path": storage_path}
         if cookie_loader is not None:
             asset_kwargs["cookie_loader"] = cookie_loader
-        self._asset = AssetDownloadService(**asset_kwargs)
+        self._asset = asset_downloads or AssetDownloadService(**asset_kwargs)
         self._download_to_path = download_to_path or self._asset.download_url
         self._download_urls = download_urls_batch or self._asset.download_urls_batch
         self._format_content = format_interactive_content or (
@@ -387,11 +387,11 @@ class ArtifactDownloadService:
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
 
-        def _write_file() -> None:
-            with open(output_path, "w", encoding="utf-8") as f:
+        def _write_file(output_file: Path) -> None:
+            with output_file.open("w", encoding="utf-8") as f:
                 f.write(content)
 
-        await asyncio.to_thread(_write_file)
+        await self._asset.write_file(output_path, _write_file)
         return output_path
 
     async def download_report(
@@ -427,10 +427,10 @@ class ArtifactDownloadService:
             output = Path(output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
 
-            def _write_markdown() -> None:
+            def _write_markdown(output: Path) -> None:
                 output.write_text(markdown_content, encoding="utf-8")
 
-            await asyncio.to_thread(_write_markdown)
+            await self._asset.write_file(output_path, _write_markdown)
             return str(output)
 
         except (IndexError, TypeError, UnknownRPCMethodError) as e:
@@ -523,11 +523,11 @@ class ArtifactDownloadService:
             output = Path(output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
 
-            def _write_json() -> None:
+            def _write_json(output: Path) -> None:
                 with output.open("w", encoding="utf-8") as f:
                     json.dump(json_data, f, indent=2, ensure_ascii=False)
 
-            await asyncio.to_thread(_write_json)
+            await self._asset.write_file(output_path, _write_json)
             return str(output)
 
         except (IndexError, TypeError, json.JSONDecodeError) as e:
@@ -564,13 +564,13 @@ class ArtifactDownloadService:
             output = Path(output_path)
             output.parent.mkdir(parents=True, exist_ok=True)
 
-            def _write_csv() -> None:
+            def _write_csv(output: Path) -> None:
                 with output.open("w", newline="", encoding="utf-8-sig") as f:
                     writer = csv.writer(f)
                     writer.writerow(headers)
                     writer.writerows(rows)
 
-            await asyncio.to_thread(_write_csv)
+            await self._asset.write_file(output_path, _write_csv)
 
             return str(output)
 

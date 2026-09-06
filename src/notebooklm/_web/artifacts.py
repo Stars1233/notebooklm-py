@@ -92,6 +92,7 @@ class WebArtifactsAPI(ArtifactsAPI):
         mind_maps: NoteBackedMindMapService,
         note_service: NoteService,
         storage_path: Path | None = None,
+        asset_downloads: AssetDownloadService | None = None,
     ) -> None:
         """Initialize the artifacts API.
 
@@ -111,12 +112,13 @@ class WebArtifactsAPI(ArtifactsAPI):
             note_service: Backend note-row primitives — owns the ``create_note``
                 call site that the generation service's ``generate_mind_map``
                 uses to persist generated mind maps.
-            storage_path: Path to storage state file for loading download cookies.
+            storage_path: Standalone helper compatibility cookie source.
+            asset_downloads: Selected Web asset lifecycle and live-cookie owner.
         """
         super().__init__(
             supervisor=supervisor,
             notebooks=notebooks,
-            asset_downloads=AssetDownloadService(storage_path=storage_path),
+            asset_downloads=asset_downloads or AssetDownloadService(storage_path=storage_path),
         )
         self._rpc = rpc
         self._mind_maps = mind_maps
@@ -126,6 +128,7 @@ class WebArtifactsAPI(ArtifactsAPI):
             rpc=self._rpc,
             listing=self._listing,
             mind_maps=self._mind_maps,
+            asset_downloads=self._asset_downloads,
             download_to_path=self._download_to_path,
             download_urls_batch=self._download_urls_batch,
             format_interactive_content=self._format_interactive_content,

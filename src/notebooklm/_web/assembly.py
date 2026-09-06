@@ -22,6 +22,7 @@ from .._runtime.config import (
 )
 from .._runtime.init import SharedRuntime
 from .artifacts import WebArtifactsAPI
+from .assets import WebAssetDownloadService
 from .chat import WebChatAPI
 from .collections import WebCollectionsAPI
 from .labels import WebLabelsAPI
@@ -130,13 +131,17 @@ def assemble_web_backend(
     )
     note_service = NoteService(web.executor, supervisor=shared.call_supervisor)
     mind_maps = NoteBackedMindMapService(note_service)
+    assets = WebAssetDownloadService(
+        supervisor=shared.call_supervisor,
+        cookies=lambda epoch: web.kernel.get_cookies(expected_epoch=epoch),
+    )
     artifacts = WebArtifactsAPI(
         rpc=web.executor,
         supervisor=shared.call_supervisor,
         notebooks=notebooks,
         mind_maps=mind_maps,
         note_service=note_service,
-        storage_path=credentials.storage_path,
+        asset_downloads=assets,
     )
     chat = WebChatAPI(
         rpc=web.executor,
@@ -200,7 +205,7 @@ def assemble_web_backend(
         raw=WebRawAPI(web.executor),
         runtime=web,
         shared=shared,
-        transports=(web.web_transport, web.source_uploader),
+        transports=(web.web_transport, web.source_uploader, assets),
         loop_participants=(shared.call_supervisor, web.reqid, web.auth_coord, chat),
         backends=installed_backend_map("web"),
         seams=seams,
