@@ -6,9 +6,11 @@ skips otherwise).
 
 **Cleanup discipline is critical here:** unlike labels (torn down with their
 notebook), collections are *account-level* and are NOT removed by the
-``temp_notebook`` teardown. Every test that creates a collection deletes it in a
-``finally`` block (``collections.delete`` is idempotent) so a failing test never
-leaves orphan collections on the account.
+``temp_notebook`` teardown. Collection creation deliberately reports a
+reconciliation candidate instead of claiming an uncorrelated row as its return
+value. The helper below gives every live test a unique name, retains only the
+matching candidate ID, and deletes that exact ID in a ``finally`` block
+(``collections.delete`` is idempotent) so a failing test never leaves an orphan.
 
 This module is the live-verification harness for the collection wire shapes.
 An earlier ``remove_notebooks`` shape (inferred, not captured) and an earlier
@@ -19,11 +21,65 @@ made the fix possible (PR #2009). Run ``pytest tests/e2e/test_collections.py
 -m e2e`` against an account with Collections enabled.
 """
 
+import contextlib
+import uuid
+from collections.abc import AsyncIterator
+
 import pytest
 
-from notebooklm import Collection, CollectionNotFoundError
+from notebooklm import (
+    Collection,
+    CollectionError,
+    CollectionNotFoundError,
+    NotebookLMClient,
+)
+from notebooklm.outcomes import CommitState, RecoveryAction
 
 from .conftest import requires_auth
+
+
+@contextlib.asynccontextmanager
+async def _created_collection_candidate(
+    client: NotebookLMClient,
+    label: str,
+) -> AsyncIterator[Collection]:
+    """Create one uniquely named collection and retain its candidate ID for cleanup.
+
+    A decoded collection create confirms that the mutation completed, but the
+    cumulative response does not correlate a row to this caller. The public API
+    therefore raises with inspection candidates. This live-only harness may use
+    the matching unique-name candidate to exercise later operations, but it must
+    not turn that test setup rule into a product success contract.
+    """
+    name = f"nbpy-e2e {label} {uuid.uuid4().hex}"
+    cleanup_ids: set[str] = set()
+    try:
+        with pytest.raises(CollectionError) as raised:
+            await client.collections.create(name)
+
+        metadata = raised.value.operation_metadata
+        report = None if metadata is None else metadata.reconciliation
+        candidate_ids = (
+            set() if report is None else {candidate.id for candidate in report.candidates}
+        )
+        matching = [
+            collection
+            for collection in await client.collections.list()
+            if collection.id in candidate_ids and collection.name == name
+        ]
+        cleanup_ids.update(collection.id for collection in matching)
+
+        assert metadata is not None
+        assert metadata.commit_state is CommitState.CONFIRMED
+        assert metadata.recovery_action is RecoveryAction.INSPECT_AND_RECONCILE
+        assert metadata.known_resource_ids == ()
+        assert metadata.reconciliation is not None
+        assert len(matching) == 1
+        collection = matching[0]
+        yield collection
+    finally:
+        for collection_id in cleanup_ids:
+            await client.collections.delete(collection_id)
 
 
 @requires_auth
@@ -33,12 +89,10 @@ class TestCollectionLifecycle:
     @pytest.mark.asyncio
     @pytest.mark.e2e
     async def test_create_list_get(self, client):
-        """``create`` returns a Collection; ``list``/``get`` find it; misses behave."""
-        collection = await client.collections.create("nbpy-e2e Research")
-        try:
+        """``create`` reports a candidate; ``list``/``get`` find it; misses behave."""
+        async with _created_collection_candidate(client, "Research") as collection:
             assert isinstance(collection, Collection)
             assert collection.id
-            assert collection.name == "nbpy-e2e Research"
 
             collections = await client.collections.list()
             assert all(isinstance(item, Collection) for item in collections)
@@ -50,20 +104,16 @@ class TestCollectionLifecycle:
             assert await client.collections.get_or_none("missing") is None
             with pytest.raises(CollectionNotFoundError):
                 await client.collections.get("missing")
-        finally:
-            await client.collections.delete(collection.id)
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
     async def test_rename(self, client):
         """``rename`` changes the name."""
-        collection = await client.collections.create("nbpy-e2e Old")
-        try:
-            renamed = await client.collections.rename(collection.id, "nbpy-e2e New")
+        async with _created_collection_candidate(client, "Old") as collection:
+            new_name = f"nbpy-e2e New {uuid.uuid4().hex}"
+            renamed = await client.collections.rename(collection.id, new_name)
             assert isinstance(renamed, Collection)
-            assert renamed.name == "nbpy-e2e New"
-        finally:
-            await client.collections.delete(collection.id)
+            assert renamed.name == new_name
 
 
 @requires_auth
@@ -74,8 +124,7 @@ class TestCollectionMembership:
     @pytest.mark.e2e
     async def test_add_expand_remove(self, client, temp_notebook):
         """``add_notebooks`` → ``notebooks`` → ``remove_notebooks`` round-trip."""
-        collection = await client.collections.create("nbpy-e2e Members")
-        try:
+        async with _created_collection_candidate(client, "Members") as collection:
             updated = await client.collections.add_notebooks(collection.id, [temp_notebook.id])
             assert isinstance(updated, Collection)
             assert temp_notebook.id in updated.notebook_ids
@@ -90,8 +139,6 @@ class TestCollectionMembership:
             after = await client.collections.get(collection.id)
             assert temp_notebook.id not in after.notebook_ids
             assert temp_notebook.id in {nb.id for nb in await client.notebooks.list()}
-        finally:
-            await client.collections.delete(collection.id)
 
 
 @requires_auth
@@ -102,17 +149,12 @@ class TestCollectionDelete:
     @pytest.mark.e2e
     async def test_delete_removes_collection(self, client):
         """``delete`` removes the collection from ``list``."""
-        collection = await client.collections.create("nbpy-e2e Temporary")
-        try:
+        async with _created_collection_candidate(client, "Temporary") as collection:
             result = await client.collections.delete(collection.id)
             assert result is None
 
             collections = await client.collections.list()
             assert collection.id not in {item.id for item in collections}
-        finally:
-            # Idempotent: a no-op if the delete above already succeeded, but
-            # ensures an early-failing assertion never orphans the collection.
-            await client.collections.delete(collection.id)
 
     @pytest.mark.asyncio
     @pytest.mark.e2e
