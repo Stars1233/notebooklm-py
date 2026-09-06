@@ -43,6 +43,30 @@ class InventoryRow:
 
 REQUIRED_ROWS: tuple[InventoryRow, ...] = (
     InventoryRow(
+        key="artifacts.generate_*",
+        class_needle="Deliberate policy",
+        test_needles=("tests/unit/test_creation_conformance.py",),
+        extra_needles=("source_ids=[]", "language", "instructions", "enum"),
+    ),
+    InventoryRow(
+        key="artifacts.generate_report",
+        class_needle="Capability metadata",
+        test_needles=("tests/unit/test_creation_conformance.py",),
+        extra_needles=("CONCEPT_EXPLANATION",),
+    ),
+    InventoryRow(
+        key="mind-map instructions",
+        class_needle="Deliberate policy",
+        test_needles=("tests/unit/test_creation_conformance.py",),
+        extra_needles=("whitespace",),
+    ),
+    InventoryRow(
+        key="sources.add_file",
+        class_needle="Projection difference",
+        test_needles=("tests/unit/android/test_source_upload.py", "tests/unit/test_types.py"),
+        extra_needles=(".csv", ".docx", ".pptx", "GOOGLE_DRIVE"),
+    ),
+    InventoryRow(
         key="notes.get after notes.delete",
         class_needle="Projection difference",
         test_needles=("tests/e2e/test_android_notes_conformance.py",),
@@ -216,7 +240,7 @@ def test_web_android_public_behavior_inventory_is_complete() -> None:
     )
 
     python_api = PYTHON_API.read_text(encoding="utf-8")
-    assert INVENTORY_LINK in python_api, (
+    assert f"]({INVENTORY_LINK})" in python_api, (
         "docs/python-api.md must link the Web vs Android public-behavior inventory"
     )
 
