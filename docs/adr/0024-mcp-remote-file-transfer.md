@@ -4,7 +4,8 @@
 
 Accepted. Implemented (`mcp/_filelink.py`, `mcp/_fileroutes.py`,
 `mcp/_uploadwidget.py`); referenced as Accepted from
-[architecture.md](../architecture.md).
+[architecture.md](../architecture.md). Operator-facing threat model:
+[SECURITY.md](../../SECURITY.md).
 
 ## Context
 

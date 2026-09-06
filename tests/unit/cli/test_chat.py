@@ -1,5 +1,6 @@
 """Tests for chat CLI commands (save-as-note, enhanced history)."""
 
+import json
 import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -8,8 +9,11 @@ from click.testing import CliRunner
 
 import notebooklm.auth as auth_module
 import notebooklm.cli.context as context_module
+from notebooklm._idempotency import attach_operation_metadata
 from notebooklm.cli import helpers as helpers_module
+from notebooklm.exceptions import NetworkError
 from notebooklm.notebooklm_cli import cli
+from notebooklm.outcomes import CommitState, OperationMetadata, RecoveryAction
 from notebooklm.types import (
     AskResult,
     ChatGoal,
@@ -21,6 +25,28 @@ from notebooklm.types import (
 )
 
 from .conftest import create_mock_client, inject_client
+
+_LEAKY_SAVE_DETAIL = "lost after dispatch at /home/alice/private.log?access_token=top-secret"
+_KNOWN_NOTE_ID = "note-accepted"
+
+
+def _unconfirmed_note_save_error(
+    *,
+    message: str = _LEAKY_SAVE_DETAIL,
+    note_id: str = _KNOWN_NOTE_ID,
+) -> NetworkError:
+    """Build a folded save failure that still carries commit evidence."""
+    failure = NetworkError(message)
+    attach_operation_metadata(
+        failure,
+        OperationMetadata(
+            commit_state=CommitState.UNKNOWN,
+            known_resource_ids=(note_id,),
+            recovery_action=RecoveryAction.INSPECT_AND_RECONCILE,
+            operation="notes.create",
+        ),
+    )
+    return failure
 
 
 def make_note(id="note_abc", title="Chat Note", content="The answer") -> Note:
@@ -207,6 +233,32 @@ class TestAskSaveAsNote:
         assert "No citations in answer" in result.output
         mock_client.notes.create.assert_awaited_once()
         mock_client.chat.save_answer_as_note.assert_not_awaited()
+
+    def test_ask_save_as_note_text_failure_redacts_secrets(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """Text mode keeps the redacted warning and does not dump secrets."""
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+        mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
+
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0, result.output
+        combined = result.output + result.stdout + result.stderr
+        assert "The answer is 42." in result.output
+        assert "Failed to save note" in combined
+        assert "top-secret" not in combined
+        assert "/home/alice" not in combined
+        # Structured commit evidence stays on the JSON path; text keeps the
+        # historical redacted warning and does not dump operation metadata.
+        assert "Operation metadata" not in combined
+        assert '"commit_state"' not in combined
 
 
 class TestHistoryCommand:
@@ -662,6 +714,38 @@ class TestAskServerResumed:
         assert "Resumed" not in result.output
 
 
+def _track_ask_new_client(
+    *,
+    conversation: dict[str, str | None],
+    calls: list[str],
+    ask_result: AskResult | None = None,
+) -> MagicMock:
+    """Mock client that records source resolution vs ``--new`` delete order."""
+    mock_client = create_mock_client()
+    underlying_list = mock_client.sources.list
+
+    async def tracked_list(*args, **kwargs):
+        calls.append("sources.list")
+        return await underlying_list(*args, **kwargs)
+
+    async def delete_conversation(_notebook_id, _conversation_id):
+        calls.append("delete_conversation")
+        conversation["id"] = None
+        return True
+
+    async def ask(*_args, **_kwargs):
+        calls.append("ask")
+        if ask_result is None:
+            raise AssertionError("chat.ask should not run when --source preflight fails")
+        return ask_result
+
+    mock_client.sources.list = AsyncMock(side_effect=tracked_list)
+    mock_client.chat.get_conversation_id = AsyncMock(return_value=conversation["id"])
+    mock_client.chat.delete_conversation = AsyncMock(side_effect=delete_conversation)
+    mock_client.chat.ask = AsyncMock(side_effect=ask)
+    return mock_client
+
+
 class TestAskNewFlag:
     """Tests for `ask --new` flag.
 
@@ -858,6 +942,189 @@ class TestAskNewFlag:
         mock_client.chat.delete_conversation.assert_not_awaited()
         call = mock_client.chat.ask.call_args
         assert call.kwargs.get("conversation_id") is None
+
+    @pytest.mark.parametrize(
+        "source_id", ["not-a-real-source", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+    )
+    def test_ask_new_invalid_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path, source_id
+    ):
+        """``--new --source`` that does not resolve must not delete the conversation.
+
+        Source resolution is a real ``resolve_source_ids`` call (via
+        ``sources.list``), not a mocked resolver, and it must run before
+        ``delete_conversation``.
+        """
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "-n",
+                    "nb_123",
+                    "--new",
+                    "--source",
+                    source_id,
+                    "question",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "No source found" in result.output
+        assert "permanently delete conversation" not in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_ambiguous_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path
+    ):
+        """An ambiguous ``--source`` prefix must abort before deleting history."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ask", "-n", "nb_123", "--new", "-y", "--source", "src_", "question"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "Ambiguous" in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_with_valid_source_deletes_once_then_asks(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path
+    ):
+        """``--new`` with a resolvable ``--source`` still deletes once, then asks."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        fresh_result = AskResult(
+            answer="Fresh answer.",
+            conversation_id="conv-fresh-xyz",
+            turn_number=1,
+            is_follow_up=False,
+            references=[],
+            raw_response="",
+        )
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(
+            conversation=conversation, calls=calls, ask_result=fresh_result
+        )
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ask", "-n", "nb_123", "--new", "-y", "--source", "src_001", "question"],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code == 0, result.output
+        assert calls.index("sources.list") < calls.index("delete_conversation")
+        assert calls.index("delete_conversation") < calls.index("ask")
+        assert calls.count("delete_conversation") == 1
+        mock_client.chat.delete_conversation.assert_awaited_once_with("nb_123", "conv-server-abc")
+        mock_client.chat.ask.assert_awaited_once()
+        ask_call = mock_client.chat.ask.call_args
+        assert ask_call.kwargs.get("conversation_id") is None
+        assert ask_call.kwargs.get("source_ids") == ["src_001"]
+        assert "New conversation: conv-fresh-xyz" in result.output
+
+    @pytest.mark.parametrize(
+        "source_id", ["not-a-real-source", "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]
+    )
+    def test_ask_new_json_yes_invalid_source_preserves_conversation(
+        self, runner, mock_auth, mock_fetch_tokens, tmp_path, source_id
+    ):
+        """``--json --yes --new`` with a bad source must not prompt or delete."""
+        context_file = tmp_path / "context.json"
+        context_file.write_text('{"notebook_id": "nb_123", "conversation_id": "conv-cached-abc"}')
+
+        conversation: dict[str, str | None] = {"id": "conv-server-abc"}
+        calls: list[str] = []
+        mock_client = _track_ask_new_client(conversation=conversation, calls=calls)
+
+        with (
+            patch.object(helpers_module, "get_context_path", return_value=context_file),
+            patch.object(context_module, "get_context_path", return_value=context_file),
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "ask",
+                    "-n",
+                    "nb_123",
+                    "--json",
+                    "--yes",
+                    "--new",
+                    "--source",
+                    source_id,
+                    "question",
+                ],
+                obj=inject_client(mock_client),
+            )
+
+        assert result.exit_code != 0, result.output
+        assert "permanently delete conversation" not in result.output
+        assert "sources.list" in calls
+        assert "delete_conversation" not in calls
+        assert conversation["id"] == "conv-server-abc"
+        mock_client.chat.delete_conversation.assert_not_awaited()
+        mock_client.chat.ask.assert_not_awaited()
+
+    def test_ask_new_existing_uuid_is_verified_before_deletion(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        source_id = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        mock_client = create_mock_client()
+        mock_client.sources.list = AsyncMock(
+            return_value=[MagicMock(id=source_id, title="Selected source")]
+        )
+        mock_client.chat.get_conversation_id = AsyncMock(return_value="conv-old")
+        mock_client.chat.delete_conversation = AsyncMock(return_value=True)
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        result = runner.invoke(
+            cli,
+            ["ask", "question", "-n", "nb_123", "--new", "--yes", "--source", source_id],
+            obj=inject_client(mock_client),
+        )
+        assert result.exit_code == 0, result.output
+        mock_client.sources.list.assert_awaited_once_with("nb_123")
+        mock_client.chat.delete_conversation.assert_awaited_once_with("nb_123", "conv-old")
+        assert mock_client.chat.ask.await_args.kwargs["source_ids"] == [source_id]
+        calls = [call[0] for call in mock_client.mock_calls]
+        assert calls.index("sources.list") < calls.index("chat.delete_conversation")
+        assert calls.index("chat.delete_conversation") < calls.index("chat.ask")
 
 
 # =============================================================================
@@ -1139,6 +1406,41 @@ class TestChatJsonStdoutContract:
         data = json.loads(result.stdout)
         assert data["answer"] == "The answer is 42."
         assert "boom" in data["note_save_error"]
+        assert "Warning" not in result.stdout
+
+    def test_ask_json_save_as_note_unconfirmed_failure_projects_commit_evidence(
+        self, runner, mock_auth, mock_fetch_tokens
+    ):
+        """A folded unconfirmed save keeps the ask answer and commit evidence.
+
+        ``SaveNoteOutcome`` retains the original exception after operation
+        settlement. JSON callers must see ``note_save_error`` plus the same
+        commit/unknown/known-id fields other CLI JSON errors project, without
+        turning the chat payload into a fatal error envelope.
+        """
+        mock_client = create_mock_client()
+        mock_client.chat.ask = AsyncMock(return_value=make_ask_result())
+        mock_client.chat.get_conversation_id = AsyncMock(return_value=None)
+        mock_client.notes.create = AsyncMock(side_effect=_unconfirmed_note_save_error())
+
+        result = runner.invoke(
+            cli,
+            ["ask", "What is 42?", "--save-as-note", "-n", "nb_123", "--json"],
+            obj=inject_client(mock_client),
+        )
+
+        assert result.exit_code == 0, result.stderr or result.output
+        data = json.loads(result.stdout)
+        assert data["answer"] == "The answer is 42."
+        assert "note" not in data
+        assert "note_save_error" in data
+        assert data["commit_state"] == CommitState.UNKNOWN.value
+        assert data["recovery_action"] == RecoveryAction.INSPECT_AND_RECONCILE.value
+        assert data["known_resource_ids"] == [_KNOWN_NOTE_ID]
+        assert data["unconfirmed"] is True
+        serialized = json.dumps(data)
+        assert "top-secret" not in serialized
+        assert "/home/alice" not in serialized
         assert "Warning" not in result.stdout
 
     def test_history_json_clear_emits_pure_json(self, runner, mock_auth):

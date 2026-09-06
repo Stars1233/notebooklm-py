@@ -127,6 +127,21 @@ def _unconfirmed_write_note(exc: BaseException | None) -> str:
     return _UNCONFIRMED_WRITE_NOTE if exc is None else unconfirmed_hint(exc)
 
 
+def exception_json_fields(exc: BaseException | None) -> dict[str, Any]:
+    """Return JSON extra fields other CLI errors merge from ``exc``.
+
+    Projects the bounded ``operation_metadata`` payload (commit state,
+    recovery action, known ids) and, when the write may already exist,
+    ``unconfirmed`` plus inspect-vs-retry ``hint``. Empty when ``exc``
+    carries no mutation evidence.
+    """
+    extra: dict[str, Any] = dict(operation_metadata_payload(exc))
+    if getattr(exc, "unconfirmed", False):
+        extra["unconfirmed"] = True
+        extra["hint"] = _unconfirmed_write_note(exc)
+    return extra
+
+
 def _retained_source_note(source_id: str, stage: str) -> str:
     """Recovery line naming the source row a partial upload left behind.
 
@@ -313,24 +328,22 @@ def handle_errors(verbose: bool = False, json_output: bool = False) -> Generator
             if extra:
                 # Same reason: a stale ``retry_after`` is an instruction.
                 extra = {k: v for k, v in extra.items() if k != "retry_after"}
-            if json_out:
-                note = _unconfirmed_write_note(exc)
-                extra = {**(extra or {}), "unconfirmed": True, "hint": note}
-            else:
-                # Text mode prints ``hint`` after ``message``; JSON ignores it,
-                # which is why the JSON branch above carries it in ``extra``.
+            if not json_out:
+                # Text mode prints ``hint`` after ``message``; JSON carries the
+                # same inspect-vs-retry guidance via :func:`exception_json_fields`.
                 hint = _unconfirmed_write_note(exc)
         operation_payload = operation_metadata_payload(exc)
-        if operation_payload:
-            if json_out:
-                extra = {**(extra or {}), **operation_payload}
-            else:
-                rendered_metadata = json.dumps(
-                    operation_payload,
-                    ensure_ascii=False,
-                    separators=(",", ":"),
-                )
-                message = f"{message}\nOperation metadata: {rendered_metadata}"
+        json_fields = exception_json_fields(exc)
+        if json_out:
+            if json_fields:
+                extra = {**(extra or {}), **json_fields}
+        elif operation_payload:
+            rendered_metadata = json.dumps(
+                operation_payload,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            )
+            message = f"{message}\nOperation metadata: {rendered_metadata}"
         source_id = operation_payload.get("source_id")
         stage = operation_payload.get("stage")
         if isinstance(source_id, str) and isinstance(stage, str):

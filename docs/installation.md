@@ -452,7 +452,7 @@ Configuration is read from `NOTEBOOKLM_SERVER_*` env vars (overridable by the ma
 
 The concurrency knobs are route-group backpressure for expensive work. They do not gate `/healthz` or cheap read/list/poll routes.
 
-**Surface:** every route is under `/v1` and requires `Authorization: Bearer <token>` plus a loopback `Host` header (a DNS-rebinding guard). `/healthz` is the one public, token-less route. The auto-generated `/docs` / `/openapi.json` schema UI is disabled (it would otherwise be reachable token-less).
+**Surface:** every `/v1` route requires `Authorization: Bearer <token>` plus a loopback `Host` header (a DNS-rebinding guard). `/healthz` is the one public, token-less **liveness** probe — it returns `{"ok": true}` even when the NotebookLM client failed to open. Readiness would be a separate contract. The auto-generated `/docs` / `/openapi.json` schema UI is disabled (it would otherwise be reachable token-less). Operator threat model: [SECURITY.md](../SECURITY.md).
 
 <!-- not mirrored: REST-server curl examples (end-user/automation tooling); not part of the contributor install flow. -->
 ```bash
