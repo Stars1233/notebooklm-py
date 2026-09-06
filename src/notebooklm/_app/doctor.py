@@ -191,11 +191,9 @@ def _check_auth(storage_path: Path) -> dict[str, str]:
                 "status": "warn",
                 "detail": (
                     f"SID present but __Secure-1PSIDTS missing ({cookie_count} cookies); "
-                    "the session may be unusable until the cookie is refreshed. "
-                    "Re-run 'notebooklm login'; on Windows (Chrome 127+ App-Bound "
-                    "Encryption) use '--browser-cookies firefox' or set up "
-                    "'notebooklm login --master-token'."
+                    "the session may be unusable until the cookie is refreshed."
                 ),
+                "guidance": "refresh_authentication",
             }
         return {
             "status": "pass",

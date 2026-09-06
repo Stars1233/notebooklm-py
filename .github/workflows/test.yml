@@ -382,6 +382,11 @@ jobs:
         tests/_guardrails/test_playwright_gateway.py::test_raw_sync_playwright_is_confined_to_policy_gateway
         tests/_guardrails/test_wire_contract.py::test_every_adapter_constant_is_declared
         tests/_guardrails/test_builtin_shadowed_annotations.py::test_class_body_annotations_do_not_name_a_shadowed_builtin
+        tests/_guardrails/test_client_composition.py::test_public_client_and_root_selector_import_no_web_namespaces
+        tests/_guardrails/test_client_composition.py::test_features_receive_specific_collaborators_not_whole_client
+        tests/_guardrails/test_client_composition.py::test_android_rpc_call_materializes_sidecar_inside_operation_lease
+        tests/_guardrails/test_backend_boundaries.py::test_backend_direct_import_boundaries
+        tests/_guardrails/test_cookie_persistence_boundary.py::test_client_registration_requires_exact_sequential_constructor_provenance
 
     - name: Run tests without coverage
       # Every required compatibility cell runs the ordinary suite exactly once.

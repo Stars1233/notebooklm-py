@@ -92,14 +92,21 @@ def test_adapters_use_the_shared_support_leaf_for_repeated_infrastructure() -> N
     assert support_consumers == EXPECTED_SUPPORT_CONSUMERS
 
 
-def test_adapter_specific_atomic_io_dependency_stays_explicit() -> None:
+def test_adapter_specific_atomic_io_dependency_uses_public_io_facade() -> None:
     consumers = {
         path.relative_to(SRC_ROOT).as_posix()
         for root in ADAPTER_ROOTS
         for path in root.rglob("*.py")
         if "notebooklm._atomic_io" in _resolved_imports(path)
     }
-    assert consumers == {"mcp/_oauth.py"}
+    assert consumers == set()
+    io_consumers = {
+        path.relative_to(SRC_ROOT).as_posix()
+        for root in ADAPTER_ROOTS
+        for path in root.rglob("*.py")
+        if "notebooklm.io" in _resolved_imports(path)
+    }
+    assert io_consumers == {"mcp/_oauth.py"}
 
 
 def test_support_leaf_preserves_canonical_identities() -> None:
@@ -119,6 +126,7 @@ def test_support_leaf_preserves_canonical_identities() -> None:
 def test_support_leaf_exports_only_adapter_hosting_primitives() -> None:
     assert support.__all__ == [
         "DEFAULT_SERVER_KEEPALIVE_INTERVAL",
+        "AdapterRuntimeClient",
         "LOOPBACK_HOSTNAMES",
         "LoopBoundPrimitive",
         "addr_is_loopback",

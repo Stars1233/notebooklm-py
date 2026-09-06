@@ -31,14 +31,13 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
-from ..options import USE_DEFAULT
+from ..options import USE_DEFAULT, UseDefault
+from ..types import ResearchStart, ResearchTask
 from .research import ResearchValidationError
-
-if TYPE_CHECKING:
-    from ..client import NotebookLMClient
 
 SearchSource = Literal["web", "drive"]
 SearchMode = Literal["fast", "deep"]
@@ -75,6 +74,32 @@ class ResearchImportOutcome(Protocol):
 
     @property
     def cited_selection(self) -> Any: ...
+
+
+class _ResearchNamespace(Protocol):
+    async def start(
+        self, notebook_id: str, query: str, source: str = "web", mode: str = "fast"
+    ) -> ResearchStart: ...
+
+    async def wait_for_completion(
+        self,
+        notebook_id: str,
+        task_id: str | None = None,
+        *,
+        timeout: float = 1800,
+        initial_interval: float = 2.0,
+    ) -> ResearchTask: ...
+
+
+class SourceResearchClient(Protocol):
+    """Public client capabilities consumed by source-research orchestration."""
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
+
+    @property
+    def research(self) -> _ResearchNamespace: ...
 
 
 #: Signature of the injected source importer. Neutral execution forwards only
@@ -153,7 +178,7 @@ def validate_add_research_flags(*, import_all: bool, cited_only: bool, no_wait: 
 
 
 async def execute_source_add_research(
-    client: NotebookLMClient,
+    client: SourceResearchClient,
     plan: SourceAddResearchPlan,
     *,
     import_sources: ImportSourcesFn,
@@ -301,6 +326,7 @@ __all__ = [
     "ResearchImportOutcome",
     "SearchMode",
     "SearchSource",
+    "SourceResearchClient",
     "SourceAddResearchOutcome",
     "SourceAddResearchPlan",
     "SourceAddResearchResult",

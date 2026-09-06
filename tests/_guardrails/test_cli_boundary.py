@@ -35,6 +35,8 @@ from collections.abc import Iterator
 
 import pytest
 
+from ._adapter_import_boundary import scan_source
+
 CLI_ROOT = pathlib.Path(__file__).resolve().parents[2] / "src" / "notebooklm" / "cli"
 HELPERS_PATH = CLI_ROOT / "helpers.py"
 OPTIONS_PATH = CLI_ROOT / "options.py"
@@ -886,3 +888,21 @@ def test_cli_boundary_blocks_all_auth_and_browser_private_imports(
     expected: str,
 ) -> None:
     assert expected in _violations(ast.parse(source))
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "from ..mcp import server\n",
+        "from .. import server\n",
+        "if TYPE_CHECKING:\n    from .._web import assembly\n",
+        "__import__('notebooklm.server.app')\n",
+    ),
+)
+def test_cli_scanner_resolves_relative_type_only_and_literal_dynamic_edges(source: str) -> None:
+    """The shared resolver covers forms the legacy AST matcher cannot classify alone."""
+    targets = {item.target for item in scan_source(source, package="notebooklm.cli")}
+    assert any(
+        target.startswith(("notebooklm._", "notebooklm.mcp", "notebooklm.server"))
+        for target in targets
+    )

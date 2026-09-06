@@ -83,7 +83,7 @@ from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse, Response
 from starlette.routing import Route
 
-from notebooklm._atomic_io import atomic_update_json, atomic_write_json
+from notebooklm.io import atomic_update_json, atomic_write_json
 from notebooklm.paths import get_home_dir, get_profile_dir
 
 from ._urlcheck import _validate_bare_https_origin

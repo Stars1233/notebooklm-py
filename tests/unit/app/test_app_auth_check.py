@@ -510,6 +510,7 @@ async def test_missing_psidts_with_master_token_uses_corrected_hint(tmp_path: Pa
     assert "master_token.json is present" in result.details["error"]
     assert "App-Bound Encryption" not in result.details["error"]
     assert result.details["master_token"]["present"] is True
+    assert result.guidance == ("master_token_psidts",)
 
 
 @pytest.mark.asyncio

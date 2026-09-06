@@ -174,6 +174,13 @@ def _display_results(report: DoctorReport):
 
     console.print(table)
 
+    if checks.get("auth", {}).get("guidance") == "refresh_authentication":
+        console.print(
+            "[yellow]Re-run 'notebooklm login'; on Windows (Chrome 127+ App-Bound "
+            "Encryption) use '--browser-cookies firefox' or set up "
+            "'notebooklm login --master-token'.[/yellow]"
+        )
+
     if fixes_applied:
         console.print()
         for fix in fixes_applied:

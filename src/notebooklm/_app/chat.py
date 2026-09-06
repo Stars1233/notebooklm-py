@@ -42,16 +42,14 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from ..exceptions import ValidationError
-from ..options import USE_DEFAULT
+from ..options import USE_DEFAULT, UseDefault
 from ..outcomes import redact_operation_text
-from ..types import ChatGoal, ChatMode, ChatResponseLength
-
-if TYPE_CHECKING:
-    from ..types import AskResult
+from ..types import AskResult, ChatGoal, ChatMode, ChatResponseLength, ChatSettings, Note
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +81,52 @@ class ChatEventSink(Protocol):
     """Consumer for semantic chat events."""
 
     def emit(self, event: ChatEvent) -> None: ...
+
+
+class _ChatNamespace(Protocol):
+    async def get_conversation_id(self, notebook_id: str) -> str | None: ...
+
+    async def save_answer_as_note(
+        self, notebook_id: str, result: AskResult, *, title: str | None = None
+    ) -> Note: ...
+
+    async def set_mode(self, notebook_id: str, mode: ChatMode) -> None: ...
+
+    async def get_settings(self, notebook_id: str) -> ChatSettings: ...
+
+    async def configure(
+        self,
+        notebook_id: str,
+        goal: ChatGoal | None = None,
+        response_length: ChatResponseLength | None = None,
+        custom_prompt: str | None = None,
+    ) -> None: ...
+
+    async def get_history(
+        self, notebook_id: str, limit: int = 100, conversation_id: str | None = None
+    ) -> list[tuple[str, str]]: ...
+
+    def cache_size(self) -> int: ...
+
+    def clear_cache(self, conversation_id: str | None = None) -> bool: ...
+
+
+class _NotesNamespace(Protocol):
+    async def create(self, notebook_id: str, title: str, content: str) -> Note: ...
+
+
+class ChatClient(Protocol):
+    """Public client capabilities consumed by chat application workflows."""
+
+    def operation(
+        self, timeout: float | None | UseDefault = None
+    ) -> AbstractAsyncContextManager[object]: ...
+
+    @property
+    def chat(self) -> _ChatNamespace: ...
+
+    @property
+    def notes(self) -> _NotesNamespace: ...
 
 
 def _emit(events: ChatEventSink | None, event: ChatEvent) -> None:
@@ -162,7 +206,7 @@ def determine_conversation_id(
 
 
 async def get_latest_conversation_from_server(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     *,
     progress: ChatEventSink | None = None,
@@ -211,7 +255,7 @@ class SaveNoteOutcome:
 
 
 async def save_answer_as_note(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     result: AskResult,
     *,
@@ -308,7 +352,7 @@ class ConfigureResult:
 
 
 async def execute_configure(
-    client: Any,
+    client: ChatClient,
     notebook_id: str,
     *,
     chat_mode: ChatModeChoice | None,
@@ -465,7 +509,7 @@ class HistoryFetch:
     qa_pairs: list[tuple[str, str]]
 
 
-async def fetch_history(client: Any, notebook_id: str, *, limit: int) -> HistoryFetch:
+async def fetch_history(client: ChatClient, notebook_id: str, *, limit: int) -> HistoryFetch:
     """Fetch the last conversation's id and its Q&A turns.
 
     Preserves the historical RPC order: ``get_conversation_id``
@@ -491,7 +535,7 @@ class ClearCacheResult:
     count: int
 
 
-def execute_clear_cache(client: Any) -> ClearCacheResult:
+def execute_clear_cache(client: ChatClient) -> ClearCacheResult:
     """Clear the local conversation cache, capturing the pre-clear count.
 
     The pre-clear size is captured BEFORE the clear because ``clear_cache``
@@ -507,6 +551,7 @@ __all__ = [
     "ChatEvent",
     "ChatEventKind",
     "ChatEventSink",
+    "ChatClient",
     "ChatValidationError",
     "ChatModeChoice",
     "ClearCacheResult",
