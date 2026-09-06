@@ -18,13 +18,13 @@ from notebooklm._web.mind_maps import NoteBackedMindMapService
 from notebooklm._web.notes import NoteService
 from notebooklm.exceptions import RPCError, ValidationError
 from notebooklm.types import ArtifactListingComponent, ArtifactType, MindMap, MindMapKind
-from tests._fixtures.fake_core import make_fake_core
-from tests.unit.android.test_artifacts import (
+from tests._fixtures.android_artifacts import (
     _PROTO,
     LIST_ARTIFACTS_METHOD,
     _artifact,
     _graph,
 )
+from tests._fixtures.fake_core import make_fake_core
 
 _INTERACTIVE_MIND_MAP_ROW = [
     "interactive",

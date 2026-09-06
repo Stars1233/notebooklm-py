@@ -453,6 +453,11 @@
     {
       "scope": "module",
       "source": "refresh",
+      "target": "bound_refresh"
+    },
+    {
+      "scope": "module",
+      "source": "refresh",
       "target": "cookie_types"
     },
     {
@@ -643,6 +648,11 @@
       "path": "src/notebooklm/_auth/account_types.py"
     },
     {
+      "lines": 34,
+      "name": "bound_refresh",
+      "path": "src/notebooklm/_auth/bound_refresh.py"
+    },
+    {
       "lines": 96,
       "name": "cookie_filter",
       "path": "src/notebooklm/_auth/cookie_filter.py"
@@ -743,7 +753,7 @@
       "path": "src/notebooklm/_auth/psidts_recovery.py"
     },
     {
-      "lines": 712,
+      "lines": 714,
       "name": "recovery",
       "path": "src/notebooklm/_auth/recovery.py"
     },
@@ -753,7 +763,7 @@
       "path": "src/notebooklm/_auth/recovery_rungs.py"
     },
     {
-      "lines": 1184,
+      "lines": 1182,
       "name": "refresh",
       "path": "src/notebooklm/_auth/refresh.py"
     },
@@ -784,10 +794,10 @@
   },
   "summary": {
     "function_local_edges": 12,
-    "module_edges": 111,
-    "modules": 32,
-    "total_lines": 13711,
-    "unique_edges": 123
+    "module_edges": 112,
+    "modules": 33,
+    "total_lines": 13745,
+    "unique_edges": 124
   },
   "version": 1
 }
