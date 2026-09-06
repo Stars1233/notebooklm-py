@@ -13,6 +13,7 @@ import click
 from rich.console import Console
 
 from .. import paths as paths_module
+from .._app.artifacts import require_complete_artifact_listing
 from ..paths import get_context_path
 from . import context as context_helpers
 from . import rendering as rendering_helpers
@@ -453,12 +454,17 @@ async def resolve_artifact_id(
 ) -> str:
     """Resolve partial artifact ID to full ID.
 
+    Fuzzy prefix matching requires a complete aggregate inventory
+    (``list_with_status().is_complete``). An incomplete Studio-only snapshot
+    must not be treated as a unique prefix hit or as absence. A canonical UUID
+    still fast-paths without listing.
+
     When ``json_output`` is true, the successful "Matched..." diagnostic routes
     to stderr so stdout stays parseable JSON.
     """
     return await _resolve_partial_id(
         partial_id,
-        list_fn=lambda: client.artifacts.list(notebook_id),
+        list_fn=lambda: require_complete_artifact_listing(client, notebook_id),
         entity_name="artifact",
         list_command="artifact list",
         json_output=json_output,

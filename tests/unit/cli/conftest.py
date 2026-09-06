@@ -22,7 +22,10 @@ from notebooklm.types import (
     ResearchTask,
     SourceGuide,
 )
-from tests._helpers.downloads import configure_prepared_artifact_downloads
+from tests._helpers.downloads import (
+    configure_complete_artifact_listing,
+    configure_prepared_artifact_downloads,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -418,6 +421,7 @@ def create_mock_client():
     mock_client.sources.list = AsyncMock(side_effect=make_source_list)
     mock_client.artifacts.list = AsyncMock(side_effect=make_artifact_list)
     mock_client.notes.list = AsyncMock(side_effect=make_note_list)
+    configure_complete_artifact_listing(mock_client)
 
     configure_prepared_artifact_downloads(mock_client)
 

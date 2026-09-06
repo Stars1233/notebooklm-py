@@ -45,6 +45,7 @@ This module is transport-neutral — no ``click`` / ``rich`` / ``cli`` /
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -55,6 +56,33 @@ from ..types import Artifact, ArtifactLookupStatus, ExportType
 if TYPE_CHECKING:
     from ..client import NotebookLMClient
     from ..types import GenerationStatus
+
+
+def _incomplete_artifact_lookup_error(failures: Sequence[Any] = ()) -> RPCError:
+    """Project bounded aggregate-read evidence through the existing RPC error."""
+    components = (
+        ", ".join(sorted({failure.component.value for failure in failures})) or "unspecified"
+    )
+    return RPCError(
+        f"Artifact lookup is incomplete; unavailable components: {components}",
+        method_id="artifacts.lookup",
+    )
+
+
+async def require_complete_artifact_listing(
+    client: NotebookLMClient,
+    notebook_id: str,
+) -> list[Artifact]:
+    """Return artifacts only when every aggregate backing was read successfully.
+
+    Fuzzy title/prefix resolution must not treat a Studio-only snapshot as a
+    unique match or as absence. Callers that already hold a canonical UUID
+    should skip this listing entirely.
+    """
+    listing = await client.artifacts.list_with_status(notebook_id)
+    if not listing.is_complete:
+        raise _incomplete_artifact_lookup_error(listing.failures)
+    return list(listing.items)
 
 
 # ---------------------------------------------------------------------------
@@ -78,14 +106,7 @@ async def get_artifact(
         assert result.artifact is not None
         return result.artifact
     if result.status is ArtifactLookupStatus.UNKNOWN:
-        components = (
-            ", ".join(sorted({failure.component.value for failure in result.failures}))
-            or "unspecified"
-        )
-        raise RPCError(
-            f"Artifact lookup is incomplete; unavailable components: {components}",
-            method_id="artifacts.lookup",
-        )
+        raise _incomplete_artifact_lookup_error(result.failures)
     if result.status is ArtifactLookupStatus.MISSING:
         raise ArtifactNotFoundError(artifact_id)
     raise AssertionError(f"unrecognized artifact lookup status: {result.status!r}")
@@ -386,6 +407,7 @@ __all__ = [
     "get_artifact_prompt",
     "poll_artifact",
     "rename_artifact",
+    "require_complete_artifact_listing",
     "retry_artifact",
     "status_view",
     "wait_for_artifact",

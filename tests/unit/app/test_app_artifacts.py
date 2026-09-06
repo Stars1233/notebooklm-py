@@ -24,6 +24,7 @@ from notebooklm._app.artifacts import (
     get_artifact_prompt,
     poll_artifact,
     rename_artifact,
+    require_complete_artifact_listing,
     retry_artifact,
     status_view,
     wait_for_artifact,
@@ -31,6 +32,7 @@ from notebooklm._app.artifacts import (
 from notebooklm.exceptions import ArtifactNotFoundError, RPCError
 from notebooklm.types import (
     Artifact,
+    ArtifactListing,
     ArtifactListingComponent,
     ArtifactListingFailure,
     ArtifactLookup,
@@ -93,6 +95,39 @@ async def test_get_artifact_projects_unknown_as_sanitized_rpc_error() -> None:
 
     assert raised.value.method_id == "artifacts.lookup"
     assert "cookie" not in str(raised.value).lower()
+
+
+# ---------------------------------------------------------------------------
+# require_complete_artifact_listing — fuzzy-resolution inventory gate
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_require_complete_artifact_listing_returns_items() -> None:
+    client = _client()
+    art = Artifact(id="art_1", title="Q1 Report", _artifact_type=1, status=3)
+    client.artifacts.list_with_status = AsyncMock(
+        return_value=ArtifactListing(items=(art,), is_complete=True)
+    )
+    assert await require_complete_artifact_listing(client, "nb") == [art]
+    client.artifacts.list_with_status.assert_awaited_once_with("nb")
+
+
+@pytest.mark.asyncio
+async def test_require_complete_artifact_listing_refuses_partial_inventory() -> None:
+    client = _client()
+    art = Artifact(id="art_1", title="Q1 Report", _artifact_type=1, status=3)
+    failure = ArtifactListingFailure(
+        ArtifactListingComponent.NOTE_BACKED_MIND_MAPS,
+        "RPCError",
+        "The note-backed mind-map listing is unavailable.",
+    )
+    client.artifacts.list_with_status = AsyncMock(
+        return_value=ArtifactListing(items=(art,), is_complete=False, failures=(failure,))
+    )
+    with pytest.raises(RPCError, match="note_backed_mind_maps") as raised:
+        await require_complete_artifact_listing(client, "nb")
+    assert raised.value.method_id == "artifacts.lookup"
 
 
 # ---------------------------------------------------------------------------

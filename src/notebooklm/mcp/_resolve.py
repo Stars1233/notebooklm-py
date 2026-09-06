@@ -48,6 +48,7 @@ import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from .._app.artifacts import require_complete_artifact_listing
 from .._app.resolve import (
     FULL_ID_PATTERN,
     AmbiguousIdError,
@@ -474,6 +475,11 @@ async def resolve_artifact(client: NotebookLMClient, notebook_id: str, ref: str)
     lets a concrete id (including a note-backed mind-map id, or one missing from a
     stale list) reach the ``_app`` core, which then routes it by kind.
 
+    Fuzzy title/prefix matching requires a **complete** aggregate inventory
+    (``list_with_status().is_complete``). A notes outage (or other secondary
+    backing failure) must not turn an ambiguous title/prefix into a unique hit
+    or project a partial miss as :class:`ArtifactNotFoundError`.
+
     Args:
         client: The lifespan-bound client.
         notebook_id: The (already-resolved) notebook id the artifact lives in.
@@ -488,13 +494,15 @@ async def resolve_artifact(client: NotebookLMClient, notebook_id: str, ref: str)
         ValidationError: ``ref`` is empty/whitespace.
         ArtifactNotFoundError: No artifact in the notebook matches ``ref``.
         AmbiguousIdError: ``ref`` matches more than one artifact by prefix or title.
+        RPCError: The aggregate listing was incomplete, so a title/prefix match
+            cannot be treated as unique or as absence.
     """
     ref = validate_id(ref, "artifact")
     reject_non_canonical_id(ref, "artifact")
     # Full UUID fast-path — never list.
     if FULL_ID_PATTERN.fullmatch(ref):
         return ref
-    items = await client.artifacts.list(notebook_id)
+    items = await require_complete_artifact_listing(client, notebook_id)
     if _HEX_ISH.match(ref):
         return _resolve_hex(ref, items, not_found=ArtifactNotFoundError)
     return _resolve_by_title(ref, items, not_found=ArtifactNotFoundError)
