@@ -162,6 +162,22 @@ async def test_generate_study_guide_delegates_to_generate_report() -> None:
     assert rpc.only.kwargs["source_path"] == "/notebook/nb1"
 
 
+@pytest.mark.parametrize("language, expected", [(None, "fr"), ("es", "es")])
+async def test_study_guide_resolves_language_under_its_bound_policy(
+    language: str | None, expected: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from notebooklm._request_policy import resolve_web_policy
+    from notebooklm.options import WebRequestOptions
+
+    service, rpc, _, _ = _service()
+    service.request_policy = resolve_web_policy(WebRequestOptions(language="fr"))
+    monkeypatch.setenv("NOTEBOOKLM_HL", "de")
+
+    await service.generate_study_guide("nb1", source_ids=["s1"], language=language)
+
+    assert rpc.only.params[2][7][1][4] == expected
+
+
 # ---------------------------------------------------------------------------
 # generate_video wire dispatch (validation belongs to ArtifactsAPI)
 # ---------------------------------------------------------------------------

@@ -176,6 +176,10 @@ async def test_full_settlement_accounts_for_failure_after_projection_prefix(last
     assert error.operation_metadata.commit_state is last_state
     assert error.operation_metadata.source_delete_outcomes[-1].commit_state is last_state
     assert len(error.operation_metadata.batch_outcome.items) == 20
+    payload = operation_metadata_payload(error)
+    assert payload["batch_outcome"]["whole_request_retriable"] is (
+        last_state is CommitState.REJECTED
+    )
 
 
 async def test_confirmed_cleanup_cannot_erase_earlier_unknown_evidence():

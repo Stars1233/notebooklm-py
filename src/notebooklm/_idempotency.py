@@ -555,7 +555,9 @@ def attach_operation_journal(
         primary_metadata=exact_primary_metadata,
         extra_entries=extra_entries,
     )
-    if existing is not None and exact_primary_metadata is None:
+    if existing is not None:
+        # Workflow owners may enrich an already attached leaf with aggregate
+        # settlement. Selecting that leaf again must retain the outer receipt.
         metadata = replace(
             metadata,
             known_resource_ids=tuple(
@@ -564,13 +566,43 @@ def attach_operation_journal(
             source_id=metadata.source_id or existing.source_id,
             stage=metadata.stage or existing.stage,
             reconciliation=metadata.reconciliation or existing.reconciliation,
-            batch_outcome=metadata.batch_outcome or existing.batch_outcome,
+            batch_outcome=existing.batch_outcome or metadata.batch_outcome,
+            source_delete_outcomes=(
+                existing.source_delete_outcomes or metadata.source_delete_outcomes
+            ),
             prerequisite_ids=tuple(
                 dict.fromkeys((*metadata.prerequisite_ids, *existing.prerequisite_ids))
             ),
             recovery_action=(
                 existing.recovery_action
                 if metadata.recovery_action is RecoveryAction.NONE
+                else metadata.recovery_action
+            ),
+        )
+    if existing is not None and metadata.source_delete_outcomes:
+        # A complete cleanup receipt can contain evidence beyond the bounded
+        # journal or wire prefix. Never upgrade confidence by losing that tail.
+        states = {
+            metadata.commit_state,
+            existing.commit_state,
+            *(item.commit_state for item in metadata.source_delete_outcomes),
+        }
+        state = next(
+            candidate
+            for candidate in (
+                CommitState.UNKNOWN,
+                CommitState.CONFIRMED,
+                CommitState.REJECTED,
+                CommitState.NOT_SENT,
+            )
+            if candidate in states
+        )
+        metadata = replace(
+            metadata,
+            commit_state=state,
+            recovery_action=(
+                RecoveryAction.INSPECT_AND_RECONCILE
+                if state is CommitState.UNKNOWN
                 else metadata.recovery_action
             ),
         )

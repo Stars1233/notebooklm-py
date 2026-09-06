@@ -350,6 +350,10 @@ def _wire_metadata(metadata: OperationMetadata) -> dict[str, object]:
             ],
         }
         if len(metadata.source_delete_outcomes) > _MAX_COLLECTION:
+            batch["whole_request_retriable"] = all(
+                item.commit_state in (CommitState.NOT_SENT, CommitState.REJECTED)
+                for item in metadata.source_delete_outcomes
+            )
             batch["total_items"] = len(metadata.source_delete_outcomes)
             batch["omitted_items"] = len(metadata.source_delete_outcomes) - len(
                 metadata.batch_outcome.items

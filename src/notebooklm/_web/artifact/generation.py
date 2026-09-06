@@ -215,6 +215,7 @@ class ArtifactGenerationService(RequestPolicyOwner):
             null_result_artifact_type="report",
         )
 
+    @request_scoped
     async def generate_study_guide(
         self,
         notebook_id: str,

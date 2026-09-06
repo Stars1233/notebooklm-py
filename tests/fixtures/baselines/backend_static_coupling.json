@@ -11278,7 +11278,7 @@
       "modules": 53
     },
     "app": {
-      "lines": 13019,
+      "lines": 13020,
       "modules": 40
     },
     "auth": {
@@ -11294,7 +11294,7 @@
       "modules": 38
     },
     "root": {
-      "lines": 26938,
+      "lines": 26974,
       "modules": 89
     },
     "rpc": {
@@ -11314,12 +11314,12 @@
       "modules": 18
     },
     "web": {
-      "lines": 33460,
+      "lines": 33461,
       "modules": 97
     }
   },
   "summary": {
-    "authored_lines": 149986,
+    "authored_lines": 150024,
     "authored_modules": 476,
     "class_local_edges": 0,
     "cross_subsystem_edges": 1241,
