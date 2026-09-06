@@ -42,6 +42,16 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+          # Comment events run the workflow from the default branch. Point PR
+          # comments at the exact review target while ordinary issues retain
+          # their event SHA.
+          ref: >-
+            ${{ (github.event_name == 'issue_comment' &&
+            github.event.issue.pull_request != null &&
+            format('refs/pull/{0}/head', github.event.issue.number)) ||
+            ((github.event_name == 'pull_request_review_comment' ||
+            github.event_name == 'pull_request_review') &&
+            github.event.pull_request.head.sha) || github.sha }}
 
       - name: Run Claude Code
         id: claude
