@@ -125,6 +125,10 @@ roots with the OS path separator (`:` on POSIX, `;` on Windows); for example,
 `NOTEBOOKLM_MCP_ALLOWED_ROOTS=/srv/notebooklm-uploads` allows that directory.
 The user's home, NotebookLM home, and filesystem root are rejected as roots.
 Paths outside configured roots, symlinks, and non-files are rejected.
+Accepted files are opened without following symlinks or junctions and copied
+into a private temporary directory before the tool awaits client access.
+Both backends upload that copy, which is removed on completion, failure, or
+cancellation; replacing the caller path cannot redirect a later backend open.
 
 Known credential filenames (`storage_state.json`, `master_token.json`) and
 Playwright profile directories are refused even inside an allowed root. The

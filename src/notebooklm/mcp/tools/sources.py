@@ -20,6 +20,7 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 from __future__ import annotations
 
 import json
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastmcp import Context
@@ -76,7 +77,7 @@ from ._fileupload import (
     _add_one,
     _broker_upload,
     _decode_upload_b64,
-    _stdio_host_upload_path,
+    _spool_stdio_upload,
 )
 from ._passthrough import passthrough_child_id
 from ._preview import title_for_id
@@ -688,7 +689,7 @@ def register(mcp: Any) -> None:
         Single-mode inputs and ``wait`` are invalid with ``urls``; ``allow_internal``
         applies to every entry.
         """
-        with mcp_errors():
+        with mcp_errors(), ExitStack() as upload_files:
             # Mode selection (fail-closed) BEFORE any notebook I/O, so a malformed
             # call never reaches notebooks.list. Exactly one of source_type / urls.
             if urls is not None and source_type is not None:
@@ -796,9 +797,9 @@ def register(mcp: Any) -> None:
                     )
                 else:
                     content = _select_content(source_type, url=url, text=text, path=path)
-                    # Host-enforced allowed-root check BEFORE the lazy open so a
-                    # denied path stays VALIDATION even when auth is expired.
-                    _stdio_host_upload_path(content, False)
+                    # Pin and copy before any await. Backends receive only the
+                    # private spool, so replacing the caller path cannot redirect I/O.
+                    content = str(upload_files.enter_context(_spool_stdio_upload(content)))
             elif source_type == "drive":
                 if not document_id:
                     raise ValidationError("source_type 'drive' requires 'document_id'")
@@ -873,7 +874,6 @@ def register(mcp: Any) -> None:
                 title=title,
                 mime_type=mime_type,
                 allow_internal=allow_internal,
-                validate_path=_stdio_host_upload_path if source_type == "file" else None,
             )
             if wait:
                 return await _wait_after_add(

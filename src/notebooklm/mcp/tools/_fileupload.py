@@ -20,7 +20,8 @@ import os
 import shutil
 import tempfile
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -33,6 +34,7 @@ from .._confirm import READ_ONLY
 from .._context import get_file_transfer
 from .._errors import mcp_errors
 from .._filelink import UPLOAD_TTL, FileLinkError, FileTransferConfig
+from .._hostupload import spool_host_upload
 
 if TYPE_CHECKING:
     from ...client import NotebookLMClient
@@ -258,7 +260,8 @@ def _seed_upload_filename(
     return None
 
 
-def _stdio_host_upload_path(content: str, follow_symlinks: bool) -> Path:
+@contextmanager
+def _spool_stdio_upload(content: str) -> Iterator[Path]:
     """Validate a stdio host-path file-add against operator-configured roots.
 
     Default-deny: unset ``NOTEBOOKLM_MCP_ALLOWED_ROOTS`` refuses every host
@@ -267,11 +270,11 @@ def _stdio_host_upload_path(content: str, follow_symlinks: bool) -> Path:
     signed URL and does not open ``path``.
     """
     try:
-        return add_core.validate_upload_path(
+        with spool_host_upload(
             content,
-            follow_symlinks,
             allowed_roots=add_core.parse_upload_allowed_roots(os.environ.get(ALLOWED_ROOTS_ENV)),
-        )
+        ) as path:
+            yield path
     except add_core.SourceAddValidationError as exc:
         if exc.reason == "upload_root_not_configured":
             raise ValidationError(
@@ -341,7 +344,6 @@ async def _add_one(
     title: str | None,
     mime_type: str | None,
     allow_internal: bool,
-    validate_path: Callable[[str, bool], Path] | None = None,
 ) -> Source:
     """Build the source-add plan + execute it, returning the created ``Source``.
 
@@ -350,9 +352,9 @@ async def _add_one(
     presence / host validation BEFORE reaching here — single mode via
     ``_select_content`` (which keeps the YouTube-host guard), batch mode via
     the explicit ``source_type="url"`` that forces :func:`add_core.validate_url`.
-    Stdio host-path file-add passes :func:`_stdio_host_upload_path`; in-channel
-    byte spools keep the unrestricted validator (the bytes are already in
-    memory, not a caller-chosen host path).
+    File inputs here are private spools: stdio paths are pinned and copied by
+    :func:`_spool_stdio_upload` before any await; in-channel bytes are already
+    supplied by the caller.
     """
     plan = add_core.build_source_add_plan(
         content=content,
@@ -360,7 +362,7 @@ async def _add_one(
         title=title,
         mime_type=mime_type,
         follow_symlinks=False,
-        validate_path=validate_path or add_core.validate_upload_path,
+        validate_path=add_core.validate_upload_path,
         looks_path_shaped=add_core.looks_like_path,
         allow_internal=allow_internal,
     )

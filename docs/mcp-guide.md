@@ -237,8 +237,11 @@ bearer-only deploy → the two file tools return a clear "not configured" error
   server's environment. Separate multiple roots with `:` on POSIX or `;` on Windows.
   The user's home, NotebookLM home, and filesystem root are rejected as roots.
   Credential filenames (`storage_state.json`, `master_token.json`) and Playwright
-  profile directories are refused even inside an allowed root. `bytes_base64` and
-  remote signed-URL transfer never open a caller-selected server-host `path`.
+  profile directories are refused even inside an allowed root. Accepted files are
+  copied into private temporary storage before upload; file or directory replacement
+  cannot redirect the backend to another path. Temporary copies are removed when
+  the call ends. `bytes_base64` and remote signed-URL transfer never open a
+  caller-selected server-host `path`.
 
 ## Core concepts
 

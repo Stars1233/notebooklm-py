@@ -23,6 +23,7 @@ from fastmcp.exceptions import ToolError  # noqa: E402 - after importorskip guar
 
 from notebooklm._types.sources import SourceType  # noqa: E402 - after importorskip guard
 from notebooklm.exceptions import AuthError  # noqa: E402 - after importorskip guard
+from notebooklm.mcp._clientprovider import ClientProvider  # noqa: E402 - after importorskip guard
 from notebooklm.mcp.server import create_server  # noqa: E402 - after importorskip guard
 from notebooklm.mcp.tools._fileupload import (  # noqa: E402 - after importorskip guard
     ALLOWED_ROOTS_ENV,
@@ -125,7 +126,47 @@ async def test_stdio_file_add_inside_allowed_root(
     assert result.structured_content["source"]["id"] == "src-1"
     mock_client.sources.add_file.assert_awaited_once()
     uploaded = Path(mock_client.sources.add_file.await_args.args[1])
-    assert uploaded == doc.resolve()
+    assert uploaded != doc.resolve()
+    assert uploaded.name == doc.name
+    assert not uploaded.exists()
+    assert doc.read_text() == "x"
+
+
+async def test_stdio_file_add_copies_before_lazy_client_open(
+    mock_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "uploads"
+    doc = _pdf(root)
+    monkeypatch.setenv(ALLOWED_ROOTS_ENV, str(root))
+    uploaded: list[Path] = []
+    # Defer background warm-up so this call exercises the first lazy open.
+    monkeypatch.setattr(ClientProvider, "start", lambda self: None)
+
+    @contextlib.asynccontextmanager
+    async def replacing_factory() -> AsyncIterator[MagicMock]:
+        # The first await must already have an independent copy. Both native
+        # backends reopen their input path after lazy authentication completes.
+        doc.unlink()
+        doc.write_text("replacement data")
+        yield mock_client
+
+    async def add_file(notebook_id, file_path, mime_type=None, *, title=None):
+        private = Path(file_path)
+        uploaded.append(private)
+        assert private.read_text() == "x"
+        assert private.name == doc.name
+        return _ReadyPdf(id="src-pinned", title="doc.pdf")
+
+    mock_client.sources.add_file = AsyncMock(side_effect=add_file)
+    async with Client(create_server(client_factory=replacing_factory)) as client:
+        result = await client.call_tool(
+            "source_add", {"notebook": NB_ID, "source_type": "file", "path": str(doc)}
+        )
+    assert result.structured_content["source"]["id"] == "src-pinned"
+    assert len(uploaded) == 1
+    assert not uploaded[0].exists()
+    assert not uploaded[0].parent.exists()
+    assert doc.read_text() == "replacement data"
 
 
 async def test_stdio_file_add_outside_allowed_root_rejects_regular_pdf(
