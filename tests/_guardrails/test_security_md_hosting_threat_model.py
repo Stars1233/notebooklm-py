@@ -160,7 +160,11 @@ def hosting_threat_model_gaps(security_md: str) -> list[str]:
     if "docs/adr/0024-mcp-remote-file-transfer.md" not in security_md:
         gaps.append("link to ADR-0024 file")
 
-    if not re.search(r"0?600", compact):
+    if not re.search(
+        r"oauth.{0,160}(?:0o600|0600)|(?:0o600|0600).{0,160}oauth",
+        compact,
+        re.IGNORECASE,
+    ):
         gaps.append("OAuth state file mode 0600")
     if not re.search(
         r"delete.{0,80}(that file|the (OAuth )?state file|oauth).{0,80}restart"
@@ -195,6 +199,11 @@ def test_uncorrected_no_long_lived_claim_detector() -> None:
     assert "MCP OAuth refresh-token correction" not in hosting_threat_model_gaps(corrected)
 
     assert not uncorrected_no_long_lived_oauth_claim("Sessions are cookie-based.\n")
+
+    storage_only = "storage_state.json is written 0o600.\n"
+    assert "OAuth state file mode 0600" in hosting_threat_model_gaps(storage_only)
+    oauth_mode = "OAuth state file written 0600.\n"
+    assert "OAuth state file mode 0600" not in hosting_threat_model_gaps(oauth_mode)
 
 
 def test_security_md_documents_mcp_rest_hosting_threat_model() -> None:
