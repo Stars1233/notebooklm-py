@@ -3,7 +3,7 @@
 ## Status
 
 Accepted. The design is ready; the public cut is separately release-gated by the
-[release migration ledger](../release-migration-ledger.md) and does not take effect until C9b.
+[release migration gates](../deprecations.md#release-migration-gates) and does not take effect until C9b.
 
 ## Context
 

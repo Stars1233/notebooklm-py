@@ -223,7 +223,7 @@ and redacted; exact caps and private journal structures such as `SendIdentity`,
 `JournalEntry`, and `AttemptRecord` are implementation details and may change.
 
 See [Operation deadlines, ownership, and recovery
-contracts](operation-contracts.md) for the behavioral matrix and evidence map.
+contracts](architecture.md#operation-lifetime-deadlines-and-evidence) for the behavioral matrix and evidence map.
 
 Backend selection is also public: `backend="web"` (the default) or
 `backend="android"` on the client, and `--backend web|android` on the CLI.

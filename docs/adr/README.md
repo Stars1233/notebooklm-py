@@ -80,6 +80,6 @@ ADR-0007 ships alongside its enforcement substrate: the concrete fixtures (`test
 ## Related references
 
 - [Architecture](../architecture.md) — Canonical overview of the layered architecture.
-- [Release migration ledger](../release-migration-ledger.md) — Shipped-warning evidence and earliest eligible transition releases.
+- [Release migration ledger](../deprecations.md#release-migration-gates) — Shipped-warning evidence and earliest eligible transition releases.
 - `docs/development.md` — contributor-facing process notes (testing, releasing, environment setup).
 - `CLAUDE.md` — onboarding map for AI assistants. Architectural rationale belongs here in `docs/adr/`, not in `CLAUDE.md`.
